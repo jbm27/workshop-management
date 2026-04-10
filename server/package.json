@@ -1,0 +1,19 @@
+{
+  "name": "workshop-management-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "init-db": "node db/init.js",
+    "import:mechanicdesk": "node src/scripts/importMechanicDesk.js",
+    "reload-db": "node src/scripts/callReloadDb.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.1",
+    "pdfkit": "^0.17.2",
+    "sql.js": "^1.11.0",
+    "xlsx": "^0.18.5"
+  }
+}
