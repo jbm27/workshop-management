@@ -66,7 +66,7 @@ customersRouter.post('/:id/portal-link', (req, res) => {
     token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     db.prepare('UPDATE customers SET portal_token = ?, updated_at = datetime("now") WHERE id = ?').run(token, req.params.id);
   }
-  const baseUrl = process.env.PORTAL_BASE_URL || 'http://localhost:5173';
+  const baseUrl = (process.env.PORTAL_BASE_URL || 'http://localhost:5173').trim().replace(/\/+$/, '');
   const portalUrl = `${baseUrl}/portal/${token}`;
   console.log(`Portal link for customer ${row.name}: ${portalUrl}`);
   res.json({ portal_url: portalUrl, token });
