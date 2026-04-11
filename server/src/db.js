@@ -45,6 +45,19 @@ function save() {
   writeFileSync(dbPath, Buffer.from(data));
 }
 
+/** One row from a raw sql.js `Database` (not the `db` proxy — Statement has no `.get()`). */
+function sqlJsGet(database, sql, params = []) {
+  const stmt = database.prepare(sql);
+  stmt.bind(params);
+  if (!stmt.step()) {
+    stmt.free();
+    return null;
+  }
+  const row = stmt.getAsObject();
+  stmt.free();
+  return row;
+}
+
 function migrate(db) {
   const info = db.exec("PRAGMA table_info(jobs)");
   const names = (info[0]?.values || []).map((row) => row[1]);
@@ -699,14 +712,16 @@ export async function initDb() {
 
   // Seed bootstrap admin user for a brand new database
   try {
-    const count = _db.prepare('SELECT COUNT(*) as c FROM admin_users').get().c;
+    const countRow = sqlJsGet(_db, 'SELECT COUNT(*) as c FROM admin_users');
+    const count = Number(countRow?.c || 0);
     if (!count) {
       const username = process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin';
       const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin';
       const displayName = process.env.ADMIN_BOOTSTRAP_DISPLAY_NAME || 'Admin';
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-      _db.prepare(`
+      _db.run(
+        `
         INSERT INTO admin_users
           (username, display_name, password_salt, password_hash, active,
            can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
@@ -714,9 +729,13 @@ export async function initDb() {
            can_record_invoice_payments, can_record_supplier_payments,
            can_manage_team_members, can_view_lpo_ipr, can_view_stores)
         VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-      `).run(username, displayName, salt, hash);
+      `,
+        [username, displayName, salt, hash],
+      );
     }
-  } catch (_) {}
+  } catch (e) {
+    console.error('[workshop-db] Bootstrap admin seed (new db) failed:', e?.message || e);
+  }
   save();
   return _db;
 }
