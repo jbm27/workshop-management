@@ -563,20 +563,21 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     doc.font('Helvetica');
   }
 
+  const gutterVatRecv = 10;
   const colDesc = contentWidth * 0.15;
   const colInvLine = contentWidth * 0.17;
   const colQty = contentWidth * 0.055;
   const colUnit = contentWidth * 0.12;
   const colVatP = contentWidth * 0.06;
-  const colVatAmt = contentWidth * 0.12;
-  const colRecv = contentWidth * 0.145;
-  const colGross = contentWidth * 0.18;
+  const colVatAmt = contentWidth * 0.16;
+  const colRecv = contentWidth * 0.145 - gutterVatRecv;
+  const colGross = contentWidth * 0.14;
   const xInv = margin + colDesc;
   const xQty = xInv + colInvLine;
   const xUnit = xQty + colQty;
   const xVatP = xUnit + colUnit;
   const xVatAmt = xVatP + colVatP;
-  const xRecv = xVatAmt + colVatAmt;
+  const xRecv = xVatAmt + colVatAmt + gutterVatRecv;
   const xGross = xRecv + colRecv;
   const tableTop = y;
   doc.fontSize(8).font('Helvetica-Bold');
@@ -648,7 +649,7 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
   const totGross = Math.round((sumNet + sumVat) * 100) / 100;
   y += 10;
   const sumX = xUnit;
-  const sumW = colUnit + colVatP + colVatAmt + colRecv + colGross;
+  const sumW = colUnit + colVatP + colVatAmt + gutterVatRecv + colRecv + colGross;
   doc.fontSize(9).font('Helvetica');
   doc.text(`Subtotal (ex VAT)  ${kshFormat(sumNet)}`, sumX, y, { width: sumW, align: 'right' });
   y = doc.y + 4;
