@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
@@ -22,65 +23,62 @@ import { AdminProvider, useAdmin } from './auth/AdminContext';
 
 const MECHANIC_PATHS = new Set(['/time-logs', '/assigned-receipts']);
 
-function AdminShell({ location }) {
-  const { admin, loading, logout } = useAdmin();
-  const isLogin = location.pathname === '/login';
+function AppShell({ children }) {
+  const { admin, logout } = useAdmin();
+  const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
   const isMechanic = Boolean(admin?.is_mechanic);
   const canViewStores = admin?.permissions?.can_view_stores;
   const canViewLpoIpr = admin?.permissions?.can_view_lpo_ipr;
   const canManageTeamMembers = admin?.permissions?.can_manage_team_members;
 
-  if (loading) return <div className="page-title">Loading…</div>;
-  // Avoid hard route redirects in environments without history fallback.
-  // If session is missing/expired, show login in place.
-  if (!admin && !isLogin) return <AdminLogin />;
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
 
-  if (admin && isMechanic && location.pathname === '/') {
-    return <Navigate to="/time-logs" replace />;
-  }
+  useEffect(() => {
+    if (!navOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
 
-  if (admin && isMechanic && !MECHANIC_PATHS.has(location.pathname)) {
-    return (
-      <div className="app">
-        <aside className="sidebar">
-          <div className="brand">🏁 Chequered Flag</div>
-          <nav>
-            <NavLink to="/time-logs">Time logs</NavLink>
-            <NavLink to="/assigned-receipts">Assigned parts</NavLink>
-          </nav>
-          {admin && (
-            <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                Signed in as {admin.display_name || admin.username}
-              </div>
-              <button type="button" className="btn" onClick={() => logout()} style={{ width: '100%' }}>
-                Log out
-              </button>
-            </div>
-          )}
-        </aside>
-        <main className="main">
-          <h1 className="page-title">Limited access</h1>
-          <p style={{ color: 'var(--text-muted)' }}>
-            Your account can only use <NavLink to="/time-logs">Time logs</NavLink> and{' '}
-            <NavLink to="/assigned-receipts">Assigned parts</NavLink>.
-          </p>
-        </main>
-      </div>
-    );
-  }
-
-  // Simple “view restriction” for initial version.
-  if (admin && !isMechanic && location.pathname.startsWith('/stores') && canViewStores === false) {
-    return <div className="page-title">You do not have access to Stores.</div>;
-  }
-  if (admin && !isMechanic && location.pathname.startsWith('/lpo-ipr') && canViewLpoIpr === false) {
-    return <div className="page-title">You do not have access to LPO / IPR.</div>;
-  }
+  useEffect(() => {
+    if (!navOpen || typeof window === 'undefined') return undefined;
+    const mq = window.matchMedia('(max-width: 768px)');
+    if (!mq.matches) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [navOpen]);
 
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <div className={`app ${navOpen ? 'app--nav-open' : ''}`}>
+      <header className="mobile-topbar">
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          aria-label="Open navigation menu"
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen(true)}
+        >
+          <span className="mobile-menu-icon" aria-hidden>
+            ☰
+          </span>
+        </button>
+        <span className="mobile-topbar-title">Chequered Flag</span>
+      </header>
+
+      <button type="button" className="sidebar-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setNavOpen(false)} />
+
+      <aside className="sidebar" aria-label="Main navigation">
+        <button type="button" className="sidebar-close-btn" aria-label="Close menu" onClick={() => setNavOpen(false)}>
+          ×
+        </button>
         <div className="brand">🏁 Chequered Flag</div>
         <nav>
           {!isMechanic && (
@@ -109,45 +107,80 @@ function AdminShell({ location }) {
           )}
         </nav>
         {admin && (
-          <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-              Signed in as {admin.display_name || admin.username}
-            </div>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => logout()}
-              style={{ width: '100%' }}
-            >
+          <div className="sidebar-footer">
+            <div className="sidebar-user">Signed in as {admin.display_name || admin.username}</div>
+            <button type="button" className="btn btn-sidebar-logout" onClick={() => logout()}>
               Log out
             </button>
           </div>
         )}
       </aside>
-      <main className="main">
-        <Routes>
-          <Route path="/login" element={<AdminLogin />} />
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/jobs/:id" element={<JobDetail />} />
-          <Route path="/customers" element={<Customers />} />
-          <Route path="/vehicles" element={<Vehicles />} />
-          <Route path="/invoices/:id" element={<InvoiceDetail />} />
-          <Route path="/invoices" element={<Invoices />} />
-          <Route path="/stores" element={<Stores />} />
-          <Route path="/stock" element={<Navigate to="/stores" replace />} />
-          <Route path="/suppliers" element={<Suppliers />} />
-          <Route path="/suppliers/:id" element={<SupplierDetail />} />
-          <Route path="/lpo-ipr" element={<LpoIpr />} />
-          <Route path="/job-types" element={<JobTypes />} />
-          <Route path="/feedback" element={<Feedback />} />
-          <Route path="/time-logs" element={<TimeLogs />} />
-          <Route path="/assigned-receipts" element={<AssignedReceipts />} />
-          <Route path="/admin/team-members" element={<AdminUsers />} />
-          <Route path="/admin/team-stats" element={<TeamStats />} />
-        </Routes>
-      </main>
+
+      <main className="main">{children}</main>
     </div>
+  );
+}
+
+function AdminShell({ location }) {
+  const { admin, loading } = useAdmin();
+  const isLogin = location.pathname === '/login';
+  const isMechanic = Boolean(admin?.is_mechanic);
+  const canViewStores = admin?.permissions?.can_view_stores;
+  const canViewLpoIpr = admin?.permissions?.can_view_lpo_ipr;
+
+  if (loading) return <div className="page-title">Loading…</div>;
+  // Avoid hard route redirects in environments without history fallback.
+  // If session is missing/expired, show login in place.
+  if (!admin && !isLogin) return <AdminLogin />;
+
+  if (admin && isMechanic && location.pathname === '/') {
+    return <Navigate to="/time-logs" replace />;
+  }
+
+  if (admin && isMechanic && !MECHANIC_PATHS.has(location.pathname)) {
+    return (
+      <AppShell>
+        <h1 className="page-title">Limited access</h1>
+        <p style={{ color: 'var(--text-muted)' }}>
+          Your account can only use <NavLink to="/time-logs">Time logs</NavLink> and{' '}
+          <NavLink to="/assigned-receipts">Assigned parts</NavLink>.
+        </p>
+      </AppShell>
+    );
+  }
+
+  // Simple “view restriction” for initial version.
+  if (admin && !isMechanic && location.pathname.startsWith('/stores') && canViewStores === false) {
+    return <div className="page-title">You do not have access to Stores.</div>;
+  }
+  if (admin && !isMechanic && location.pathname.startsWith('/lpo-ipr') && canViewLpoIpr === false) {
+    return <div className="page-title">You do not have access to LPO / IPR.</div>;
+  }
+
+  return (
+    <AppShell>
+      <Routes>
+        <Route path="/login" element={<AdminLogin />} />
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/jobs" element={<Jobs />} />
+        <Route path="/jobs/:id" element={<JobDetail />} />
+        <Route path="/customers" element={<Customers />} />
+        <Route path="/vehicles" element={<Vehicles />} />
+        <Route path="/invoices/:id" element={<InvoiceDetail />} />
+        <Route path="/invoices" element={<Invoices />} />
+        <Route path="/stores" element={<Stores />} />
+        <Route path="/stock" element={<Navigate to="/stores" replace />} />
+        <Route path="/suppliers" element={<Suppliers />} />
+        <Route path="/suppliers/:id" element={<SupplierDetail />} />
+        <Route path="/lpo-ipr" element={<LpoIpr />} />
+        <Route path="/job-types" element={<JobTypes />} />
+        <Route path="/feedback" element={<Feedback />} />
+        <Route path="/time-logs" element={<TimeLogs />} />
+        <Route path="/assigned-receipts" element={<AssignedReceipts />} />
+        <Route path="/admin/team-members" element={<AdminUsers />} />
+        <Route path="/admin/team-stats" element={<TeamStats />} />
+      </Routes>
+    </AppShell>
   );
 }
 

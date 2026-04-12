@@ -144,7 +144,7 @@ export default function TimeLogs() {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>My logs for {workedDate}</h3>
         <p style={{ color: 'var(--text-muted)' }}>Total logged: <strong>{dayTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} hrs</strong></p>
-        <div className="table-wrap">
+        <div className="table-wrap time-logs-table-desktop">
           <table>
             <thead>
               <tr>
@@ -182,6 +182,36 @@ export default function TimeLogs() {
                 ))}
             </tbody>
           </table>
+        </div>
+
+        <div className="time-logs-cards-only-mobile">
+          {loadingLogs && <p className="empty" style={{ padding: '0.5rem 0' }}>Loading…</p>}
+          {!loadingLogs && myLogs.length === 0 && (
+            <p className="empty" style={{ padding: '0.5rem 0' }}>No time logs for this date.</p>
+          )}
+          {!loadingLogs &&
+            myLogs.map((r) => (
+              <div key={r.id} className="time-log-card">
+                <div className="time-log-card-job">
+                  {isMechanic ? (
+                    r.job_number || `Job #${r.job_id}`
+                  ) : (
+                    <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
+                  )}
+                </div>
+                <div className="time-log-card-meta">
+                  <span>
+                    <strong style={{ color: 'var(--text)' }}>{Number(r.hours || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> hrs
+                  </span>
+                  {r.notes ? <span>{r.notes}</span> : <span>No notes</span>}
+                </div>
+                <div style={{ marginTop: '0.65rem' }}>
+                  <button type="button" className="btn danger" onClick={() => removeLog(r)}>
+                    Remove log
+                  </button>
+                </div>
+              </div>
+            ))}
         </div>
       </div>
     </>

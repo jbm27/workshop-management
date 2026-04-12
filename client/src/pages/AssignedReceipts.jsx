@@ -83,7 +83,7 @@ export default function AssignedReceipts() {
         </div>
       ) : null}
 
-      <div className="card">
+      <div className="card assigned-table-desktop">
         <div className="table-wrap">
           <table>
             <thead>
@@ -157,6 +157,77 @@ export default function AssignedReceipts() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="card assigned-cards-only-mobile" style={{ padding: '0 1.25rem' }}>
+        {loading && <p className="empty" style={{ padding: '1.25rem 0' }}>Loading…</p>}
+        {!loading && rows.length === 0 && (
+          <p className="empty" style={{ padding: '1.25rem 0' }}>No assigned parts yet.</p>
+        )}
+        {!loading &&
+          rows.map((r) => {
+            const isDone = Number(r.received_confirmed) === 1;
+            const key = `${r.doc_type}-${r.doc_id}-${r.line_id}`;
+            const locked = Number(r.doc_finalized || 0) === 1;
+            const jobLabel = r.job_id
+              ? isMechanic
+                ? r.job_number || `Job #${r.job_id}`
+                : null
+              : null;
+            return (
+              <div key={key} className="assigned-card">
+                <div className="assigned-card-top">
+                  <div className="assigned-card-doc">
+                    {String(r.doc_type || '').toUpperCase()} {r.doc_ref}
+                  </div>
+                  <div className="assigned-card-recv">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={isDone}
+                        disabled={locked || busyRow === key}
+                        onChange={(e) => toggleReceived(r, e.target.checked)}
+                      />
+                      <span style={{ color: isDone ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                        {isDone ? 'Received' : 'Pending'}
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                <dl className="assigned-card-dl">
+                  <dt>Line</dt>
+                  <dd>
+                    {r.line_description || '—'}
+                    {r.invoice_line_description ? (
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                        Invoice: {r.invoice_line_description}
+                      </div>
+                    ) : null}
+                  </dd>
+                  <dt>Plate</dt>
+                  <dd>{r.vehicle_registration || '—'}</dd>
+                  <dt>Vehicle</dt>
+                  <dd>{(r.vehicle_type || '').trim() || '—'}</dd>
+                  <dt>Qty</dt>
+                  <dd>{Number(r.quantity || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</dd>
+                  {!isMechanic && (
+                    <>
+                      <dt>Unit</dt>
+                      <dd>{kes(r.unit_cost)}</dd>
+                    </>
+                  )}
+                  <dt>Job</dt>
+                  <dd>
+                    {r.job_id
+                      ? isMechanic
+                        ? jobLabel
+                        : <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
+                      : '—'}
+                  </dd>
+                </dl>
+              </div>
+            );
+          })}
       </div>
     </>
   );
