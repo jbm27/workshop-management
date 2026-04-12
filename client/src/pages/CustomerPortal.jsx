@@ -40,6 +40,7 @@ export default function CustomerPortal() {
   return (
     <Routes>
       <Route index element={<PortalJobsList />} />
+      <Route path="document/:invoiceId" element={<PortalStandaloneDocument />} />
       <Route path="job/:jobId" element={<PortalJobDetail />} />
     </Routes>
   );
@@ -50,7 +51,7 @@ function PortalJobsList() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [jobSearch, setJobSearch] = useState('');
+  const [portalSearch, setPortalSearch] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -66,8 +67,8 @@ function PortalJobsList() {
   if (loading) return <div className="page-title">Loading…</div>;
   if (error || !data) return <div className="page-title">Link not found or expired.</div>;
 
-  const { customer, jobs } = data;
-  const q = jobSearch.trim().toLowerCase();
+  const { customer, jobs, standalone_documents: standaloneDocs = [] } = data;
+  const q = portalSearch.trim().toLowerCase();
   const filteredJobs = !q
     ? jobs
     : jobs.filter((job) => {
@@ -90,6 +91,25 @@ function PortalJobsList() {
         return hay.includes(q);
       });
 
+  const filteredStandalone = !q
+    ? standaloneDocs
+    : standaloneDocs.filter((d) => {
+        const hay = [
+          d.invoice_number,
+          d.type,
+          d.status,
+          formatPortalDate(d.created_at),
+          d.total != null ? String(d.total) : '',
+          d.registration,
+          d.make,
+          d.model,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+
   return (
     <div className="customer-portal">
       <h1 className="page-title" style={{ marginBottom: '0.5rem' }}>{customer.name}</h1>
@@ -97,22 +117,75 @@ function PortalJobsList() {
         {customer.email || '—'} {customer.phone ? ` · ${customer.phone}` : ''}
       </p>
 
+      {(jobs.length > 0 || standaloneDocs.length > 0) && (
+        <div className="form-group card" style={{ marginBottom: '1rem', padding: '1rem 1.25rem' }}>
+          <label htmlFor="portal-job-search">Search jobs & documents</label>
+          <input
+            id="portal-job-search"
+            type="search"
+            placeholder="Job number, registration, quote #, invoice #, status…"
+            value={portalSearch}
+            onChange={(e) => setPortalSearch(e.target.value)}
+            style={{ width: '100%', maxWidth: '28rem' }}
+          />
+        </div>
+      )}
+
+      <section className="card">
+        <h3 style={{ marginTop: 0 }}>Quotes & invoices (no job yet)</h3>
+        {standaloneDocs.length === 0 && (
+          <p className="empty" style={{ marginBottom: 0 }}>
+            No standalone quotes or invoices. Documents created without a job appear here.
+          </p>
+        )}
+        {standaloneDocs.length > 0 && (
+          <div className="table-wrap" style={{ marginBottom: '1.5rem' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Document</th>
+                  <th>Type</th>
+                  <th>Vehicle</th>
+                  <th>Total</th>
+                  <th>Date</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredStandalone.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="empty">No documents match your search.</td>
+                  </tr>
+                )}
+                {filteredStandalone.map((d) => (
+                  <tr key={d.id}>
+                    <td><strong>{d.invoice_number || `#${d.id}`}</strong></td>
+                    <td style={{ textTransform: 'capitalize' }}>{d.type || '—'}</td>
+                    <td>{[d.registration, d.make, d.model].filter(Boolean).join(' ') || '—'}</td>
+                    <td>{d.total != null ? kes(d.total) : '—'}</td>
+                    <td>{formatPortalDate(d.created_at)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <Link
+                        className="btn primary"
+                        style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                        to={`/portal/${encodeURIComponent(token)}/document/${d.id}`}
+                      >
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="card">
         <h3 style={{ marginTop: 0 }}>Your jobs</h3>
         {jobs.length === 0 && <p className="empty">No jobs yet.</p>}
         {jobs.length > 0 && (
           <>
-            <div className="form-group" style={{ marginBottom: '1rem' }}>
-              <label htmlFor="portal-job-search">Search jobs</label>
-              <input
-                id="portal-job-search"
-                type="search"
-                placeholder="Job number, registration, vehicle, status, dates…"
-                value={jobSearch}
-                onChange={(e) => setJobSearch(e.target.value)}
-                style={{ width: '100%', maxWidth: '28rem' }}
-              />
-            </div>
             {filteredJobs.length === 0 && <p className="empty">No jobs match your search.</p>}
             {filteredJobs.length > 0 && (
               <div className="table-wrap">
@@ -169,6 +242,136 @@ function PortalJobsList() {
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+function PortalStandaloneDocument() {
+  const { token, invoiceId } = useParams();
+  const [payload, setPayload] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const reload = () => {
+    if (!token || !invoiceId) return Promise.resolve();
+    return api.customerPortal.getDocument(token, invoiceId).then(setPayload);
+  };
+
+  useEffect(() => {
+    if (!token || !invoiceId) return;
+    setLoading(true);
+    setError('');
+    reload()
+      .catch((err) => setError(err.message || 'Failed to load'))
+      .finally(() => setLoading(false));
+  }, [token, invoiceId]);
+
+  const toggleApprove = async (quoteId, itemId, approved) => {
+    if (!token) return;
+    try {
+      setSaving(true);
+      await api.customerPortal.approveItem(token, quoteId, itemId, approved);
+      await reload();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const approveAllQuote = async (quoteId) => {
+    if (!token) return;
+    try {
+      setSaving(true);
+      await api.customerPortal.approveAllQuote(token, quoteId);
+      await reload();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="page-title">Loading…</div>;
+  if (error || !payload) return <div className="page-title">Document not found.</div>;
+
+  const { customer, quote, invoice, quote_approval_allowed: allowQuoteApproval, vehicle, document_type: docType } =
+    payload;
+
+  return (
+    <div className="customer-portal">
+      <p style={{ marginBottom: '0.75rem' }}>
+        <Link to={`/portal/${encodeURIComponent(token)}`} className="btn" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}>
+          ← Home
+        </Link>
+      </p>
+      <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
+        {quote?.invoice_number || invoice?.invoice_number || 'Document'}
+        <span style={{ marginLeft: '0.5rem', textTransform: 'capitalize', color: 'var(--text-muted)', fontSize: '1rem' }}>
+          ({docType || '—'})
+        </span>
+      </h1>
+      <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>
+        {customer.name}
+        {' · '}
+        {[vehicle?.registration, vehicle?.make, vehicle?.model].filter(Boolean).join(' ') || 'No vehicle on document'}
+      </p>
+
+      {saving && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Saving…</p>}
+
+      {quote && (
+        <QuoteSection
+          quote={quote}
+          allowApprove={allowQuoteApproval}
+          onToggleApprove={toggleApprove}
+          onApproveAllQuote={approveAllQuote}
+        />
+      )}
+
+      {invoice && (
+        <section className="card" style={{ marginTop: '1rem' }}>
+          <h3 style={{ marginTop: 0 }}>Invoice</h3>
+          <p style={{ margin: '0 0 0.75rem' }}>
+            <strong>{invoice.invoice_number}</strong>
+            {invoice.status && (
+              <span style={{ marginLeft: '0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                ({invoice.status})
+              </span>
+            )}
+          </p>
+          <PortalLineItemsTable items={invoice.items} />
+          <PortalDocumentTotals doc={invoice} />
+          <div style={{ marginTop: '1.25rem' }}>
+            <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Amount</th>
+                    <th>Date</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(!invoice.payments || invoice.payments.length === 0) && (
+                    <tr>
+                      <td colSpan={3} className="empty">No payments recorded yet.</td>
+                    </tr>
+                  )}
+                  {invoice.payments?.map((p) => (
+                    <tr key={p.id}>
+                      <td><strong>{kes(p.amount)}</strong></td>
+                      <td>{p.paid_at ? new Date(p.paid_at).toLocaleString() : '—'}</td>
+                      <td style={{ color: 'var(--text-muted)' }}>{p.notes || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

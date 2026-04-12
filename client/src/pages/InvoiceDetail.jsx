@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
 import { useAdmin } from '../auth/AdminContext';
@@ -12,6 +12,7 @@ function kes(n) {
 
 export default function InvoiceDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [inv, setInv] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dueDate, setDueDate] = useState('');
@@ -24,6 +25,10 @@ export default function InvoiceDetail() {
   const [addingPay, setAddingPay] = useState(false);
   const { admin } = useAdmin();
   const canRecordInvoicePayments = admin?.permissions?.can_record_invoice_payments;
+  const [customerVehicles, setCustomerVehicles] = useState([]);
+  const [fromQuoteVehicleId, setFromQuoteVehicleId] = useState('');
+  const [fromQuoteJobNotes, setFromQuoteJobNotes] = useState('');
+  const [fromQuoteBusy, setFromQuoteBusy] = useState(false);
 
   const refresh = () =>
     api.invoices.get(id).then((data) => {
@@ -46,6 +51,22 @@ export default function InvoiceDetail() {
       .catch(() => setInv(null))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!inv || inv.type !== 'quote' || inv.job_id || !inv.customer_id) {
+      setCustomerVehicles([]);
+      return;
+    }
+    api.customers
+      .vehicles(inv.customer_id)
+      .then(setCustomerVehicles)
+      .catch(() => setCustomerVehicles([]));
+  }, [inv?.customer_id, inv?.type, inv?.job_id]);
+
+  useEffect(() => {
+    if (inv?.vehicle_id) setFromQuoteVehicleId(String(inv.vehicle_id));
+    else setFromQuoteVehicleId('');
+  }, [inv?.vehicle_id, inv?.id]);
 
   useEffect(() => {
     if (!inv) return;
@@ -90,6 +111,28 @@ export default function InvoiceDetail() {
       alert(err.message);
     } finally {
       setAddingPay(false);
+    }
+  };
+
+  const startJobFromQuote = async (e) => {
+    e.preventDefault();
+    const vid = fromQuoteVehicleId || (inv.vehicle_id ? String(inv.vehicle_id) : '');
+    if (!vid) {
+      alert('Select a vehicle for this job (or link a vehicle on the quote first).');
+      return;
+    }
+    setFromQuoteBusy(true);
+    try {
+      const { job } = await api.jobs.createFromQuote({
+        quote_id: Number(id),
+        vehicle_id: Number(vid),
+        notes: fromQuoteJobNotes.trim() || undefined,
+      });
+      navigate(`/jobs/${job.id}`);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setFromQuoteBusy(false);
     }
   };
 
@@ -169,6 +212,51 @@ export default function InvoiceDetail() {
           </p>
         </div>
       </div>
+
+      {isQuote && !inv.job_id && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={{ marginTop: 0 }}>Start a job from this quote</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: 0 }}>
+            When the customer accepts and brings the vehicle in, create a job here. This quote stays the same document
+            and is linked to the new job (you can continue from the job page).
+          </p>
+          <form onSubmit={startJobFromQuote}>
+            <div className="form-group">
+              <label>Vehicle for the job *</label>
+              <select
+                value={fromQuoteVehicleId}
+                onChange={(e) => setFromQuoteVehicleId(e.target.value)}
+                required={!inv.vehicle_id}
+              >
+                <option value="">{inv.vehicle_id ? '— Use vehicle on quote —' : '— Select vehicle —'}</option>
+                {customerVehicles.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {[v.registration, v.make, v.model].filter(Boolean).join(' ') || `Vehicle #${v.id}`}
+                  </option>
+                ))}
+              </select>
+              {customerVehicles.length === 0 && (
+                <p style={{ fontSize: '0.85rem', color: 'var(--warning)', margin: '0.35rem 0 0' }}>
+                  No vehicles on file for this customer. Add one under Customers, or link a vehicle on the quote (edit
+                  invoice metadata if your app supports it).
+                </p>
+              )}
+            </div>
+            <div className="form-group">
+              <label>Job notes (optional)</label>
+              <textarea
+                rows={2}
+                value={fromQuoteJobNotes}
+                onChange={(e) => setFromQuoteJobNotes(e.target.value)}
+                placeholder="e.g. Customer confirmed quote by phone…"
+              />
+            </div>
+            <button type="submit" className="btn primary" disabled={fromQuoteBusy}>
+              {fromQuoteBusy ? 'Creating…' : 'Create job from quote'}
+            </button>
+          </form>
+        </div>
+      )}
 
       {!isQuote && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>

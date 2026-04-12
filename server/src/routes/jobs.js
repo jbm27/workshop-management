@@ -113,6 +113,70 @@ jobsRouter.get('/time-logs/mine', requireAdminAuth, (req, res) => {
   res.json(rows);
 });
 
+/** Create a workshop job from a standalone quote (no job yet) and link the quote to it. */
+jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
+  const quoteId = Number(req.body?.quote_id);
+  if (!Number.isFinite(quoteId)) return res.status(400).json({ error: 'quote_id is required' });
+  const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(quoteId);
+  if (!inv) return res.status(404).json({ error: 'Quote not found' });
+  if (inv.type !== 'quote') return res.status(400).json({ error: 'Only a quote can start a job this way' });
+  if (inv.job_id) return res.status(400).json({ error: 'This quote is already linked to a job' });
+
+  let vehicleId = inv.vehicle_id != null ? Number(inv.vehicle_id) : null;
+  if (req.body?.vehicle_id != null && String(req.body.vehicle_id).trim() !== '') {
+    vehicleId = Number(req.body.vehicle_id);
+  }
+  if (!vehicleId || !Number.isFinite(vehicleId)) {
+    return res.status(400).json({ error: 'A vehicle is required (link one on the quote or choose when starting the job)' });
+  }
+  const veh = db.prepare('SELECT id, customer_id FROM vehicles WHERE id = ?').get(vehicleId);
+  if (!veh) return res.status(404).json({ error: 'Vehicle not found' });
+  if (Number(veh.customer_id) !== Number(inv.customer_id)) {
+    return res.status(400).json({ error: 'Vehicle must belong to the quote customer' });
+  }
+
+  const extraNotes = req.body?.notes != null ? String(req.body.notes).trim() : '';
+  const quoteNote = inv.invoice_number ? `Opened from quote ${inv.invoice_number}.` : '';
+  const notes = [quoteNote, extraNotes].filter(Boolean).join('\n\n') || null;
+
+  const odometer_in = req.body?.odometer_in != null && req.body.odometer_in !== '' ? Number(req.body.odometer_in) : null;
+  const odometer_out = req.body?.odometer_out != null && req.body.odometer_out !== '' ? Number(req.body.odometer_out) : null;
+  const fuel_in = req.body?.fuel_in ? String(req.body.fuel_in).trim() : null;
+  const fuel_out = req.body?.fuel_out ? String(req.body.fuel_out).trim() : null;
+  const valuables_in_vehicle = req.body?.valuables_in_vehicle ? String(req.body.valuables_in_vehicle).trim() : null;
+  const due_date = req.body?.due_date ? String(req.body.due_date).trim() : null;
+
+  const job_number = nextJobNumber();
+  const result = db.prepare(`
+    INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
+  `).run(
+    job_number,
+    vehicleId,
+    inv.customer_id,
+    notes,
+    Number.isFinite(odometer_in) ? odometer_in : null,
+    Number.isFinite(odometer_out) ? odometer_out : null,
+    fuel_in || null,
+    fuel_out || null,
+    valuables_in_vehicle || null,
+    due_date || null,
+  );
+  const jobId = result.lastInsertRowid;
+  db.prepare('UPDATE invoices SET job_id = ?, vehicle_id = ?, updated_at = datetime("now") WHERE id = ?').run(jobId, vehicleId, inv.id);
+
+  const job = fullJob(jobId);
+  const invoiceRow = db
+    .prepare(`
+    SELECT i.*, c.name as customer_name, v.registration, v.make, v.model
+    FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id
+    WHERE i.id = ?
+  `)
+    .get(inv.id);
+  const invItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(inv.id);
+  res.status(201).json({ job, invoice: { ...invoiceRow, items: invItems } });
+});
+
 jobsRouter.get('/:id', (req, res) => {
   const job = fullJob(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });

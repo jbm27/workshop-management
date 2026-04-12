@@ -97,6 +97,50 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
   return out;
 }
 
+customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
+  const customer = findCustomerByToken(req.params.token);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const invId = Number(req.params.invoiceId);
+  if (!Number.isFinite(invId)) return res.status(400).json({ error: 'Invalid document id' });
+
+  const inv = db
+    .prepare(`
+    SELECT i.*, v.registration, v.make, v.model
+    FROM invoices i
+    LEFT JOIN vehicles v ON v.id = i.vehicle_id
+    WHERE i.id = ? AND i.customer_id = ? AND i.job_id IS NULL
+  `)
+    .get(invId, customer.id);
+  if (!inv) return res.status(404).json({ error: 'Document not found' });
+
+  const items = db
+    .prepare(
+      'SELECT id, description, quantity, unit_price, purchase_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id',
+    )
+    .all(inv.id);
+  const quote = inv.type === 'quote' ? portalDocumentForCustomer(inv, items) : null;
+  const invoice = inv.type === 'invoice' ? portalDocumentForCustomer(inv, items) : null;
+
+  res.json({
+    customer: {
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+    },
+    standalone: true,
+    document_type: inv.type,
+    vehicle: {
+      registration: inv.registration,
+      make: inv.make,
+      model: inv.model,
+    },
+    quote,
+    invoice,
+    quote_approval_allowed: inv.type === 'quote',
+  });
+});
+
 customerPortalRouter.get('/:token/jobs/:jobId', (req, res) => {
   const customer = findCustomerByToken(req.params.token);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
@@ -139,6 +183,17 @@ customerPortalRouter.get('/:token', (req, res) => {
 
   const resultJobs = jobs.map((job) => portalJobPayload(job));
 
+  const standaloneDocs = db
+    .prepare(`
+    SELECT i.id, i.invoice_number, i.type, i.status, i.created_at, i.total, i.subtotal, i.tax_amount,
+      v.registration, v.make, v.model
+    FROM invoices i
+    LEFT JOIN vehicles v ON v.id = i.vehicle_id
+    WHERE i.customer_id = ? AND i.job_id IS NULL
+    ORDER BY i.created_at DESC
+  `)
+    .all(customer.id);
+
   res.json({
     customer: {
       id: customer.id,
@@ -147,6 +202,7 @@ customerPortalRouter.get('/:token', (req, res) => {
       phone: customer.phone,
     },
     jobs: resultJobs,
+    standalone_documents: standaloneDocs,
   });
 });
 

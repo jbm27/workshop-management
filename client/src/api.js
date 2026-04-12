@@ -92,6 +92,7 @@ export const api = {
     },
     get: (id) => api.get(`/jobs/${id}`),
     create: (data) => api.post('/jobs', data),
+    createFromQuote: (body) => api.post('/jobs/from-quote', body),
     update: (id, data) => api.patch(`/jobs/${id}`, data),
     addTestDrive: (jobId, body) => api.post(`/jobs/${jobId}/test-drives`, body),
     deleteTestDrive: (jobId, tdId) => api.delete(`/jobs/${jobId}/test-drives/${tdId}`),
@@ -199,6 +200,10 @@ export const api = {
   },
   customerPortal: {
     get: (token) => api.get(`/customer-portal/${encodeURIComponent(token)}`),
+    getDocument: (token, invoiceId) =>
+      api.get(
+        `/customer-portal/${encodeURIComponent(token)}/documents/${encodeURIComponent(invoiceId)}`,
+      ),
     getJob: (token, jobId) =>
       api.get(`/customer-portal/${encodeURIComponent(token)}/jobs/${encodeURIComponent(jobId)}`),
     approveItem: (token, quoteId, itemId, approved) =>
