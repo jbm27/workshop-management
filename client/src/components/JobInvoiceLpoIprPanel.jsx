@@ -490,7 +490,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                             <select
                               value={ln.assigned_admin_user_id || ''}
                               onChange={(e) => updateLpoLineReceipt(doc.id, ln.id, { assigned_admin_user_id: Number(e.target.value) || null })}
-                              disabled={busy || Number(doc.finalized) === 1 || !canAssignReceivers}
+                              disabled={busy || Number(doc.finalized) === 1 || !canAssignReceivers || Number(doc.approved) !== 1}
                               style={{ maxWidth: '160px', fontSize: '0.75rem' }}
                             >
                               <option value="">Assign member…</option>
@@ -506,6 +506,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                                 disabled={
                                   busy ||
                                   Number(doc.finalized) === 1 ||
+                                  Number(doc.approved) !== 1 ||
                                   Number(ln.assigned_admin_user_id || 0) !== Number(admin?.id || 0)
                                 }
                               />
@@ -614,7 +615,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                               <select
                                 value={ln.assigned_admin_user_id || ''}
                                 onChange={(e) => updateIprLineReceipt(doc.id, ln.id, { assigned_admin_user_id: Number(e.target.value) || null })}
-                                disabled={busy || isFinal || !canAssignReceivers}
+                                disabled={busy || isFinal || !canAssignReceivers || Number(doc.approved) !== 1}
                                 style={{ maxWidth: '160px', fontSize: '0.75rem' }}
                               >
                                 <option value="">Assign member…</option>
@@ -630,6 +631,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                                   disabled={
                                     busy ||
                                     isFinal ||
+                                    Number(doc.approved) !== 1 ||
                                     Number(ln.assigned_admin_user_id || 0) !== Number(admin?.id || 0)
                                   }
                                 />

@@ -153,9 +153,10 @@ function getLposForInvoice(invoiceId) {
   const lpos = db
     .prepare(
       `
-    SELECT l.*, s.name AS supplier_name
+    SELECT l.*, s.name AS supplier_name, appr.display_name AS approved_by_display_name
     FROM lpos l
     LEFT JOIN suppliers s ON s.id = l.supplier_id
+    LEFT JOIN admin_users appr ON appr.id = l.approved_by_admin_user_id
     WHERE l.invoice_id = ?
     ORDER BY l.id DESC
   `,
@@ -240,7 +241,16 @@ function getIprsForInvoice(invoiceId) {
 }
 
 function getIprDocument(invoiceId, iprId) {
-  const ipr = db.prepare('SELECT * FROM iprs WHERE id = ? AND invoice_id = ?').get(iprId, invoiceId);
+  const ipr = db
+    .prepare(
+      `
+    SELECT ip.*, appr.display_name AS approved_by_display_name
+    FROM iprs ip
+    LEFT JOIN admin_users appr ON appr.id = ip.approved_by_admin_user_id
+    WHERE ip.id = ? AND ip.invoice_id = ?
+  `,
+    )
+    .get(iprId, invoiceId);
   if (!ipr) return null;
   const lines = db
     .prepare(
@@ -358,6 +368,7 @@ invoicesRouter.get('/assigned-receipts/mine', requireAdminAuth, (req, res) => {
       LEFT JOIN vehicles v ON v.id = i.vehicle_id
       LEFT JOIN invoice_items ii ON ii.id = ll.invoice_item_id
       WHERE ll.assigned_admin_user_id = ?
+        AND COALESCE(l.approved, 0) = 1
 
       UNION ALL
 
@@ -386,6 +397,7 @@ invoicesRouter.get('/assigned-receipts/mine', requireAdminAuth, (req, res) => {
       LEFT JOIN vehicles v ON v.id = i.vehicle_id
       LEFT JOIN invoice_items ii ON ii.id = il.invoice_item_id
       WHERE il.assigned_admin_user_id = ?
+        AND COALESCE(ip.approved, 0) = 1
 
       ORDER BY received_confirmed ASC, assigned_at DESC, doc_ref DESC, line_id DESC
     `,
@@ -651,6 +663,9 @@ invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth,
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
   if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
+  if (Number(lpo.approved) !== 1) {
+    return res.status(400).json({ error: 'LPO must be approved before marking parts received' });
+  }
   const line = db.prepare('SELECT * FROM lpo_lines WHERE id = ? AND lpo_id = ?').get(req.params.lineId, req.params.lpoId);
   if (!line) return res.status(404).json({ error: 'Line not found' });
   const assigned = req.body?.assigned_admin_user_id != null ? Number(req.body.assigned_admin_user_id) : null;
@@ -816,6 +831,9 @@ invoicesRouter.patch('/:id/iprs/:iprId/lines/:lineId/receipt', requireAdminAuth,
   const ipr = db.prepare('SELECT * FROM iprs WHERE id = ? AND invoice_id = ?').get(req.params.iprId, req.params.id);
   if (!ipr) return res.status(404).json({ error: 'IPR not found' });
   if (Number(ipr.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
+  if (Number(ipr.approved) !== 1) {
+    return res.status(400).json({ error: 'IPR must be approved before marking parts received' });
+  }
   const line = db.prepare('SELECT * FROM ipr_lines WHERE id = ? AND ipr_id = ?').get(req.params.lineId, req.params.iprId);
   if (!line) return res.status(404).json({ error: 'Line not found' });
   const assigned = req.body?.assigned_admin_user_id != null ? Number(req.body.assigned_admin_user_id) : null;
@@ -902,9 +920,11 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
   const lpo = db
     .prepare(
       `
-    SELECT l.*, s.name AS supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email, s.pin AS supplier_pin
+    SELECT l.*, s.name AS supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email, s.pin AS supplier_pin,
+      appr.display_name AS approved_by_display_name
     FROM lpos l
     JOIN suppliers s ON s.id = l.supplier_id
+    LEFT JOIN admin_users appr ON appr.id = l.approved_by_admin_user_id
     WHERE l.id = ? AND l.invoice_id = ?
   `,
     )
@@ -915,6 +935,7 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
     .prepare(
       `
     SELECT ll.*, ii.description AS ii_desc, si.code AS stock_code, si.name AS stock_name,
+      rbu.display_name AS received_by_display_name,
       CASE
         WHEN ii.id IS NOT NULL THEN ii.description
         WHEN IFNULL(si.code, '') != '' THEN TRIM(si.code || ' — ' || COALESCE(si.name, ''))
@@ -923,6 +944,7 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
     FROM lpo_lines ll
     LEFT JOIN invoice_items ii ON ii.id = ll.invoice_item_id
     LEFT JOIN stock_items si ON si.id = ll.stock_item_id
+    LEFT JOIN admin_users rbu ON rbu.id = ll.received_confirmed_by_admin_user_id
     WHERE ll.lpo_id = ?
     ORDER BY ll.id
   `,
@@ -1044,8 +1066,31 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
   doc.text(`VAT  ${kshFormat(sumVat)}`, sumX, y, { width: sumW, align: 'right' });
   y = doc.y + 6;
   doc.fontSize(10).font('Helvetica-Bold').text(`Total (inc VAT)  ${kshFormat(totGross)}`, sumX, y, { width: sumW, align: 'right' });
-  y = doc.y + 20;
-  doc.fontSize(8).font('Helvetica').fillColor('#555555');
+  y = doc.y + 16;
+  doc.fontSize(8).font('Helvetica').fillColor('#333333');
+  const apprName = lpo.approved_by_display_name || '—';
+  const apprAt = lpo.approved_at
+    ? new Date(lpo.approved_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
+  doc.text(`Approved by: ${apprName} · ${apprAt}`, margin, y, { width: contentWidth });
+  y = doc.y + 6;
+  if (Number(lpo.finalized) === 1) {
+    const recvNames = [
+      ...new Set(
+        lines
+          .filter((ln) => Number(ln.received_confirmed) === 1 && ln.received_by_display_name)
+          .map((ln) => String(ln.received_by_display_name).trim()),
+      ),
+    ].filter(Boolean);
+    doc.text(
+      `Goods received by: ${recvNames.length ? recvNames.join(' · ') : '—'}`,
+      margin,
+      y,
+      { width: contentWidth },
+    );
+    y = doc.y + 6;
+  }
+  doc.fillColor('#555555');
   doc.text(
     'Unit costs and subtotal exclude VAT. VAT is shown per line where applicable; exempt lines carry no VAT. Line total includes VAT when charged.',
     margin,
@@ -1165,7 +1210,30 @@ invoicesRouter.get('/:id/iprs/:iprId/pdf', (req, res) => {
   y = pdfDoc.y + 6;
   pdfDoc.fontSize(10).font('Helvetica-Bold').text(`Total (inc VAT)  ${kshFormat(totGross)}`, sumX, y, { width: sumW, align: 'right' });
   y = pdfDoc.y + 16;
-  pdfDoc.fontSize(8).font('Helvetica').fillColor('#555555');
+  pdfDoc.fontSize(8).font('Helvetica').fillColor('#333333');
+  const iprApprName = docRow.approved_by_display_name || '—';
+  const iprApprAt = docRow.approved_at
+    ? new Date(docRow.approved_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
+  pdfDoc.text(`Approved by: ${iprApprName} · ${iprApprAt}`, margin, y, { width: contentWidth });
+  y = pdfDoc.y + 6;
+  if (Number(docRow.finalized) === 1) {
+    const recvNames = [
+      ...new Set(
+        lines
+          .filter((ln) => Number(ln.received_confirmed) === 1 && ln.received_by_admin_name)
+          .map((ln) => String(ln.received_by_admin_name).trim()),
+      ),
+    ].filter(Boolean);
+    pdfDoc.text(
+      `Goods received by: ${recvNames.length ? recvNames.join(' · ') : '—'}`,
+      margin,
+      y,
+      { width: contentWidth },
+    );
+    y = pdfDoc.y + 6;
+  }
+  pdfDoc.fillColor('#555555');
   pdfDoc.text(
     Number(docRow.finalized) === 1
       ? 'This document records internal issue of store stock. Quantities were deducted from inventory when the IPR was finalised.'

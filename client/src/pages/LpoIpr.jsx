@@ -104,6 +104,8 @@ export default function LpoIpr() {
                         className="btn"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
                         onClick={() => api.invoices.downloadLpoPDF(row.invoice_id, row.lpo_id)}
+                        disabled={Number(row.approved) !== 1}
+                        title={Number(row.approved) !== 1 ? 'Approve the LPO before printing' : undefined}
                       >
                         Print PDF
                       </button>
@@ -179,6 +181,8 @@ export default function LpoIpr() {
                         className="btn"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
                         onClick={() => api.stock.downloadStockLpoPdf(row.lpo_id)}
+                        disabled={Number(row.approved) !== 1}
+                        title={Number(row.approved) !== 1 ? 'Approve the LPO before printing' : undefined}
                       >
                         Print PDF
                       </button>
@@ -253,6 +257,8 @@ export default function LpoIpr() {
                         className="btn"
                         style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
                         onClick={() => api.invoices.downloadIprPDF(row.invoice_id, row.ipr_id)}
+                        disabled={Number(row.approved) !== 1}
+                        title={Number(row.approved) !== 1 ? 'Approve the IPR before printing' : undefined}
                       >
                         Print PDF
                       </button>

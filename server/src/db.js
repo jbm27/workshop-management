@@ -501,6 +501,19 @@ function migrate(db) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
 
+  // One-time: legacy stock intake LPOs had already increased stock; mark lines received so new deferred-receipt rules apply.
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS _migration_stock_intake_receipt_v1 (id INTEGER PRIMARY KEY)`);
+    const mig = sqlJsGet(db, 'SELECT COUNT(*) AS c FROM _migration_stock_intake_receipt_v1');
+    if (!Number(mig?.c)) {
+      db.run(`UPDATE lpo_lines SET received_confirmed = 1, received_confirmed_at = COALESCE(received_confirmed_at, datetime('now'))
+              WHERE lpo_id IN (SELECT id FROM lpos WHERE invoice_id IS NULL)`);
+      db.run(`INSERT INTO _migration_stock_intake_receipt_v1 (id) VALUES (1)`);
+    }
+  } catch (e) {
+    console.error('[workshop-db] stock intake receipt migration:', e?.message || e);
+  }
+
   // Admin auth + permissions tables (team members)
   try {
     db.run(`
@@ -579,14 +592,16 @@ function migrate(db) {
 
   // Seed a bootstrap admin user for first run / existing DB upgrades.
   try {
-    const count = db.prepare('SELECT COUNT(*) as c FROM admin_users').get().c;
+    const countRow = sqlJsGet(db, 'SELECT COUNT(*) as c FROM admin_users');
+    const count = Number(countRow?.c || 0);
     if (!count) {
       const username = process.env.ADMIN_BOOTSTRAP_USERNAME || 'admin';
       const password = process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin';
       const displayName = process.env.ADMIN_BOOTSTRAP_DISPLAY_NAME || 'Admin';
       const salt = crypto.randomBytes(16).toString('hex');
       const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
-      db.prepare(`
+      db.run(
+        `
         INSERT INTO admin_users
           (username, display_name, password_salt, password_hash, active,
            can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
@@ -594,9 +609,13 @@ function migrate(db) {
            can_record_invoice_payments, can_record_supplier_payments,
            can_manage_team_members, can_view_lpo_ipr, can_view_stores)
         VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-      `).run(username, displayName, salt, hash);
+      `,
+        [username, displayName, salt, hash],
+      );
     }
-  } catch (_) {}
+  } catch (e) {
+    console.error('[workshop-db] Bootstrap admin seed (migrate) failed:', e?.message || e);
+  }
 }
 
 /** Run work in one SQLite transaction without saving until commit (avoids partial writes mid-tx). */

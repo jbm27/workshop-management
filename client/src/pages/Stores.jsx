@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { useAdmin } from '../auth/AdminContext';
@@ -35,6 +35,9 @@ function lineFromStockLpoDetail(ll) {
   else if (vr > 0) vat_mode = 'custom';
   if (ll.stock_item_id) {
     return {
+      lineId: ll.line_id,
+      assigned_admin_user_id: ll.assigned_admin_user_id ?? '',
+      received_confirmed: Number(ll.received_confirmed) === 1,
       key: `ln-${ll.line_id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       itemQuery: '',
       stock_item_id: String(ll.stock_item_id),
@@ -49,6 +52,9 @@ function lineFromStockLpoDetail(ll) {
     };
   }
   return {
+    lineId: ll.line_id,
+    assigned_admin_user_id: ll.assigned_admin_user_id ?? '',
+    received_confirmed: Number(ll.received_confirmed) === 1,
     key: `ln-${ll.line_id}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     itemQuery: '',
     stock_item_id: '',
@@ -65,6 +71,9 @@ function lineFromStockLpoDetail(ll) {
 
 function newReceiveLine() {
   return {
+    lineId: null,
+    assigned_admin_user_id: '',
+    received_confirmed: false,
     key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     itemQuery: '',
     stock_item_id: '',
@@ -204,10 +213,13 @@ export default function Stores() {
   const { admin } = useAdmin();
   const canCreateLpos = admin?.permissions?.can_create_lpos;
   const canFinalizeLpos = admin?.permissions?.can_finalize_lpos;
+  const canApproveLpoIpr = admin?.permissions?.can_approve_lpo_ipr;
+  const canAssignReceivers = Boolean(admin?.permissions?.can_approve_lpo_ipr || admin?.permissions?.can_manage_team_members);
   const [form, setForm] = useState({ code: '', name: '', quantity: 0, sell_price: '' });
   const [receive, setReceive] = useState({
     editingLpoId: null,
     editingLpoRef: '',
+    lpoApproved: false,
     supplier_id: '',
     notes: '',
     lines: [newReceiveLine()],
@@ -216,6 +228,11 @@ export default function Stores() {
   const [lpoOmnibarOpenIdx, setLpoOmnibarOpenIdx] = useState(null);
   /** Viewport position for fixed dropdown (portal — avoids modal overflow clipping) */
   const [lpoOmnibarRect, setLpoOmnibarRect] = useState(null);
+  const [teamMembers, setTeamMembers] = useState([]);
+
+  useEffect(() => {
+    api.admin.users.assignable().then(setTeamMembers).catch(() => setTeamMembers([]));
+  }, []);
 
   const loadLpos = () =>
     api.stock
@@ -245,6 +262,7 @@ export default function Stores() {
     setReceive({
       editingLpoId: null,
       editingLpoRef: '',
+      lpoApproved: false,
       supplier_id: '',
       notes: '',
       lines: [newReceiveLine()],
@@ -273,6 +291,7 @@ export default function Stores() {
         setReceive({
           editingLpoId: Number(lpoId),
           editingLpoRef: detail.lpo.ref || '',
+          lpoApproved: Number(detail.lpo.approved) === 1,
           supplier_id: String(detail.lpo.supplier_id),
           notes: detail.lpo.notes || '',
           lines: detail.lines.length ? detail.lines.map(lineFromStockLpoDetail) : [newReceiveLine()],
@@ -291,10 +310,57 @@ export default function Stores() {
     setReceive({
       editingLpoId: null,
       editingLpoRef: '',
+      lpoApproved: false,
       supplier_id: '',
       notes: '',
       lines: [newReceiveLine()],
     });
+  };
+
+  const updateStockLineReceipt = async (lineId, patch) => {
+    if (!receive.editingLpoId || !lineId) return;
+    setBusy(true);
+    try {
+      await api.stock.updateStockLpoLineReceipt(receive.editingLpoId, lineId, patch);
+      const detail = await api.stock.getStockLpo(receive.editingLpoId);
+      setReceive((r) => ({
+        ...r,
+        lpoApproved: Number(detail.lpo.approved) === 1,
+        lines: detail.lines.length ? detail.lines.map(lineFromStockLpoDetail) : [newReceiveLine()],
+      }));
+      load();
+      loadLpos();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveStockLpoRow = async (lpoId) => {
+    setBusy(true);
+    try {
+      await api.stock.approveStockLpo(lpoId);
+      await loadLpos();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveStockLpoInModal = async () => {
+    if (!receive.editingLpoId) return;
+    setBusy(true);
+    try {
+      await api.stock.approveStockLpo(receive.editingLpoId);
+      setReceive((r) => ({ ...r, lpoApproved: true }));
+      await loadLpos();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   useLayoutEffect(() => {
@@ -390,6 +456,7 @@ export default function Stores() {
       setReceive({
         editingLpoId: null,
         editingLpoRef: '',
+        lpoApproved: false,
         supplier_id: '',
         notes: '',
         lines: [newReceiveLine()],
@@ -410,14 +477,13 @@ export default function Stores() {
     if (!parsed.ok) return alert(parsed.message);
     if (
       !confirm(
-        'Save and finalise this LPO? The document will be locked — it can no longer be edited or deleted (you can still print the PDF).',
+        'Finalise this LPO? Use Save changes first if you edited lines (saving clears approval until you approve again). The LPO must be approved and every line marked received. The document will then be locked.',
       )
     )
       return;
     setBusy(true);
     setLpoSaveKind('finalize');
     try {
-      await api.stock.updateStockLpo(receive.editingLpoId, parsed.body);
       await api.stock.finalizeStockLpo(receive.editingLpoId);
       setLpoOmnibarOpenIdx(null);
       setLpoOmnibarRect(null);
@@ -425,6 +491,7 @@ export default function Stores() {
       setReceive({
         editingLpoId: null,
         editingLpoRef: '',
+        lpoApproved: false,
         supplier_id: '',
         notes: '',
         lines: [newReceiveLine()],
@@ -476,10 +543,10 @@ export default function Stores() {
     <>
       <h1 className="page-title">Stores</h1>
       <p style={{ color: 'var(--text-muted)', marginBottom: '1rem' }}>
-        Record a <strong>supplier LPO</strong> to add stock: <strong>existing</strong> parts (search + list) get more
-        quantity and an updated <strong>cost</strong> only; <strong>new</strong> lines set code, name, and optional
-        sell price once. Change sell price later via <strong>Edit</strong> on the table. Use IPR on an invoice line to
-        deduct from stock.
+        Record a <strong>supplier LPO</strong> to order stock: after <strong>approval</strong>, print the LPO, then assign
+        receivers and mark each line <strong>received</strong> when goods arrive (quantities increase then).{' '}
+        <strong>New</strong> parts get code, name, and optional sell price; change sell price later via <strong>Edit</strong>{' '}
+        on the table. Use IPR on an invoice line to deduct from stock.
       </p>
       <div className="search-bar">
         <input
@@ -496,8 +563,9 @@ export default function Stores() {
       <div className="card" style={{ marginBottom: '1.25rem' }}>
         <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Stock intake LPOs</h2>
         <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 0 }}>
-          Only <strong>draft</strong> intake LPOs appear here. Open one with Edit to review lines, save, or finalise.
-          Finalised documents are listed on <strong>LPO / IPR</strong>. Totals include VAT where set.
+          Only <strong>draft</strong> intake LPOs appear here. <strong>Approve</strong> then print; mark lines received
+          when stock arrives; then <strong>finalise</strong>. Finalised documents are listed on <strong>LPO / IPR</strong>.
+          Totals include VAT where set.
         </p>
         <div className="table-wrap">
           <table>
@@ -545,11 +613,24 @@ export default function Stores() {
                       >
                         Edit
                       </button>
+                      {Number(row.approved) !== 1 && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ fontSize: '0.8rem', padding: '0.2rem 0.45rem' }}
+                          onClick={() => approveStockLpoRow(row.lpo_id)}
+                          disabled={busy || !canApproveLpoIpr}
+                        >
+                          Approve
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn primary"
                         style={{ fontSize: '0.8rem', padding: '0.2rem 0.45rem' }}
                         onClick={() => api.stock.downloadStockLpoPdf(row.lpo_id)}
+                        disabled={Number(row.approved) !== 1}
+                        title={Number(row.approved) !== 1 ? 'Approve the LPO before printing' : undefined}
                       >
                         Print PDF
                       </button>
@@ -628,15 +709,16 @@ export default function Stores() {
               <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                 {receive.editingLpoId != null ? (
                   <>
-                    Review all lines below. Use <strong>Save changes</strong> to update the draft, or{' '}
-                    <strong>Finalise LPO</strong> when the document is complete — that saves, locks the LPO, and prevents
-                    further edits or deletion.
+                    Review lines below. <strong>Approve</strong> the LPO, then assign receivers and tick{' '}
+                    <strong>Received</strong> when goods arrive (store quantity increases per line). Use{' '}
+                    <strong>Save changes</strong> to update the draft, then <strong>Finalise LPO</strong> when every line
+                    is received — that locks the document.
                   </>
                 ) : (
                   <>
-                    One LPO per supplier delivery. Use the <strong>item</strong> field to search stock or type a new
-                    code, then pick a match or “new part”. Cost is ex VAT; optional sell price applies only when creating
-                    a new part. VAT can differ per line.
+                    One draft LPO per supplier delivery. After saving from this screen, <strong>approve</strong> it,
+                    print, mark lines received, then finalise. Use the <strong>item</strong> field to search stock or type
+                    a new code. Cost is ex VAT; optional sell price applies only when creating a new part.
                   </>
                 )}
               </p>
@@ -713,7 +795,8 @@ export default function Stores() {
                           ? `${(picked.code || '—').trim()} — ${picked.name}`
                           : `${(ln.stock_code || '').trim()} — ${(ln.name || '').trim()}`;
                         return (
-                        <tr key={ln.key}>
+                        <Fragment key={ln.key}>
+                        <tr>
                           <td style={{ minWidth: '13rem', maxWidth: '22rem', verticalAlign: 'top' }}>
                             {itemCollapsed ? (
                               <div
@@ -746,6 +829,9 @@ export default function Stores() {
                                         i === idx
                                           ? {
                                               ...x,
+                                              lineId: null,
+                                              assigned_admin_user_id: '',
+                                              received_confirmed: false,
                                               stock_item_id: '',
                                               stock_code: '',
                                               name: '',
@@ -981,6 +1067,48 @@ export default function Stores() {
                             )}
                           </td>
                         </tr>
+                        {receive.editingLpoId != null && ln.lineId != null && ln.lineId !== '' && (
+                          <tr style={{ background: 'rgba(0,0,0,0.02)' }}>
+                            <td colSpan={6} style={{ paddingTop: '0.25rem', paddingBottom: '0.5rem' }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Receipt:</span>
+                                <select
+                                  value={ln.assigned_admin_user_id !== '' && ln.assigned_admin_user_id != null ? String(ln.assigned_admin_user_id) : ''}
+                                  onChange={(e) =>
+                                    updateStockLineReceipt(ln.lineId, {
+                                      assigned_admin_user_id: e.target.value ? Number(e.target.value) : null,
+                                    })
+                                  }
+                                  disabled={busy || !receive.lpoApproved || !canAssignReceivers}
+                                  style={{ maxWidth: '11rem', fontSize: '0.78rem' }}
+                                >
+                                  <option value="">Assign member…</option>
+                                  {teamMembers.map((tm) => (
+                                    <option key={tm.id} value={tm.id}>
+                                      {tm.display_name || tm.username}
+                                    </option>
+                                  ))}
+                                </select>
+                                <label style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(ln.received_confirmed)}
+                                    onChange={(e) =>
+                                      updateStockLineReceipt(ln.lineId, { received_confirmed: e.target.checked })
+                                    }
+                                    disabled={
+                                      busy ||
+                                      !receive.lpoApproved ||
+                                      Number(ln.assigned_admin_user_id || 0) !== Number(admin?.id || 0)
+                                    }
+                                  />
+                                  Received
+                                </label>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                         );
                       })}
                     </tbody>
@@ -992,6 +1120,16 @@ export default function Stores() {
               <button type="button" className="btn" onClick={() => closeReceiveModal()} disabled={busy}>
                 Cancel
               </button>
+              {receive.editingLpoId != null && !receive.lpoApproved && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => approveStockLpoInModal()}
+                  disabled={busy || suppliersLoading || !canApproveLpoIpr}
+                >
+                  Approve LPO
+                </button>
+              )}
               {receive.editingLpoId != null && (
                 <button
                   type="button"
@@ -1016,7 +1154,7 @@ export default function Stores() {
                       : 'Creating…'
                     : receive.editingLpoId != null
                       ? 'Save changes'
-                      : 'Create LPO & add stock'}
+                      : 'Create draft LPO'}
               </button>
             </footer>
           </div>

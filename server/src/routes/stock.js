@@ -5,9 +5,21 @@ import { config } from '../config.js';
 import { nextSequenceRef } from '../sequences.js';
 import { normalizeLpoLineVat, lpoLineNet, lpoLineVat, lpoLineGross, SQL_LPO_LINE_GROSS } from '../lpoLineTotals.js';
 import { drawStockStoreLpoHeader, kshFormat } from '../workshopPdf.js';
-import { requireAdminPermission } from '../auth.js';
+import { requireAdminAuth, requireAdminPermission } from '../auth.js';
 
 export const stockRouter = Router();
+
+function stockLpoReceiptProgress(lpoId) {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN COALESCE(received_confirmed,0)=1 THEN 1 ELSE 0 END), 0) AS done
+       FROM lpo_lines WHERE lpo_id = ?`,
+    )
+    .get(lpoId);
+  const total = Number(row?.total || 0);
+  const done = Number(row?.done || 0);
+  return { total, done, allReceived: total > 0 && done >= total };
+}
 
 const dupCheckStmt = db.prepare(
   `SELECT id FROM stock_items WHERE TRIM(LOWER(IFNULL(code,''))) = TRIM(LOWER(?)) AND IFNULL(TRIM(code),'') != ''`,
@@ -119,14 +131,10 @@ function applyStockIntakeLines(lpoId, supplierId, normalized) {
   const insLine = db.prepare(
     `INSERT INTO lpo_lines (lpo_id, invoice_item_id, stock_item_id, description, quantity, unit_cost, vat_rate, vat_exempt) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`,
   );
-  const updExisting = db.prepare(
-    `UPDATE stock_items SET quantity = quantity + ?, cost_price = ?, supplier_id = ?, updated_at = datetime('now') WHERE id = ?`,
-  );
 
   const created = [];
   for (const row of normalized) {
     if (row.existing) {
-      updExisting.run(row.quantity, row.unit_cost, supplierId, row.stock_id);
       insLine.run(lpoId, row.stock_id, row.lineName, row.quantity, row.unit_cost, row.vat_rate, row.vat_exempt);
       created.push(db.prepare('SELECT id, code, name, quantity FROM stock_items WHERE id = ?').get(row.stock_id));
     } else {
@@ -134,7 +142,7 @@ function applyStockIntakeLines(lpoId, supplierId, normalized) {
         row.code,
         row.name,
         row.description,
-        row.quantity,
+        0,
         row.unit,
         supplierId,
         row.unit_cost,
@@ -152,10 +160,6 @@ function applyStockIntakeLinesTx(tx, lpoId, supplierId, normalized) {
   for (const row of normalized) {
     if (row.existing) {
       tx.run(
-        `UPDATE stock_items SET quantity = quantity + ?, cost_price = ?, supplier_id = ?, updated_at = datetime('now') WHERE id = ?`,
-        [row.quantity, row.unit_cost, supplierId, row.stock_id],
-      );
-      tx.run(
         `INSERT INTO lpo_lines (lpo_id, invoice_item_id, stock_item_id, description, quantity, unit_cost, vat_rate, vat_exempt) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)`,
         [lpoId, row.stock_id, row.lineName, row.quantity, row.unit_cost, row.vat_rate, row.vat_exempt],
       );
@@ -166,7 +170,7 @@ function applyStockIntakeLinesTx(tx, lpoId, supplierId, normalized) {
           row.code,
           row.name,
           row.description,
-          row.quantity,
+          0,
           row.unit,
           supplierId,
           row.unit_cost,
@@ -186,9 +190,11 @@ function getStockIntakeLpoDetail(lpoId) {
   const lpo = db
     .prepare(
       `
-    SELECT l.*, s.name AS supplier_name
+    SELECT l.*, s.name AS supplier_name,
+      appr.display_name AS approved_by_display_name
     FROM lpos l
     JOIN suppliers s ON s.id = l.supplier_id
+    LEFT JOIN admin_users appr ON appr.id = l.approved_by_admin_user_id
     WHERE l.id = ? AND l.invoice_id IS NULL
   `,
     )
@@ -198,9 +204,14 @@ function getStockIntakeLpoDetail(lpoId) {
     .prepare(
       `
     SELECT ll.id AS line_id, ll.stock_item_id, ll.quantity, ll.unit_cost, ll.vat_rate, ll.vat_exempt, ll.description,
-      si.code AS stock_code, si.name AS stock_name
+      ll.assigned_admin_user_id, ll.received_confirmed, ll.received_confirmed_at,
+      si.code AS stock_code, si.name AS stock_name,
+      au.display_name AS assigned_admin_name,
+      ru.display_name AS received_by_admin_name
     FROM lpo_lines ll
     LEFT JOIN stock_items si ON si.id = ll.stock_item_id
+    LEFT JOIN admin_users au ON au.id = ll.assigned_admin_user_id
+    LEFT JOIN admin_users ru ON ru.id = ll.received_confirmed_by_admin_user_id
     WHERE ll.lpo_id = ?
     ORDER BY ll.id
   `,
@@ -214,6 +225,7 @@ function listStockIntakeLpos() {
     .prepare(
       `
     SELECT l.id AS lpo_id, l.ref, l.created_at, l.supplier_id, s.name AS supplier_name,
+      COALESCE(l.approved, 0) AS approved,
       (SELECT COALESCE(SUM(${SQL_LPO_LINE_GROSS}), 0) FROM lpo_lines ll WHERE ll.lpo_id = l.id) AS document_total
     FROM lpos l
     JOIN suppliers s ON s.id = l.supplier_id
@@ -318,16 +330,24 @@ stockRouter.patch('/lpos/:lpoId', requireAdminPermission('can_create_lpos'), (re
         for (const ln of oldLines) {
           if (!ln.stock_item_id) continue;
           const q = Number(ln.quantity) || 0;
-          const u = tx.run(
-            'UPDATE stock_items SET quantity = quantity - ? WHERE id = ? AND quantity >= ?',
-            [q, ln.stock_item_id, q],
-          );
-          if (!u.changes) {
-            throw new Error('REVERSE_STOCK');
+          if (Number(ln.received_confirmed) === 1) {
+            const u = tx.run(
+              'UPDATE stock_items SET quantity = quantity - ? WHERE id = ? AND quantity >= ?',
+              [q, ln.stock_item_id, q],
+            );
+            if (!u.changes) {
+              throw new Error('REVERSE_STOCK');
+            }
+          } else {
+            const cnt = tx.get('SELECT COUNT(*) AS c FROM lpo_lines WHERE stock_item_id = ?', [ln.stock_item_id]);
+            const st = tx.get('SELECT quantity FROM stock_items WHERE id = ?', [ln.stock_item_id]);
+            if (Number(st?.quantity) === 0 && Number(cnt?.c) <= 1) {
+              tx.run('DELETE FROM stock_items WHERE id = ?', [ln.stock_item_id]);
+            }
           }
         }
         tx.run('DELETE FROM lpo_lines WHERE lpo_id = ?', [lpo.id]);
-        tx.run('UPDATE lpos SET supplier_id = ?, notes = ?, updated_at = datetime(\'now\') WHERE id = ?', [
+        tx.run('UPDATE lpos SET supplier_id = ?, notes = ?, approved = 0, approved_at = NULL, approved_by_admin_user_id = NULL, updated_at = datetime(\'now\') WHERE id = ?', [
           newSupplier,
           notesVal,
           lpo.id,
@@ -368,11 +388,90 @@ stockRouter.patch('/lpos/:lpoId', requireAdminPermission('can_create_lpos'), (re
   res.json(detail);
 });
 
+stockRouter.post('/lpos/:lpoId/approve', requireAdminPermission('can_approve_lpo_ipr'), (req, res) => {
+  const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id IS NULL').get(req.params.lpoId);
+  if (!lpo) return res.status(404).json({ error: 'Stock intake LPO not found' });
+  if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
+  db.prepare(
+    `UPDATE lpos SET approved = 1, approved_at = datetime('now'), approved_by_admin_user_id = ?, updated_at = datetime('now') WHERE id = ?`,
+  ).run(req.admin.id, lpo.id);
+  const detail = getStockIntakeLpoDetail(lpo.id);
+  res.json(detail);
+});
+
+stockRouter.patch('/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth, (req, res) => {
+  const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id IS NULL').get(req.params.lpoId);
+  if (!lpo) return res.status(404).json({ error: 'LPO not found' });
+  if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
+  if (Number(lpo.approved) !== 1) {
+    return res.status(400).json({ error: 'LPO must be approved before marking parts received' });
+  }
+  const line = db.prepare('SELECT * FROM lpo_lines WHERE id = ? AND lpo_id = ?').get(req.params.lineId, req.params.lpoId);
+  if (!line) return res.status(404).json({ error: 'Line not found' });
+  const assigned = req.body?.assigned_admin_user_id != null ? Number(req.body.assigned_admin_user_id) : null;
+  const received = req.body?.received_confirmed !== undefined ? (req.body.received_confirmed ? 1 : 0) : null;
+  if (assigned !== null && (!Number.isFinite(assigned) || assigned <= 0)) return res.status(400).json({ error: 'Invalid assigned_admin_user_id' });
+  const canAssign = Boolean(req.admin.permissions?.can_approve_lpo_ipr || req.admin.permissions?.can_manage_team_members);
+  if (assigned !== null && !canAssign) return res.status(403).json({ error: 'Only approver/manager can assign line receivers' });
+  if (assigned !== null) {
+    const au = db.prepare('SELECT id FROM admin_users WHERE id = ? AND active = 1').get(assigned);
+    if (!au) return res.status(400).json({ error: 'Assigned team member not found' });
+  }
+  const nextAssigned = assigned ?? (line.assigned_admin_user_id || null);
+  if (received === 1 && !nextAssigned) return res.status(400).json({ error: 'Assign a team member before marking received' });
+  if (received !== null && req.admin.id !== Number(nextAssigned || 0)) {
+    return res.status(403).json({ error: 'Only assigned team member can confirm receipt' });
+  }
+
+  const wasRecv = Number(line.received_confirmed) === 1;
+  if (received === 1 && !wasRecv) {
+    const q = Number(line.quantity) || 0;
+    if (!line.stock_item_id) return res.status(400).json({ error: 'Line has no stock item' });
+    db.prepare(
+      `UPDATE stock_items SET quantity = quantity + ?, cost_price = ?, supplier_id = ?, updated_at = datetime('now') WHERE id = ?`,
+    ).run(q, Number(line.unit_cost) || 0, lpo.supplier_id, line.stock_item_id);
+  }
+  if (received === 0 && wasRecv) {
+    const q = Number(line.quantity) || 0;
+    const u = db
+      .prepare('UPDATE stock_items SET quantity = quantity - ? WHERE id = ? AND quantity >= ?')
+      .run(q, line.stock_item_id, q);
+    if (!u.changes) return res.status(400).json({ error: 'Cannot undo receipt: insufficient stock on hand' });
+  }
+
+  db.prepare(
+    `UPDATE lpo_lines
+     SET assigned_admin_user_id = COALESCE(?, assigned_admin_user_id),
+         received_confirmed = COALESCE(?, received_confirmed),
+         received_confirmed_at = CASE WHEN ? = 1 THEN datetime('now') WHEN ? = 0 THEN NULL ELSE received_confirmed_at END,
+         received_confirmed_by_admin_user_id = CASE WHEN ? = 1 THEN ? WHEN ? = 0 THEN NULL ELSE received_confirmed_by_admin_user_id END
+     WHERE id = ? AND lpo_id = ?`,
+  ).run(
+    assigned,
+    received,
+    received,
+    received,
+    received,
+    req.admin.id,
+    received,
+    req.params.lineId,
+    req.params.lpoId,
+  );
+  res.json(getStockIntakeLpoDetail(lpo.id));
+});
+
 stockRouter.post('/lpos/:lpoId/finalize', requireAdminPermission('can_finalize_lpos'), (req, res) => {
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id IS NULL').get(req.params.lpoId);
   if (!lpo) return res.status(404).json({ error: 'Stock intake LPO not found' });
   if (Number(lpo.finalized) === 1) {
     return res.status(400).json({ error: 'LPO is already finalised' });
+  }
+  if (Number(lpo.approved) !== 1) {
+    return res.status(400).json({ error: 'LPO must be approved before finalisation' });
+  }
+  const progress = stockLpoReceiptProgress(lpo.id);
+  if (!progress.allReceived) {
+    return res.status(400).json({ error: 'All LPO lines must be marked received before finalisation' });
   }
   const cnt = db.prepare('SELECT COUNT(*) AS c FROM lpo_lines WHERE lpo_id = ?').get(lpo.id);
   if (!cnt || !Number(cnt.c)) {
@@ -387,25 +486,30 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
   const lpo = db
     .prepare(
       `
-    SELECT l.*, s.name AS supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email, s.pin AS supplier_pin
+    SELECT l.*, s.name AS supplier_name, s.address AS supplier_address, s.phone AS supplier_phone, s.email AS supplier_email, s.pin AS supplier_pin,
+      appr.display_name AS approved_by_display_name
     FROM lpos l
     JOIN suppliers s ON s.id = l.supplier_id
+    LEFT JOIN admin_users appr ON appr.id = l.approved_by_admin_user_id
     WHERE l.id = ? AND l.invoice_id IS NULL
   `,
     )
     .get(req.params.lpoId);
   if (!lpo) return res.status(404).json({ error: 'Stock intake LPO not found' });
+  if (Number(lpo.approved) !== 1) return res.status(400).json({ error: 'LPO must be approved before printing' });
 
   const lines = db
     .prepare(
       `
     SELECT ll.*, si.code AS stock_code, si.name AS stock_name,
+      rbu.display_name AS received_by_display_name,
       CASE
         WHEN IFNULL(si.code, '') != '' THEN TRIM(si.code || ' — ' || COALESCE(si.name, ''))
         ELSE COALESCE(si.name, ll.description)
       END AS invoice_line_description
     FROM lpo_lines ll
     LEFT JOIN stock_items si ON si.id = ll.stock_item_id
+    LEFT JOIN admin_users rbu ON rbu.id = ll.received_confirmed_by_admin_user_id
     WHERE ll.lpo_id = ?
     ORDER BY ll.id
   `,
@@ -523,10 +627,35 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
   doc.text(`VAT  ${kshFormat(sumVat)}`, sumX, y, { width: sumW, align: 'right' });
   y = doc.y + 6;
   doc.fontSize(10).font('Helvetica-Bold').text(`Total (inc VAT)  ${kshFormat(totGross)}`, sumX, y, { width: sumW, align: 'right' });
-  y = doc.y + 20;
-  doc.fontSize(8).font('Helvetica').fillColor('#555555');
+  y = doc.y + 16;
+  doc.fontSize(8).font('Helvetica').fillColor('#333333');
+  const apprName = lpo.approved_by_display_name || '—';
+  const apprAt = lpo.approved_at
+    ? new Date(lpo.approved_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+    : '—';
+  doc.text(`Approved by: ${apprName} · ${apprAt}`, margin, y, { width: contentWidth });
+  y = doc.y + 6;
+  if (Number(lpo.finalized) === 1) {
+    const recvNames = [
+      ...new Set(
+        lines
+          .filter((ln) => Number(ln.received_confirmed) === 1 && ln.received_by_display_name)
+          .map((ln) => String(ln.received_by_display_name).trim()),
+      ),
+    ].filter(Boolean);
+    doc.text(
+      `Goods received by: ${recvNames.length ? recvNames.join(' · ') : '—'}`,
+      margin,
+      y,
+      { width: contentWidth },
+    );
+    y = doc.y + 6;
+  }
+  doc.fillColor('#555555');
   doc.text(
-    'Unit costs and subtotal exclude VAT. Stock quantities were increased when this LPO was recorded.',
+    Number(lpo.finalized) === 1
+      ? 'Unit costs and subtotal exclude VAT. Finalised: store quantities were increased when each line was marked received.'
+      : 'Unit costs and subtotal exclude VAT. Draft: quantities increase when each line is marked received after approval.',
     margin,
     y,
     { width: contentWidth },
@@ -544,14 +673,22 @@ stockRouter.delete('/lpos/:lpoId', requireAdminPermission('can_create_lpos'), (r
   for (const ln of lines) {
     if (!ln.stock_item_id) continue;
     const q = Number(ln.quantity) || 0;
-    const u = db
-      .prepare('UPDATE stock_items SET quantity = quantity - ? WHERE id = ? AND quantity >= ?')
-      .run(q, ln.stock_item_id, q);
-    if (!u.changes) {
-      return res.status(400).json({
-        error:
-          'Cannot delete: not enough stock on hand to reverse this receipt (items may have been issued via IPR).',
-      });
+    if (Number(ln.received_confirmed) === 1) {
+      const u = db
+        .prepare('UPDATE stock_items SET quantity = quantity - ? WHERE id = ? AND quantity >= ?')
+        .run(q, ln.stock_item_id, q);
+      if (!u.changes) {
+        return res.status(400).json({
+          error:
+            'Cannot delete: not enough stock on hand to reverse this receipt (items may have been issued via IPR).',
+        });
+      }
+    } else {
+      const cnt = db.prepare('SELECT COUNT(*) AS c FROM lpo_lines WHERE stock_item_id = ?').get(ln.stock_item_id);
+      const st = db.prepare('SELECT quantity FROM stock_items WHERE id = ?').get(ln.stock_item_id);
+      if (Number(st?.quantity) === 0 && Number(cnt?.c) <= 1) {
+        db.prepare('DELETE FROM stock_items WHERE id = ?').run(ln.stock_item_id);
+      }
     }
   }
   db.prepare('DELETE FROM lpos WHERE id = ?').run(req.params.lpoId);
