@@ -83,6 +83,14 @@ function nextInvoiceNumber() {
   return `INV-${next}`;
 }
 
+/** Same sequence and format as job-attached quotes (`jobs` route). */
+function nextQuoteNumber() {
+  const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('quote_number');
+  const next = (row?.value ?? 1000) + 1;
+  db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'quote_number');
+  return `QUO-${next}`;
+}
+
 function recalcPurchaseForInvoiceItem(invoiceItemId, options = {}) {
   const { clearIfNoAlloc = false } = options;
   const id = parseInt(invoiceItemId, 10);
@@ -415,12 +423,13 @@ invoicesRouter.get('/:id', (req, res) => {
 invoicesRouter.post('/', (req, res) => {
   const { job_id, customer_id, vehicle_id, type, due_date, notes, items } = req.body;
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
-  const invoice_number = nextInvoiceNumber();
+  const resolvedType = type || 'invoice';
+  const invoice_number = resolvedType === 'quote' ? nextQuoteNumber() : nextInvoiceNumber();
   const taxRate = 0.16; // 16% VAT Kenya – make configurable
   const result = db.prepare(`
     INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(invoice_number, job_id || null, customer_id, vehicle_id || null, type || 'invoice', due_date || null, notes || null, taxRate);
+  `).run(invoice_number, job_id || null, customer_id, vehicle_id || null, resolvedType, due_date || null, notes || null, taxRate);
   const invId = result.lastInsertRowid;
   let subtotal = 0;
   if (Array.isArray(items) && items.length) {

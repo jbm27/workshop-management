@@ -118,8 +118,10 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
       'SELECT id, description, quantity, unit_price, purchase_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id',
     )
     .all(inv.id);
-  const quote = inv.type === 'quote' ? portalDocumentForCustomer(inv, items) : null;
-  const invoice = inv.type === 'invoice' ? portalDocumentForCustomer(inv, items) : null;
+  const docType = String(inv.type || '').toLowerCase();
+  const isQuote = docType === 'quote';
+  const quote = isQuote ? portalDocumentForCustomer(inv, items) : null;
+  const invoice = !isQuote ? portalDocumentForCustomer(inv, items) : null;
 
   res.json({
     customer: {
@@ -129,7 +131,7 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
       phone: customer.phone,
     },
     standalone: true,
-    document_type: inv.type,
+    document_type: docType,
     vehicle: {
       registration: inv.registration,
       make: inv.make,
@@ -137,7 +139,7 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
     },
     quote,
     invoice,
-    quote_approval_allowed: inv.type === 'quote',
+    quote_approval_allowed: isQuote,
   });
 });
 
@@ -228,7 +230,7 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
   const approved = !!req.body.approved;
   const quote = db
-    .prepare('SELECT * FROM invoices WHERE id = ? AND type = "quote" AND customer_id = ?')
+    .prepare("SELECT * FROM invoices WHERE id = ? AND type = 'quote' AND customer_id = ?")
     .get(req.params.quoteId, customer.id);
   if (!quote) return res.status(404).json({ error: 'Quote not found' });
   try {

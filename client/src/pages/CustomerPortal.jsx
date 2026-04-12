@@ -157,10 +157,19 @@ function PortalJobsList() {
                     <td colSpan={6} className="empty">No documents match your search.</td>
                   </tr>
                 )}
-                {filteredStandalone.map((d) => (
+                {filteredStandalone.map((d) => {
+                  const isQuoteRow = String(d.type || '').toLowerCase() === 'quote';
+                  return (
                   <tr key={d.id}>
-                    <td><strong>{d.invoice_number || `#${d.id}`}</strong></td>
-                    <td style={{ textTransform: 'capitalize' }}>{d.type || '—'}</td>
+                    <td>
+                      <strong>{d.invoice_number || `#${d.id}`}</strong>
+                      {isQuoteRow && (
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                          Open <strong>View</strong> to see line items and approve each line (or approve all).
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ textTransform: 'capitalize' }}>{isQuoteRow ? 'Quote' : d.type || '—'}</td>
                     <td>{[d.registration, d.make, d.model].filter(Boolean).join(' ') || '—'}</td>
                     <td>{d.total != null ? kes(d.total) : '—'}</td>
                     <td>{formatPortalDate(d.created_at)}</td>
@@ -170,11 +179,12 @@ function PortalJobsList() {
                         style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
                         to={`/portal/${encodeURIComponent(token)}/document/${d.id}`}
                       >
-                        View
+                        {isQuoteRow ? 'View quote' : 'View'}
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -307,10 +317,15 @@ function PortalStandaloneDocument() {
         </Link>
       </p>
       <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
-        {quote?.invoice_number || invoice?.invoice_number || 'Document'}
-        <span style={{ marginLeft: '0.5rem', textTransform: 'capitalize', color: 'var(--text-muted)', fontSize: '1rem' }}>
-          ({docType || '—'})
-        </span>
+        {String(docType || '').toLowerCase() === 'quote' ? (
+          <>
+            Quote <span style={{ color: 'var(--text)' }}>{quote?.invoice_number || '—'}</span>
+          </>
+        ) : (
+          <>
+            Invoice <span style={{ color: 'var(--text)' }}>{invoice?.invoice_number || '—'}</span>
+          </>
+        )}
       </h1>
       <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>
         {customer.name}
