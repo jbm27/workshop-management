@@ -563,14 +563,14 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     doc.font('Helvetica');
   }
 
-  const colDesc = contentWidth * 0.17;
-  const colInvLine = contentWidth * 0.19;
-  const colQty = contentWidth * 0.06;
-  const colUnit = contentWidth * 0.09;
-  const colVatP = contentWidth * 0.07;
-  const colVatAmt = contentWidth * 0.09;
-  const colRecv = contentWidth * 0.13;
-  const colGross = contentWidth * 0.2;
+  const colDesc = contentWidth * 0.15;
+  const colInvLine = contentWidth * 0.17;
+  const colQty = contentWidth * 0.055;
+  const colUnit = contentWidth * 0.12;
+  const colVatP = contentWidth * 0.06;
+  const colVatAmt = contentWidth * 0.12;
+  const colRecv = contentWidth * 0.145;
+  const colGross = contentWidth * 0.18;
   const xInv = margin + colDesc;
   const xQty = xInv + colInvLine;
   const xUnit = xQty + colQty;
@@ -580,17 +580,29 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
   const xGross = xRecv + colRecv;
   const tableTop = y;
   doc.fontSize(8).font('Helvetica-Bold');
+  const hdrH = Math.max(
+    doc.heightOfString('Purchase item', { width: colDesc }),
+    doc.heightOfString('Stock item', { width: colInvLine }),
+    doc.heightOfString('Qty', { width: colQty, align: 'right' }),
+    doc.heightOfString('Unit ex VAT', { width: colUnit, align: 'right' }),
+    doc.heightOfString('VAT', { width: colVatP, align: 'right' }),
+    doc.heightOfString('VAT amt', { width: colVatAmt, align: 'right' }),
+    doc.heightOfString('Received by', { width: colRecv }),
+    doc.heightOfString('Line total', { width: colGross, align: 'right' }),
+    10,
+  );
   doc.text('Purchase item', margin, tableTop, { width: colDesc });
   doc.text('Stock item', xInv, tableTop, { width: colInvLine });
   doc.text('Qty', xQty, tableTop, { width: colQty, align: 'right' });
-  doc.text('Unit (ex VAT)', xUnit, tableTop, { width: colUnit, align: 'right' });
+  doc.text('Unit ex VAT', xUnit, tableTop, { width: colUnit, align: 'right' });
   doc.text('VAT', xVatP, tableTop, { width: colVatP, align: 'right' });
   doc.text('VAT amt', xVatAmt, tableTop, { width: colVatAmt, align: 'right' });
   doc.text('Received by', xRecv, tableTop, { width: colRecv });
   doc.text('Line total', xGross, tableTop, { width: colGross, align: 'right' });
-  doc.moveTo(margin, tableTop + 14).lineTo(margin + contentWidth, tableTop + 14).stroke();
+  const ruleY = tableTop + hdrH + 4;
+  doc.moveTo(margin, ruleY).lineTo(margin + contentWidth, ruleY).stroke();
 
-  y = tableTop + 20;
+  y = ruleY + 8;
   doc.font('Helvetica');
   let sumNet = 0;
   let sumVat = 0;
@@ -610,22 +622,26 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
       Number(ln.received_confirmed) === 1 && ln.received_by_display_name
         ? String(ln.received_by_display_name).trim()
         : '—';
+    const ucStr = kshFormat(uc);
+    const vatStr = vatAmt > 0 ? kshFormat(vatAmt) : '—';
+    const grossStr = kshFormat(gross);
     const rowH = Math.max(
-      18,
-      Math.max(
-        doc.heightOfString(desc, { width: colDesc }),
-        doc.heightOfString(invLine, { width: colInvLine }),
-        doc.heightOfString(recvBy, { width: colRecv }),
-      ) + 4,
-    );
+      20,
+      doc.heightOfString(desc, { width: colDesc }),
+      doc.heightOfString(invLine, { width: colInvLine }),
+      doc.heightOfString(ucStr, { width: colUnit, align: 'right' }),
+      doc.heightOfString(vatStr, { width: colVatAmt, align: 'right' }),
+      doc.heightOfString(recvBy, { width: colRecv }),
+      doc.heightOfString(grossStr, { width: colGross, align: 'right' }),
+    ) + 4;
     doc.text(desc, margin, y, { width: colDesc });
     doc.text(invLine, xInv, y, { width: colInvLine });
     doc.text(qty.toFixed(2), xQty, y, { width: colQty, align: 'right' });
-    doc.text(kshFormat(uc), xUnit, y, { width: colUnit, align: 'right' });
+    doc.text(ucStr, xUnit, y, { width: colUnit, align: 'right' });
     doc.text(vatLabel, xVatP, y, { width: colVatP, align: 'right' });
-    doc.text(vatAmt > 0 ? kshFormat(vatAmt) : '—', xVatAmt, y, { width: colVatAmt, align: 'right' });
+    doc.text(vatStr, xVatAmt, y, { width: colVatAmt, align: 'right' });
     doc.text(recvBy, xRecv, y, { width: colRecv });
-    doc.text(kshFormat(gross), xGross, y, { width: colGross, align: 'right' });
+    doc.text(grossStr, xGross, y, { width: colGross, align: 'right' });
     y += rowH;
   }
 
