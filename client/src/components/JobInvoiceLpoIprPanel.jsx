@@ -9,6 +9,18 @@ function kes(n) {
   return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+function lpoLinesAllReceived(doc) {
+  const lines = doc?.lines || [];
+  if (!lines.length) return false;
+  return lines.every((ln) => Number(ln.received_confirmed) === 1);
+}
+
+function iprLinesAllReceived(doc) {
+  const lines = doc?.lines || [];
+  if (!lines.length) return false;
+  return lines.every((ln) => Number(ln.received_confirmed) === 1);
+}
+
 function newFormLine() {
   return {
     key: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -548,7 +560,8 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                           className="btn primary"
                           style={{ fontSize: '0.8rem', padding: '0.2rem 0.45rem' }}
                           onClick={() => finalizeLpo(doc.id)}
-                          disabled={busy || !canFinalizeLpos}
+                          disabled={busy || !canFinalizeLpos || !lpoLinesAllReceived(doc)}
+                          title={!lpoLinesAllReceived(doc) ? 'Mark every line as received before finalising' : undefined}
                         >
                           Finalise
                         </button>
@@ -683,7 +696,8 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                               className="btn primary"
                               style={{ fontSize: '0.8rem', padding: '0.2rem 0.45rem' }}
                               onClick={() => finalizeIprFromRow(doc.id)}
-                              disabled={busy || !canFinalizeIprs}
+                              disabled={busy || !canFinalizeIprs || !iprLinesAllReceived(doc)}
+                              title={!iprLinesAllReceived(doc) ? 'Mark every line as received before finalising' : undefined}
                             >
                               Finalise
                             </button>

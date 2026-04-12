@@ -563,19 +563,21 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     doc.font('Helvetica');
   }
 
-  const colDesc = contentWidth * 0.21;
-  const colInvLine = contentWidth * 0.23;
-  const colQty = contentWidth * 0.07;
-  const colUnit = contentWidth * 0.11;
-  const colVatP = contentWidth * 0.09;
-  const colVatAmt = contentWidth * 0.11;
-  const colGross = contentWidth * 0.18;
+  const colDesc = contentWidth * 0.17;
+  const colInvLine = contentWidth * 0.19;
+  const colQty = contentWidth * 0.06;
+  const colUnit = contentWidth * 0.09;
+  const colVatP = contentWidth * 0.07;
+  const colVatAmt = contentWidth * 0.09;
+  const colRecv = contentWidth * 0.13;
+  const colGross = contentWidth * 0.2;
   const xInv = margin + colDesc;
   const xQty = xInv + colInvLine;
   const xUnit = xQty + colQty;
   const xVatP = xUnit + colUnit;
   const xVatAmt = xVatP + colVatP;
-  const xGross = xVatAmt + colVatAmt;
+  const xRecv = xVatAmt + colVatAmt;
+  const xGross = xRecv + colRecv;
   const tableTop = y;
   doc.fontSize(8).font('Helvetica-Bold');
   doc.text('Purchase item', margin, tableTop, { width: colDesc });
@@ -584,6 +586,7 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
   doc.text('Unit (ex VAT)', xUnit, tableTop, { width: colUnit, align: 'right' });
   doc.text('VAT', xVatP, tableTop, { width: colVatP, align: 'right' });
   doc.text('VAT amt', xVatAmt, tableTop, { width: colVatAmt, align: 'right' });
+  doc.text('Received by', xRecv, tableTop, { width: colRecv });
   doc.text('Line total', xGross, tableTop, { width: colGross, align: 'right' });
   doc.moveTo(margin, tableTop + 14).lineTo(margin + contentWidth, tableTop + 14).stroke();
 
@@ -603,9 +606,17 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     sumVat += vatAmt;
     const vatLabel =
       Number(ln.vat_exempt) === 1 ? 'Exempt' : Number(ln.vat_rate) > 0 ? `${Number(ln.vat_rate)}%` : '—';
+    const recvBy =
+      Number(ln.received_confirmed) === 1 && ln.received_by_display_name
+        ? String(ln.received_by_display_name).trim()
+        : '—';
     const rowH = Math.max(
       18,
-      Math.max(doc.heightOfString(desc, { width: colDesc }), doc.heightOfString(invLine, { width: colInvLine })) + 4,
+      Math.max(
+        doc.heightOfString(desc, { width: colDesc }),
+        doc.heightOfString(invLine, { width: colInvLine }),
+        doc.heightOfString(recvBy, { width: colRecv }),
+      ) + 4,
     );
     doc.text(desc, margin, y, { width: colDesc });
     doc.text(invLine, xInv, y, { width: colInvLine });
@@ -613,6 +624,7 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     doc.text(kshFormat(uc), xUnit, y, { width: colUnit, align: 'right' });
     doc.text(vatLabel, xVatP, y, { width: colVatP, align: 'right' });
     doc.text(vatAmt > 0 ? kshFormat(vatAmt) : '—', xVatAmt, y, { width: colVatAmt, align: 'right' });
+    doc.text(recvBy, xRecv, y, { width: colRecv });
     doc.text(kshFormat(gross), xGross, y, { width: colGross, align: 'right' });
     y += rowH;
   }
@@ -620,7 +632,7 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
   const totGross = Math.round((sumNet + sumVat) * 100) / 100;
   y += 10;
   const sumX = xUnit;
-  const sumW = colUnit + colVatP + colVatAmt + colGross;
+  const sumW = colUnit + colVatP + colVatAmt + colRecv + colGross;
   doc.fontSize(9).font('Helvetica');
   doc.text(`Subtotal (ex VAT)  ${kshFormat(sumNet)}`, sumX, y, { width: sumW, align: 'right' });
   y = doc.y + 4;

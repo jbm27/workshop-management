@@ -1135,7 +1135,21 @@ export default function Stores() {
                   type="button"
                   className="btn"
                   onClick={() => finalizeLpoFromEditor()}
-                  disabled={busy || suppliersLoading || !canFinalizeLpos}
+                  disabled={
+                    busy ||
+                    suppliersLoading ||
+                    !canFinalizeLpos ||
+                    !receive.lpoApproved ||
+                    !receive.lines.length ||
+                    !receive.lines.every((ln) => Number(ln.received_confirmed) === 1)
+                  }
+                  title={
+                    !receive.lpoApproved
+                      ? 'Approve the LPO first'
+                      : !receive.lines.every((ln) => Number(ln.received_confirmed) === 1)
+                        ? 'Mark every line as received before finalising'
+                        : undefined
+                  }
                 >
                   {busy && lpoSaveKind === 'finalize' ? 'Finalising…' : 'Finalise LPO'}
                 </button>
