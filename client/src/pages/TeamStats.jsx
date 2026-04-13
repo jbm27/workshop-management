@@ -77,6 +77,27 @@ export default function TeamStats() {
     };
   }, [data]);
 
+  const partsDetailTotals = useMemo(() => {
+    if (!detailModal || detailModal.type !== 'parts' || detailModal.loading) return null;
+    const rows = detailModal.rows || [];
+    let qty = 0;
+    let val = 0;
+    for (const r of rows) {
+      qty += Number(r.quantity) || 0;
+      val += Number(r.sale_line_value) || 0;
+    }
+    return {
+      qty: Math.round((qty + Number.EPSILON) * 1000) / 1000,
+      value: Math.round(val + Number.EPSILON),
+    };
+  }, [detailModal]);
+
+  const hoursDetailTotals = useMemo(() => {
+    if (!detailModal || detailModal.type !== 'hours' || detailModal.loading) return null;
+    const hrs = (detailModal.rows || []).reduce((s, r) => s + (Number(r.hours) || 0), 0);
+    return { hours: Math.round((hrs + Number.EPSILON) * 100) / 100 };
+  }, [detailModal]);
+
   const openParts = async (member) => {
     setDetailModal({ type: 'parts', member, rows: [], loading: true, error: '' });
     try {
@@ -242,6 +263,21 @@ export default function TeamStats() {
                   {detailModal.error}
                 </div>
               ) : null}
+              {detailModal.type === 'parts' && !detailModal.loading && !detailModal.error && partsDetailTotals && (
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>
+                  <strong>Period totals (this member):</strong>{' '}
+                  <strong>{partsDetailTotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })}</strong>{' '}
+                  parts (quantity received),{' '}
+                  <strong>{kesWhole(partsDetailTotals.value)}</strong> sale value (same basis as the overview).
+                </p>
+              )}
+              {detailModal.type === 'hours' && !detailModal.loading && !detailModal.error && hoursDetailTotals && (
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>
+                  <strong>Period total (this member):</strong>{' '}
+                  <strong>{hoursDetailTotals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
+                  hours worked.
+                </p>
+              )}
               <div className="table-wrap">
                 <table>
                   <thead>
@@ -303,6 +339,32 @@ export default function TeamStats() {
                         </tr>
                       ))}
                   </tbody>
+                  {detailModal.type === 'parts' && !detailModal.loading && detailModal.rows.length > 0 && partsDetailTotals ? (
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--border)' }}>
+                        <td colSpan={3} style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-muted)' }}>
+                          Totals
+                        </td>
+                        <td style={{ fontWeight: 600 }}>
+                          {partsDetailTotals.qty.toLocaleString(undefined, { maximumFractionDigits: 3 })}
+                        </td>
+                        <td style={{ color: 'var(--text-muted)' }}>—</td>
+                        <td style={{ fontWeight: 600 }}>{kesWhole(partsDetailTotals.value)}</td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  ) : null}
+                  {detailModal.type === 'hours' && !detailModal.loading && detailModal.rows.length > 0 && hoursDetailTotals ? (
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--border)' }}>
+                        <td style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Total</td>
+                        <td style={{ fontWeight: 600 }}>
+                          {hoursDetailTotals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  ) : null}
                 </table>
               </div>
             </div>
