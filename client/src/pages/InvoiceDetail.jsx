@@ -10,6 +10,11 @@ function kes(n) {
   return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+/** Portal / DB may send 0/1, "0"/"1", or null. */
+function isQuoteLineApproved(line) {
+  return Number(line?.approved) === 1;
+}
+
 export default function InvoiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -74,6 +79,25 @@ export default function InvoiceDetail() {
       (inv.due_date ? String(inv.due_date).slice(0, 10) : '') !== dueDate || (inv.notes || '') !== notes;
     setMetaDirty(d);
   }, [inv, dueDate, notes]);
+
+  /** When the customer approves lines in the portal (another tab), reload this quote on return to the tab. */
+  useEffect(() => {
+    if (!id || inv?.type !== 'quote') return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      api.invoices
+        .get(id)
+        .then((data) => {
+          setInv(data);
+          setDueDate(data.due_date ? String(data.due_date).slice(0, 10) : '');
+          setNotes(data.notes || '');
+          setMetaDirty(false);
+        })
+        .catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [id, inv?.type]);
 
   const saveMeta = async () => {
     setSavingMeta(true);
@@ -375,11 +399,18 @@ export default function InvoiceDetail() {
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Line items</h3>
+        {isQuote && items.length > 0 && (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+            Customer portal: <strong>{quoteApprovedCount}</strong> of <strong>{items.length}</strong> line
+            {items.length === 1 ? '' : 's'} approved. Refresh the page after the customer approves to see updates.
+          </p>
+        )}
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Description</th>
+                {isQuote && <th>Customer approved</th>}
                 <th>Qty</th>
                 {!isQuote && <th>Purchase (unit)</th>}
                 <th>Unit price</th>
@@ -389,7 +420,7 @@ export default function InvoiceDetail() {
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={isQuote ? 4 : 5} className="empty">No line items yet</td>
+                  <td colSpan={5} className="empty">No line items yet</td>
                 </tr>
               )}
               {items.map((it) => {
@@ -421,6 +452,15 @@ export default function InvoiceDetail() {
                         </div>
                       )}
                     </td>
+                    {isQuote && (
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {isQuoteLineApproved(it) ? (
+                          <span style={{ color: 'var(--success)', fontWeight: 600 }}>Yes</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>Pending</span>
+                        )}
+                      </td>
+                    )}
                     <td>{qty}</td>
                     {!isQuote && <td>{kes(it.purchase_price)}</td>}
                     <td>{kes(price)}</td>
