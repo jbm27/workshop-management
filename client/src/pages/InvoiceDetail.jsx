@@ -189,6 +189,7 @@ export default function InvoiceDetail() {
   const amountPaid = Number(inv.amount_paid ?? payments.reduce((s, p) => s + Number(p.amount || 0), 0)) || 0;
   const balance = inv.type === 'invoice' ? Number(inv.balance ?? total - amountPaid) : null;
   const isQuote = inv.type === 'quote';
+  const quoteApprovedCount = isQuote ? items.filter((it) => isQuoteLineApproved(it)).length : 0;
 
   return (
     <>
