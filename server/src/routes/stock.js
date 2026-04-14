@@ -769,27 +769,70 @@ stockRouter.post('/stock-take', requireAdminPermission('can_create_lpos'), (req,
   if (!rawLines.length) {
     return res.status(400).json({ error: 'Provide at least one counted stock line' });
   }
-  const normalized = [];
+  const normalizedExisting = [];
+  const normalizedNew = [];
   const seen = new Set();
+  const seenNewCodes = new Set();
   for (const [idx, ln] of rawLines.entries()) {
-    const stockItemId = Number(ln?.stock_item_id);
     const countedQuantity = Number(ln?.counted_quantity);
-    if (!Number.isFinite(stockItemId) || stockItemId <= 0) {
-      return res.status(400).json({ error: `Line ${idx + 1}: invalid stock_item_id` });
-    }
-    if (seen.has(stockItemId)) {
-      return res.status(400).json({ error: `Duplicate stock item in payload (id ${stockItemId})` });
-    }
-    seen.add(stockItemId);
     if (!Number.isFinite(countedQuantity) || countedQuantity < 0) {
       return res.status(400).json({ error: `Line ${idx + 1}: counted_quantity must be a non-negative number` });
     }
-    normalized.push({ stockItemId, countedQuantity });
+    const stockItemId = Number(ln?.stock_item_id);
+    if (Number.isFinite(stockItemId) && stockItemId > 0) {
+      if (seen.has(stockItemId)) {
+        return res.status(400).json({ error: `Duplicate stock item in payload (id ${stockItemId})` });
+      }
+      seen.add(stockItemId);
+      normalizedExisting.push({ stockItemId, countedQuantity });
+      continue;
+    }
+
+    const code = String(ln?.stock_code || '').trim();
+    const name = String(ln?.name || '').trim();
+    const sellPrice =
+      ln?.sell_price != null && ln?.sell_price !== '' ? Number(ln.sell_price) : null;
+    const costPrice =
+      ln?.cost_price != null && ln?.cost_price !== '' ? Number(ln.cost_price) : null;
+    if (!code) {
+      return res.status(400).json({ error: `Line ${idx + 1}: new items need stock_code` });
+    }
+    if (!name) {
+      return res.status(400).json({ error: `Line ${idx + 1}: new items need name` });
+    }
+    const codeKey = code.toLowerCase();
+    if (seenNewCodes.has(codeKey)) {
+      return res.status(400).json({ error: `Duplicate new stock code in payload: ${code}` });
+    }
+    seenNewCodes.add(codeKey);
+    if (sellPrice != null && (!Number.isFinite(sellPrice) || sellPrice < 0)) {
+      return res.status(400).json({ error: `Line ${idx + 1}: sell_price must be a valid non-negative number` });
+    }
+    if (costPrice != null && (!Number.isFinite(costPrice) || costPrice < 0)) {
+      return res.status(400).json({ error: `Line ${idx + 1}: cost_price must be a valid non-negative number` });
+    }
+    const dup = db
+      .prepare(
+        `SELECT id FROM stock_items WHERE TRIM(LOWER(IFNULL(code,''))) = TRIM(LOWER(?)) AND IFNULL(TRIM(code),'') != ''`,
+      )
+      .get(code);
+    if (dup) {
+      return res.status(400).json({
+        error: `Line ${idx + 1}: code "${code}" already exists; use existing item line instead`,
+      });
+    }
+    normalizedNew.push({
+      code,
+      name,
+      countedQuantity,
+      sellPrice: sellPrice != null ? sellPrice : 0,
+      costPrice: costPrice != null ? costPrice : 0,
+    });
   }
 
   const adjustments = [];
   transactionSync((tx) => {
-    for (const row of normalized) {
+    for (const row of normalizedExisting) {
       const current = tx.get(
         'SELECT id, code, name, quantity FROM stock_items WHERE id = ?',
         [row.stockItemId],
@@ -810,6 +853,23 @@ stockRouter.post('/stock-take', requireAdminPermission('can_create_lpos'), (req,
         previous_quantity: oldQty,
         counted_quantity: newQty,
         delta,
+      });
+    }
+    for (const row of normalizedNew) {
+      tx.run(
+        `INSERT INTO stock_items (code, name, quantity, unit, cost_price, sell_price, created_at, updated_at)
+         VALUES (?, ?, ?, 'each', ?, ?, datetime('now'), datetime('now'))`,
+        [row.code, row.name, row.countedQuantity, row.costPrice, row.sellPrice],
+      );
+      const stockId = tx.lastInsertRowid();
+      adjustments.push({
+        stock_item_id: stockId,
+        code: row.code,
+        name: row.name,
+        previous_quantity: 0,
+        counted_quantity: row.countedQuantity,
+        delta: row.countedQuantity,
+        created: true,
       });
     }
   });

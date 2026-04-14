@@ -293,11 +293,15 @@ export default function Stores() {
         lines: (rows || []).map((r) => {
           const qty = Number(r.quantity) || 0;
           return {
+            key: `existing-${r.id}`,
+            is_new: false,
             stock_item_id: Number(r.id),
             code: r.code || '',
             name: r.name || '',
             system_quantity: qty,
             counted_quantity: String(qty),
+            cost_price: String(Number(r.cost_price) || 0),
+            sell_price: String(Number(r.sell_price) || 0),
           };
         }),
       });
@@ -566,19 +570,37 @@ export default function Stores() {
 
   const submitStockTake = async (e) => {
     e.preventDefault();
-    const lines = stockTake.lines
-      .map((ln) => ({
-        ...ln,
-        counted_num: Number(ln.counted_quantity),
-      }))
-      .filter((ln) => Number.isFinite(ln.counted_num) && ln.counted_num >= 0)
-      .filter((ln) => Math.abs(ln.counted_num - Number(ln.system_quantity || 0)) > 0.000001)
-      .map((ln) => ({
+    const lines = [];
+    for (const ln of stockTake.lines) {
+      const counted = Number(ln.counted_quantity);
+      if (!Number.isFinite(counted) || counted < 0) continue;
+      if (ln.is_new) {
+        const code = String(ln.code || '').trim();
+        const name = String(ln.name || '').trim();
+        if (!code && !name && counted === 0) continue;
+        if (!code) return alert('Each new stock take line needs a code');
+        if (!name) return alert(`Enter a name for new item code ${code}`);
+      const cost = ln.cost_price === '' ? 0 : Number(ln.cost_price);
+      const sell = ln.sell_price === '' ? 0 : Number(ln.sell_price);
+      if (!Number.isFinite(cost) || cost < 0) return alert(`Invalid cost price for new item ${code}`);
+      if (!Number.isFinite(sell) || sell < 0) return alert(`Invalid sell price for new item ${code}`);
+        lines.push({
+          stock_code: code,
+          name,
+          counted_quantity: counted,
+        cost_price: cost,
+        sell_price: sell,
+        });
+        continue;
+      }
+      if (Math.abs(counted - Number(ln.system_quantity || 0)) <= 0.000001) continue;
+      lines.push({
         stock_item_id: ln.stock_item_id,
-        counted_quantity: ln.counted_num,
-      }));
+        counted_quantity: counted,
+      });
+    }
     if (!lines.length) {
-      alert('No quantity changes detected. Edit counted quantities first.');
+      alert('No changes detected. Edit counted quantities or add new items first.');
       return;
     }
     if (!confirm(`Apply stock take for ${lines.length} changed item(s)?`)) return;
@@ -603,6 +625,26 @@ export default function Stores() {
     if (Number.isNaN(x)) return '—';
     return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   }
+
+  const addStockTakeLine = () => {
+    setStockTake((s) => ({
+      ...s,
+      lines: [
+        ...s.lines,
+        {
+          key: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          is_new: true,
+          stock_item_id: null,
+          code: '',
+          name: '',
+          system_quantity: 0,
+          counted_quantity: '0',
+          cost_price: '',
+          sell_price: '',
+        },
+      ],
+    }));
+  };
 
   return (
     <>
@@ -1329,6 +1371,11 @@ export default function Stores() {
                   placeholder="Search code or name…"
                 />
               </div>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <button type="button" className="btn" onClick={addStockTakeLine}>
+                  + Add new item
+                </button>
+              </div>
               <div className="table-wrap" style={{ maxHeight: '52vh', overflow: 'auto' }}>
                 <table style={{ fontSize: '0.85rem' }}>
                   <thead>
@@ -1337,6 +1384,9 @@ export default function Stores() {
                       <th>Name</th>
                       <th>System qty</th>
                       <th>Counted qty</th>
+                      <th>Cost</th>
+                      <th>Sell</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1347,10 +1397,48 @@ export default function Stores() {
                         return `${ln.code || ''} ${ln.name || ''}`.toLowerCase().includes(qx);
                       })
                       .map((ln) => (
-                        <tr key={ln.stock_item_id}>
-                          <td>{ln.code || '—'}</td>
+                        <tr key={ln.key || ln.stock_item_id}>
                           <td>
-                            <strong>{ln.name}</strong>
+                            {ln.is_new ? (
+                              <input
+                                value={ln.code}
+                                onChange={(e) =>
+                                  setStockTake((s) => ({
+                                    ...s,
+                                    lines: s.lines.map((x) =>
+                                      (x.key || x.stock_item_id) === (ln.key || ln.stock_item_id)
+                                        ? { ...x, code: e.target.value }
+                                        : x,
+                                    ),
+                                  }))
+                                }
+                                placeholder="New code"
+                                style={{ width: '8rem' }}
+                              />
+                            ) : (
+                              ln.code || '—'
+                            )}
+                          </td>
+                          <td>
+                            {ln.is_new ? (
+                              <input
+                                value={ln.name}
+                                onChange={(e) =>
+                                  setStockTake((s) => ({
+                                    ...s,
+                                    lines: s.lines.map((x) =>
+                                      (x.key || x.stock_item_id) === (ln.key || ln.stock_item_id)
+                                        ? { ...x, name: e.target.value }
+                                        : x,
+                                    ),
+                                  }))
+                                }
+                                placeholder="New item name"
+                                style={{ width: '12rem' }}
+                              />
+                            ) : (
+                              <strong>{ln.name}</strong>
+                            )}
                           </td>
                           <td>{Number(ln.system_quantity || 0)}</td>
                           <td>
@@ -1363,7 +1451,7 @@ export default function Stores() {
                                 setStockTake((s) => ({
                                   ...s,
                                   lines: s.lines.map((x) =>
-                                    x.stock_item_id === ln.stock_item_id
+                                    (x.key || x.stock_item_id) === (ln.key || ln.stock_item_id)
                                       ? { ...x, counted_quantity: e.target.value }
                                       : x,
                                   ),
@@ -1371,6 +1459,75 @@ export default function Stores() {
                               }
                               style={{ width: '6.5rem' }}
                             />
+                          </td>
+                          <td>
+                            {ln.is_new ? (
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={ln.cost_price}
+                                onChange={(e) =>
+                                  setStockTake((s) => ({
+                                    ...s,
+                                    lines: s.lines.map((x) =>
+                                      (x.key || x.stock_item_id) === (ln.key || ln.stock_item_id)
+                                        ? { ...x, cost_price: e.target.value }
+                                        : x,
+                                    ),
+                                  }))
+                                }
+                                placeholder="0"
+                                style={{ width: '5rem' }}
+                              />
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            {ln.is_new ? (
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={ln.sell_price}
+                                onChange={(e) =>
+                                  setStockTake((s) => ({
+                                    ...s,
+                                    lines: s.lines.map((x) =>
+                                      (x.key || x.stock_item_id) === (ln.key || ln.stock_item_id)
+                                        ? { ...x, sell_price: e.target.value }
+                                        : x,
+                                    ),
+                                  }))
+                                }
+                                placeholder="0"
+                                style={{ width: '5rem' }}
+                              />
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>—</span>
+                            )}
+                          </td>
+                          <td>
+                            {ln.is_new ? (
+                              <button
+                                type="button"
+                                className="btn danger"
+                                style={{ padding: '0.15rem 0.35rem', fontSize: '0.75rem' }}
+                                onClick={() =>
+                                  setStockTake((s) => ({
+                                    ...s,
+                                    lines: s.lines.filter(
+                                      (x) => (x.key || x.stock_item_id) !== (ln.key || ln.stock_item_id),
+                                    ),
+                                  }))
+                                }
+                              >
+                                ×
+                              </button>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}> </span>
+                            )}
                           </td>
                         </tr>
                       ))}
