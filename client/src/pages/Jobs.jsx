@@ -18,6 +18,47 @@ function jobStatusLabel(status) {
 const EMPTY_CUSTOMER = { name: '', email: '', phone: '', address: '', notes: '' };
 const EMPTY_VEHICLE = { registration: '', make: '', model: '', year: '', vin: '', notes: '' };
 const ADD_NEW = '__add_new__';
+const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
+
+function parseValuables(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return { selected: new Set(), notes: '' };
+
+  const selected = new Set();
+  const checklistMatch = raw.match(/Checklist:\s*([^\n\r]*)/i);
+  if (checklistMatch?.[1]) {
+    checklistMatch[1]
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((item) => {
+        const canonical = VALUABLE_ITEMS.find((v) => v.toLowerCase() === item.toLowerCase());
+        if (canonical) selected.add(canonical);
+      });
+  } else {
+    // Backward compatibility for older free-text records.
+    VALUABLE_ITEMS.forEach((item) => {
+      if (new RegExp(`\\b${item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(raw)) {
+        selected.add(item);
+      }
+    });
+  }
+
+  const notesMatch = raw.match(/Notes:\s*([\s\S]*)$/i);
+  let notes = notesMatch?.[1]?.trim() || '';
+  if (!checklistMatch && !notesMatch) notes = raw;
+
+  return { selected, notes };
+}
+
+function buildValuablesPayload(checks, notes) {
+  const selectedItems = VALUABLE_ITEMS.filter((item) => !!checks?.[item]);
+  const parts = [];
+  if (selectedItems.length) parts.push(`Checklist: ${selectedItems.join('; ')}`);
+  const noteText = String(notes || '').trim();
+  if (noteText) parts.push(`Notes: ${noteText}`);
+  return parts.join('\n');
+}
 
 export default function Jobs() {
   const [list, setList] = useState([]);
@@ -41,6 +82,8 @@ export default function Jobs() {
     odometer_in: '',
     fuel_in: '',
     valuables_in_vehicle: '',
+    valuables_checks: {},
+    valuables_notes: '',
     newCustomer: { ...EMPTY_CUSTOMER },
     newVehicle: { ...EMPTY_VEHICLE },
   });
@@ -89,6 +132,8 @@ export default function Jobs() {
       odometer_in: '',
       fuel_in: '',
       valuables_in_vehicle: '',
+      valuables_checks: {},
+      valuables_notes: '',
       newCustomer: { ...EMPTY_CUSTOMER },
       newVehicle: { ...EMPTY_VEHICLE },
     });
@@ -141,6 +186,7 @@ export default function Jobs() {
       }
       if (!vehicleId) return alert('Select or add a vehicle.');
 
+      const valuablesPayload = buildValuablesPayload(form.valuables_checks, form.valuables_notes);
       await api.jobs.create({
         vehicle_id: vehicleId,
         customer_id: customerId,
@@ -149,7 +195,7 @@ export default function Jobs() {
         due_date: form.due_date || undefined,
         odometer_in: form.odometer_in ? Number(form.odometer_in) : null,
         fuel_in: form.fuel_in || null,
-        valuables_in_vehicle: form.valuables_in_vehicle?.trim() || null,
+        valuables_in_vehicle: valuablesPayload || null,
       });
       setModal(null);
       load();
@@ -449,10 +495,37 @@ export default function Jobs() {
               </div>
               <div className="form-group">
                 <label>Valuables left in vehicle</label>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                    gap: '0.5rem 0.75rem',
+                    marginBottom: '0.75rem',
+                  }}
+                >
+                  {VALUABLE_ITEMS.map((item) => (
+                    <label key={item} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!form.valuables_checks?.[item]}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            valuables_checks: { ...(f.valuables_checks || {}), [item]: e.target.checked },
+                          }))
+                        }
+                      />
+                      {item}
+                    </label>
+                  ))}
+                </div>
+                <label style={{ display: 'block', marginBottom: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                  Notes (custom items)
+                </label>
                 <textarea
-                  value={form.valuables_in_vehicle}
-                  onChange={(e) => setForm({ ...form, valuables_in_vehicle: e.target.value })}
-                  placeholder="Optional — e.g. items customer left in the car"
+                  value={form.valuables_notes}
+                  onChange={(e) => setForm({ ...form, valuables_notes: e.target.value })}
+                  placeholder="Optional — any other items worth noting"
                   rows={3}
                   style={{ width: '100%', resize: 'vertical' }}
                 />

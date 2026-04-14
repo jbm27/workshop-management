@@ -23,6 +23,46 @@ const UNAPPROVED_QUOTE_WARNING =
 
 const INVOICE_EDIT_QUOTE_APPROVAL_WARNING =
   'Customer approval has not been sought for this item on the quote. Are you sure you want to continue?';
+const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
+
+function parseValuables(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return { selected: new Set(), notes: '' };
+
+  const selected = new Set();
+  const checklistMatch = raw.match(/Checklist:\s*([^\n\r]*)/i);
+  if (checklistMatch?.[1]) {
+    checklistMatch[1]
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((item) => {
+        const canonical = VALUABLE_ITEMS.find((v) => v.toLowerCase() === item.toLowerCase());
+        if (canonical) selected.add(canonical);
+      });
+  } else {
+    VALUABLE_ITEMS.forEach((item) => {
+      if (new RegExp(`\\b${item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(raw)) {
+        selected.add(item);
+      }
+    });
+  }
+
+  const notesMatch = raw.match(/Notes:\s*([\s\S]*)$/i);
+  let notes = notesMatch?.[1]?.trim() || '';
+  if (!checklistMatch && !notesMatch) notes = raw;
+
+  return { selected, notes };
+}
+
+function buildValuablesPayload(checks, notes) {
+  const selectedItems = VALUABLE_ITEMS.filter((item) => !!checks?.[item]);
+  const parts = [];
+  if (selectedItems.length) parts.push(`Checklist: ${selectedItems.join('; ')}`);
+  const noteText = String(notes || '').trim();
+  if (noteText) parts.push(`Notes: ${noteText}`);
+  return parts.join('\n');
+}
 
 function quoteLines(q) {
   return q?.items || [];
@@ -59,6 +99,8 @@ export default function JobDetail() {
     valuables_in_vehicle: '',
   });
   const [readingsDirty, setReadingsDirty] = useState(false);
+  const [valuablesChecks, setValuablesChecks] = useState({});
+  const [valuablesNotes, setValuablesNotes] = useState('');
   const [closeJobModal, setCloseJobModal] = useState(false);
   const [closeReadings, setCloseReadings] = useState({ odometer_out: '', fuel_out: '' });
   const [tasks, setTasks] = useState([]);
@@ -84,6 +126,11 @@ export default function JobDetail() {
 
   useEffect(() => {
     api.jobs.get(id).then((j) => {
+      const parsedValuables = parseValuables(j.valuables_in_vehicle);
+      const nextChecks = {};
+      VALUABLE_ITEMS.forEach((item) => {
+        nextChecks[item] = parsedValuables.selected.has(item);
+      });
       setJob(j);
       setReadings({
         odometer_in: j.odometer_in ?? '',
@@ -92,6 +139,8 @@ export default function JobDetail() {
         fuel_out: j.fuel_out ?? '',
         valuables_in_vehicle: j.valuables_in_vehicle ?? '',
       });
+      setValuablesChecks(nextChecks);
+      setValuablesNotes(parsedValuables.notes || '');
       setTasks((j.tasks || []).map((t) => ({
         description: t.description || (typeof t === 'string' ? t : ''),
         completed: !!t.completed,
@@ -215,7 +264,12 @@ export default function JobDetail() {
         odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
         fuel_in: fuelInLocked ? job.fuel_in : readings.fuel_in || null,
         fuel_out: readings.fuel_out || null,
-        valuables_in_vehicle: readings.valuables_in_vehicle?.trim() || null,
+        valuables_in_vehicle: buildValuablesPayload(valuablesChecks, valuablesNotes) || null,
+      });
+      const parsedValuables = parseValuables(updated.valuables_in_vehicle);
+      const nextChecks = {};
+      VALUABLE_ITEMS.forEach((item) => {
+        nextChecks[item] = parsedValuables.selected.has(item);
       });
       setJob(updated);
       setReadings({
@@ -225,6 +279,8 @@ export default function JobDetail() {
         fuel_out: updated.fuel_out ?? '',
         valuables_in_vehicle: updated.valuables_in_vehicle ?? '',
       });
+      setValuablesChecks(nextChecks);
+      setValuablesNotes(parsedValuables.notes || '');
       setReadingsDirty(false);
     } catch (err) {
       alert(err.message);
@@ -751,13 +807,38 @@ export default function JobDetail() {
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: '0.35rem 0 0.5rem' }}>
             Note anything the customer has left in the car (bags, electronics, cash, etc.).
           </p>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+              gap: '0.5rem 0.75rem',
+              marginBottom: '0.75rem',
+            }}
+          >
+            {VALUABLE_ITEMS.map((item) => (
+              <label key={item} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                <input
+                  type="checkbox"
+                  checked={!!valuablesChecks[item]}
+                  onChange={(e) => {
+                    setValuablesChecks((prev) => ({ ...prev, [item]: e.target.checked }));
+                    setReadingsDirty(true);
+                  }}
+                />
+                {item}
+              </label>
+            ))}
+          </div>
+          <label style={{ display: 'block', marginBottom: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+            Notes (custom items)
+          </label>
           <textarea
-            value={readings.valuables_in_vehicle}
+            value={valuablesNotes}
             onChange={(e) => {
-              setReadings((r) => ({ ...r, valuables_in_vehicle: e.target.value }));
+              setValuablesNotes(e.target.value);
               setReadingsDirty(true);
             }}
-            placeholder="e.g. Laptop in boot, sunglasses in glovebox — none stated"
+            placeholder="e.g. Laptop in boot, sunglasses in glovebox"
             rows={4}
             style={{ width: '100%', resize: 'vertical', minHeight: '4.5rem' }}
           />
