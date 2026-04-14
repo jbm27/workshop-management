@@ -1132,7 +1132,7 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', async (req, res) => {
     );
     y = doc.y + 6;
   }
-  y = await embedLpoVerifyQr(doc, lpo, { margin, contentWidth, y: y + 4 });
+  y = await embedLpoVerifyQr(doc, lpo, { margin, contentWidth, y: y + 4 }, req);
   doc.fillColor('#555555');
   doc.text(
     'Unit costs and subtotal exclude VAT. VAT is shown per line where applicable; exempt lines carry no VAT. Line total includes VAT when charged.',

@@ -690,7 +690,7 @@ stockRouter.get('/lpos/:lpoId/pdf', async (req, res) => {
     );
     y = doc.y + 6;
   }
-  y = await embedLpoVerifyQr(doc, lpo, { margin, contentWidth, y: y + 4 });
+  y = await embedLpoVerifyQr(doc, lpo, { margin, contentWidth, y: y + 4 }, req);
   doc.fillColor('#555555');
   doc.text(
     Number(lpo.finalized) === 1
