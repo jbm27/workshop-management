@@ -177,6 +177,7 @@ export const api = {
     downloadStockLpoPdf: (lpoId) => {
       window.open(API + `/stock/lpos/${lpoId}/pdf`, '_blank');
     },
+    stockTake: (data) => api.post('/stock/stock-take', data),
     update: (id, data) => api.patch(`/stock/${id}`, data),
     delete: (id) => api.delete(`/stock/${id}`),
   },

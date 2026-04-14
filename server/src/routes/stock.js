@@ -763,6 +763,64 @@ stockRouter.get('/', (req, res) => {
   res.json(rows);
 });
 
+stockRouter.post('/stock-take', requireAdminPermission('can_create_lpos'), (req, res) => {
+  const notes = req.body?.notes != null ? String(req.body.notes).trim() : null;
+  const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+  if (!rawLines.length) {
+    return res.status(400).json({ error: 'Provide at least one counted stock line' });
+  }
+  const normalized = [];
+  const seen = new Set();
+  for (const [idx, ln] of rawLines.entries()) {
+    const stockItemId = Number(ln?.stock_item_id);
+    const countedQuantity = Number(ln?.counted_quantity);
+    if (!Number.isFinite(stockItemId) || stockItemId <= 0) {
+      return res.status(400).json({ error: `Line ${idx + 1}: invalid stock_item_id` });
+    }
+    if (seen.has(stockItemId)) {
+      return res.status(400).json({ error: `Duplicate stock item in payload (id ${stockItemId})` });
+    }
+    seen.add(stockItemId);
+    if (!Number.isFinite(countedQuantity) || countedQuantity < 0) {
+      return res.status(400).json({ error: `Line ${idx + 1}: counted_quantity must be a non-negative number` });
+    }
+    normalized.push({ stockItemId, countedQuantity });
+  }
+
+  const adjustments = [];
+  transactionSync((tx) => {
+    for (const row of normalized) {
+      const current = tx.get(
+        'SELECT id, code, name, quantity FROM stock_items WHERE id = ?',
+        [row.stockItemId],
+      );
+      if (!current) throw new Error(`Stock item not found: ${row.stockItemId}`);
+      const oldQty = Number(current.quantity) || 0;
+      const newQty = row.countedQuantity;
+      const delta = Math.round((newQty - oldQty) * 1000) / 1000;
+      if (Math.abs(delta) < 0.000001) continue;
+      tx.run(
+        `UPDATE stock_items SET quantity = ?, updated_at = datetime('now') WHERE id = ?`,
+        [newQty, row.stockItemId],
+      );
+      adjustments.push({
+        stock_item_id: row.stockItemId,
+        code: current.code || '',
+        name: current.name || '',
+        previous_quantity: oldQty,
+        counted_quantity: newQty,
+        delta,
+      });
+    }
+  });
+
+  res.json({
+    notes,
+    adjusted_count: adjustments.length,
+    adjustments,
+  });
+});
+
 stockRouter.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Stock item not found' });

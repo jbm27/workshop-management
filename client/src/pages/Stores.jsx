@@ -229,6 +229,11 @@ export default function Stores() {
   /** Viewport position for fixed dropdown (portal — avoids modal overflow clipping) */
   const [lpoOmnibarRect, setLpoOmnibarRect] = useState(null);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [stockTake, setStockTake] = useState({
+    notes: '',
+    query: '',
+    lines: [],
+  });
 
   useEffect(() => {
     api.admin.users.assignable().then(setTeamMembers).catch(() => setTeamMembers([]));
@@ -276,6 +281,32 @@ export default function Stores() {
       })
       .catch((e) => alert(e.message))
       .finally(() => setSuppliersLoading(false));
+  };
+
+  const openStockTake = async () => {
+    setBusy(true);
+    try {
+      const rows = await api.stock.list();
+      setStockTake({
+        notes: '',
+        query: '',
+        lines: (rows || []).map((r) => {
+          const qty = Number(r.quantity) || 0;
+          return {
+            stock_item_id: Number(r.id),
+            code: r.code || '',
+            name: r.name || '',
+            system_quantity: qty,
+            counted_quantity: String(qty),
+          };
+        }),
+      });
+      setModal('stock-take');
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const openEditStockLpo = (lpoId) => {
@@ -533,6 +564,40 @@ export default function Stores() {
     }
   };
 
+  const submitStockTake = async (e) => {
+    e.preventDefault();
+    const lines = stockTake.lines
+      .map((ln) => ({
+        ...ln,
+        counted_num: Number(ln.counted_quantity),
+      }))
+      .filter((ln) => Number.isFinite(ln.counted_num) && ln.counted_num >= 0)
+      .filter((ln) => Math.abs(ln.counted_num - Number(ln.system_quantity || 0)) > 0.000001)
+      .map((ln) => ({
+        stock_item_id: ln.stock_item_id,
+        counted_quantity: ln.counted_num,
+      }));
+    if (!lines.length) {
+      alert('No quantity changes detected. Edit counted quantities first.');
+      return;
+    }
+    if (!confirm(`Apply stock take for ${lines.length} changed item(s)?`)) return;
+    setBusy(true);
+    try {
+      const out = await api.stock.stockTake({
+        notes: stockTake.notes.trim() || undefined,
+        lines,
+      });
+      setModal(null);
+      load();
+      alert(`Stock take applied. ${Number(out?.adjusted_count || 0)} item(s) reconciled.`);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   function kes(n) {
     const x = Number(n);
     if (Number.isNaN(x)) return '—';
@@ -557,6 +622,9 @@ export default function Stores() {
         />
         <button type="button" className="btn primary" onClick={openReceive}>
           Receive stock (LPO)
+        </button>
+        <button type="button" className="btn" onClick={openStockTake} disabled={!canCreateLpos || busy}>
+          Stock take
         </button>
       </div>
 
@@ -1231,6 +1299,91 @@ export default function Stores() {
               </button>
               <button type="button" className="btn primary" onClick={submitEdit}>
                 Save
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {modal === 'stock-take' && (
+        <div className="modal-overlay" onClick={() => (busy ? null : setModal(null))}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '980px' }}>
+            <header>Stock take</header>
+            <form className="body" onSubmit={submitStockTake}>
+              <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                Enter physically counted quantities. Only changed lines are applied to reconcile system stock.
+              </p>
+              <div className="form-group">
+                <label>Notes (optional)</label>
+                <input
+                  value={stockTake.notes}
+                  onChange={(e) => setStockTake((s) => ({ ...s, notes: e.target.value }))}
+                  placeholder="e.g. Opening balance / monthly cycle count"
+                />
+              </div>
+              <div className="form-group">
+                <label>Filter items</label>
+                <input
+                  value={stockTake.query}
+                  onChange={(e) => setStockTake((s) => ({ ...s, query: e.target.value }))}
+                  placeholder="Search code or name…"
+                />
+              </div>
+              <div className="table-wrap" style={{ maxHeight: '52vh', overflow: 'auto' }}>
+                <table style={{ fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Code</th>
+                      <th>Name</th>
+                      <th>System qty</th>
+                      <th>Counted qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockTake.lines
+                      .filter((ln) => {
+                        const qx = stockTake.query.trim().toLowerCase();
+                        if (!qx) return true;
+                        return `${ln.code || ''} ${ln.name || ''}`.toLowerCase().includes(qx);
+                      })
+                      .map((ln) => (
+                        <tr key={ln.stock_item_id}>
+                          <td>{ln.code || '—'}</td>
+                          <td>
+                            <strong>{ln.name}</strong>
+                          </td>
+                          <td>{Number(ln.system_quantity || 0)}</td>
+                          <td>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={ln.counted_quantity}
+                              onChange={(e) =>
+                                setStockTake((s) => ({
+                                  ...s,
+                                  lines: s.lines.map((x) =>
+                                    x.stock_item_id === ln.stock_item_id
+                                      ? { ...x, counted_quantity: e.target.value }
+                                      : x,
+                                  ),
+                                }))
+                              }
+                              style={{ width: '6.5rem' }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </form>
+            <footer>
+              <button type="button" className="btn" onClick={() => setModal(null)} disabled={busy}>
+                Cancel
+              </button>
+              <button type="button" className="btn primary" onClick={submitStockTake} disabled={busy}>
+                {busy ? 'Applying…' : 'Apply stock take'}
               </button>
             </footer>
           </div>
