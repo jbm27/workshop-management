@@ -12,6 +12,7 @@ import { suppliersRouter } from './routes/suppliers.js';
 import { lpoIprRouter } from './routes/lpoIpr.js';
 import { customerPortalRouter } from './routes/customerPortal.js';
 import { adminRouter } from './routes/admin.js';
+import { publicLpoVerifyRouter } from './routes/publicLpoVerify.js';
 import { config } from './config.js';
 
 const app = express();
@@ -29,6 +30,7 @@ app.use('/api/lpo-ipr', lpoIprRouter);
 app.use('/api/reports', reportsRouter);
   app.use('/api/customer-portal', customerPortalRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/public/lpo-verify', publicLpoVerifyRouter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 

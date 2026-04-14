@@ -235,11 +235,13 @@ CREATE TABLE IF NOT EXISTS lpos (
   approved_at TEXT,
   approved_by_admin_user_id INTEGER REFERENCES admin_users(id),
   finalized INTEGER NOT NULL DEFAULT 0,
+  public_verify_token TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_lpos_invoice ON lpos(invoice_id);
 CREATE INDEX IF NOT EXISTS idx_lpos_supplier ON lpos(supplier_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lpos_public_verify_token ON lpos(public_verify_token);
 
 CREATE TABLE IF NOT EXISTS lpo_lines (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

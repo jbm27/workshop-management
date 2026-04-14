@@ -9,6 +9,8 @@ import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
+import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
+import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -561,9 +563,9 @@ invoicesRouter.post('/:id/lpos', requireAdminPermission('can_create_lpos'), (req
   if (!Array.isArray(lines) || lines.length === 0) return res.status(400).json({ error: 'At least one LPO line is required' });
   const ref = nextSequenceRef('lpo', 'LPO');
   const insLpo = db.prepare(
-    `INSERT INTO lpos (invoice_id, supplier_id, ref, notes) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO lpos (invoice_id, supplier_id, ref, notes, public_verify_token) VALUES (?, ?, ?, ?, ?)`,
   );
-  const r = insLpo.run(req.params.id, supplier_id, ref, notes || null);
+  const r = insLpo.run(req.params.id, supplier_id, ref, notes || null, newLpoPublicVerifyToken());
   const lpoId = r.lastInsertRowid;
   const insLine = db.prepare(
     `INSERT INTO lpo_lines (lpo_id, invoice_item_id, stock_item_id, description, quantity, unit_cost, vat_rate, vat_exempt) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
@@ -922,7 +924,8 @@ const invoicePdfRowSql = `
   WHERE i.id = ?
 `;
 
-invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
+invoicesRouter.get('/:id/lpos/:lpoId/pdf', async (req, res) => {
+  try {
   const inv = db.prepare(invoicePdfRowSql).get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'LPO PDF applies to invoices only' });
@@ -1129,6 +1132,7 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
     );
     y = doc.y + 6;
   }
+  y = await embedLpoVerifyQr(doc, lpo, { margin, contentWidth, y: y + 4 });
   doc.fillColor('#555555');
   doc.text(
     'Unit costs and subtotal exclude VAT. VAT is shown per line where applicable; exempt lines carry no VAT. Line total includes VAT when charged.',
@@ -1137,6 +1141,10 @@ invoicesRouter.get('/:id/lpos/:lpoId/pdf', (req, res) => {
     { width: contentWidth },
   );
   doc.end();
+  } catch (e) {
+    console.error('[LPO PDF]', e);
+    if (!res.headersSent) res.status(500).json({ error: e.message || 'PDF failed' });
+  }
 });
 
 invoicesRouter.get('/:id/iprs/:iprId/pdf', (req, res) => {

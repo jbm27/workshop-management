@@ -6,6 +6,8 @@ import { nextSequenceRef } from '../sequences.js';
 import { normalizeLpoLineVat, lpoLineNet, lpoLineVat, lpoLineGross, SQL_LPO_LINE_GROSS } from '../lpoLineTotals.js';
 import { drawStockStoreLpoHeader, kshFormat } from '../workshopPdf.js';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
+import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
+import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
 
 export const stockRouter = Router();
 
@@ -277,8 +279,15 @@ stockRouter.post('/receive-lpo', requireAdminPermission('can_create_lpos'), (req
   if (norm.error) return res.status(400).json({ error: norm.error });
 
   const ref = nextSequenceRef('lpo', 'LPO');
-  const insLpo = db.prepare(`INSERT INTO lpos (invoice_id, supplier_id, ref, notes) VALUES (NULL, ?, ?, ?)`);
-  const lpoR = insLpo.run(supplier_id, ref, notes != null ? String(notes).trim() || null : null);
+  const insLpo = db.prepare(
+    `INSERT INTO lpos (invoice_id, supplier_id, ref, notes, public_verify_token) VALUES (NULL, ?, ?, ?, ?)`,
+  );
+  const lpoR = insLpo.run(
+    supplier_id,
+    ref,
+    notes != null ? String(notes).trim() || null : null,
+    newLpoPublicVerifyToken(),
+  );
   const lpoId = lpoR.lastInsertRowid;
 
   const created = applyStockIntakeLines(lpoId, supplier_id, norm.normalized);
@@ -482,7 +491,8 @@ stockRouter.post('/lpos/:lpoId/finalize', requireAdminPermission('can_finalize_l
   res.json(detail);
 });
 
-stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
+stockRouter.get('/lpos/:lpoId/pdf', async (req, res) => {
+  try {
   const lpo = db
     .prepare(
       `
@@ -680,6 +690,7 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     );
     y = doc.y + 6;
   }
+  y = await embedLpoVerifyQr(doc, lpo, { margin, contentWidth, y: y + 4 });
   doc.fillColor('#555555');
   doc.text(
     Number(lpo.finalized) === 1
@@ -690,6 +701,10 @@ stockRouter.get('/lpos/:lpoId/pdf', (req, res) => {
     { width: contentWidth },
   );
   doc.end();
+  } catch (e) {
+    console.error('[stock LPO PDF]', e);
+    if (!res.headersSent) res.status(500).json({ error: e.message || 'PDF failed' });
+  }
 });
 
 stockRouter.delete('/lpos/:lpoId', requireAdminPermission('can_create_lpos'), (req, res) => {

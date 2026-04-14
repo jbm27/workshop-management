@@ -1,5 +1,12 @@
 export const config = {
   port: process.env.PORT || 3001,
+  /** Base URL of this API (no trailing slash). Used for LPO verification QR links; set in production e.g. https://your-app.up.railway.app */
+  publicBaseUrl: (() => {
+    const raw = String(process.env.PUBLIC_BASE_URL || '').trim();
+    if (raw) return raw.replace(/\/+$/, '');
+    const port = process.env.PORT || 3001;
+    return `http://localhost:${port}`;
+  })(),
   company: {
     name: 'The Chequered Flag',
     legalName: 'THE CHEQUERED FLAG LTD',

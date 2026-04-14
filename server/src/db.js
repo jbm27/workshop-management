@@ -446,8 +446,38 @@ function migrate(db) {
     if (pcols.length && !pcols.includes('approved_by_admin_user_id')) {
       db.run('ALTER TABLE lpos ADD COLUMN approved_by_admin_user_id INTEGER REFERENCES admin_users(id)');
     }
+    if (pcols.length && !pcols.includes('public_verify_token')) {
+      db.run('ALTER TABLE lpos ADD COLUMN public_verify_token TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
+  }
+  try {
+    const piTok = db.exec('PRAGMA table_info(lpos)');
+    const colsTok = (piTok[0]?.values || []).map((row) => row[1]);
+    if (colsTok.includes('public_verify_token')) {
+      const needTok = all(
+        `SELECT id FROM lpos WHERE public_verify_token IS NULL OR TRIM(IFNULL(public_verify_token,'')) = ''`,
+      );
+      for (const row of needTok) {
+        let tok;
+        let ok = false;
+        for (let i = 0; i < 25; i++) {
+          tok = crypto.randomBytes(24).toString('hex');
+          const clash = get('SELECT 1 AS x FROM lpos WHERE public_verify_token = ?', [tok]);
+          if (!clash) {
+            ok = true;
+            break;
+          }
+        }
+        if (!ok) throw new Error('Failed to allocate unique LPO public_verify_token');
+        run('UPDATE lpos SET public_verify_token = ? WHERE id = ?', [tok, row.id]);
+      }
+      db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_lpos_public_verify_token ON lpos(public_verify_token)');
+    }
+  } catch (e) {
+    console.error('[workshop-db] lpos public_verify_token migration:', e?.message || e);
+    throw e;
   }
   try {
     const ll = db.exec('PRAGMA table_info(lpo_lines)');
