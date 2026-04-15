@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminAuth } from '../auth.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
+import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 
 export const jobsRouter = Router();
 
@@ -188,6 +189,7 @@ jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
   );
   const jobId = result.lastInsertRowid;
   db.prepare('UPDATE invoices SET job_id = ?, vehicle_id = ?, updated_at = datetime("now") WHERE id = ?').run(jobId, vehicleId, inv.id);
+  syncLabourLinesForJob(jobId);
 
   const job = fullJob(jobId);
   const invoiceRow = db
@@ -255,6 +257,7 @@ jobsRouter.post('/:id/time-logs', requireAdminAuth, (req, res) => {
     `INSERT INTO job_time_logs (job_id, admin_user_id, hours, notes, worked_at)
      VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))`,
   ).run(req.params.id, req.admin.id, hours, req.body?.notes ? String(req.body.notes).trim() : null, workedAt);
+  syncLabourLinesForJob(req.params.id);
   res.status(201).json(fullJob(req.params.id));
 });
 
@@ -271,6 +274,7 @@ jobsRouter.delete('/:id/time-logs/:logId', requireAdminAuth, (req, res) => {
     return res.status(403).json({ error: 'You can only remove your own time logs' });
   }
   db.prepare('DELETE FROM job_time_logs WHERE id = ?').run(req.params.logId);
+  syncLabourLinesForJob(req.params.id);
   res.json(fullJob(req.params.id));
 });
 
@@ -353,6 +357,7 @@ jobsRouter.patch('/:id', (req, res) => {
       });
     }
   }
+  syncLabourLinesForJob(req.params.id);
   const updated = fullJob(req.params.id);
   res.json(updated);
 });
@@ -384,6 +389,7 @@ jobsRouter.post('/:id/quote', (req, res) => {
   `).run(quote_number, req.params.id, job.customer_id, job.vehicle_id, taxRate);
   const invId = result.lastInsertRowid;
   db.prepare('UPDATE invoices SET subtotal = 0, tax_amount = 0, total = 0 WHERE id = ?').run(invId);
+  syncLabourLinesForJob(req.params.id);
   const row = db.prepare(`
     SELECT i.*, c.name as customer_name, v.registration
     FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id
@@ -406,6 +412,7 @@ jobsRouter.post('/:id/invoice', (req, res) => {
   `).run(invoice_number, req.params.id, job.customer_id, job.vehicle_id, taxRate);
   const invId = result.lastInsertRowid;
   db.prepare('UPDATE invoices SET subtotal = 0, tax_amount = 0, total = 0 WHERE id = ?').run(invId);
+  syncLabourLinesForJob(req.params.id);
   const row = db.prepare(`
     SELECT i.*, c.name as customer_name, v.registration
     FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id

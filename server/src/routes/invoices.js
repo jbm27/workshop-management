@@ -11,6 +11,13 @@ import { fileURLToPath } from 'url';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
 import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
 import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
+import {
+  applyLabourPurchaseCostToInvoiceItem,
+  computeJobLabourHoursAndCostRate,
+  ensureStandaloneLabourLineIfMissing,
+  refreshInvoiceTotalsFromLineItems,
+  syncLabourLinesForJob,
+} from '../jobInvoiceLabour.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -101,6 +108,8 @@ function recalcPurchaseForInvoiceItem(invoiceItemId, options = {}) {
   const { clearIfNoAlloc = false } = options;
   const id = parseInt(invoiceItemId, 10);
   if (!Number.isFinite(id) || id <= 0) return;
+
+  if (applyLabourPurchaseCostToInvoiceItem(id)) return;
 
   const lpoRow = db
     .prepare(`SELECT COALESCE(SUM(quantity * unit_cost), 0) AS alloc_net FROM lpo_lines WHERE invoice_item_id = ?`)
@@ -437,18 +446,20 @@ invoicesRouter.post('/', (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(invoice_number, job_id || null, customer_id, vehicle_id || null, resolvedType, due_date || null, notes || null, taxRate);
   const invId = result.lastInsertRowid;
-  let subtotal = 0;
   if (Array.isArray(items) && items.length) {
     const ins = db.prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
     for (const it of items) {
       const pp = resolvedType === 'quote' ? 0 : it.purchase_price ?? 0;
       ins.run(invId, it.description, it.quantity ?? 1, it.unit_price ?? 0, pp, it.type || 'other', it.stock_item_id || null);
-      subtotal += (it.quantity ?? 1) * (it.unit_price ?? 0);
     }
   }
-  const tax_amount = subtotal * taxRate;
-  const total = subtotal + tax_amount;
-  db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?').run(subtotal, tax_amount, total, invId);
+  const jid = job_id != null && String(job_id).trim() !== '' ? parseInt(job_id, 10) : null;
+  if (jid && Number.isFinite(jid) && jid > 0) {
+    syncLabourLinesForJob(jid);
+  } else {
+    ensureStandaloneLabourLineIfMissing(invId);
+  }
+  refreshInvoiceTotalsFromLineItems(invId);
   const row = db.prepare(`
     SELECT i.*, c.name as customer_name, v.registration
     FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id
@@ -458,7 +469,14 @@ invoicesRouter.post('/', (req, res) => {
   if (resolvedType === 'quote') {
     invItems = invItems.map(({ purchase_price, ...rest }) => rest);
   }
-  res.status(201).json({ ...row, items: invItems, subtotal, tax_amount, total });
+  const totals = db.prepare('SELECT subtotal, tax_amount, total FROM invoices WHERE id = ?').get(invId);
+  res.status(201).json({
+    ...row,
+    items: invItems,
+    subtotal: totals?.subtotal ?? 0,
+    tax_amount: totals?.tax_amount ?? 0,
+    total: totals?.total ?? 0,
+  });
 });
 
 invoicesRouter.patch('/:id', (req, res) => {
@@ -503,15 +521,25 @@ invoicesRouter.post('/:id/items', (req, res) => {
   if (!description || unit_price == null) return res.status(400).json({ error: 'description and unit_price required' });
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  const pp = inv.type === 'quote' ? 0 : purchase_price ?? 0;
+  const lineType = String(type || 'other');
+  if (inv.job_id && lineType === 'labour') {
+    const existingLabour = db
+      .prepare(`SELECT id FROM invoice_items WHERE invoice_id = ? AND type = 'labour' LIMIT 1`)
+      .get(req.params.id);
+    if (existingLabour) {
+      return res.status(400).json({ error: 'This document already has a labour line; it is updated automatically from the job.' });
+    }
+  }
+  let pp = inv.type === 'quote' ? 0 : purchase_price ?? 0;
+  if (inv.type === 'invoice' && inv.job_id && lineType === 'labour') {
+    pp = computeJobLabourHoursAndCostRate(inv.job_id).costPerHour;
+  }
   db.prepare(`
     INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(req.params.id, description, quantity ?? 1, unit_price, pp, type || 'other', stock_item_id || null);
-  const subtotal = db.prepare('SELECT COALESCE(SUM(quantity * unit_price), 0) as s FROM invoice_items WHERE invoice_id = ?').get(req.params.id).s;
-  const tax_amount = subtotal * (inv.tax_rate || 0);
-  db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?').run(subtotal, tax_amount, subtotal + tax_amount, req.params.id);
-  if (inv.type === 'invoice') syncInvoicePaymentStatus(req.params.id);
+  if (inv.job_id) syncLabourLinesForJob(inv.job_id);
+  else refreshInvoiceTotalsFromLineItems(req.params.id);
   const inserted = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id DESC LIMIT 1').get(req.params.id);
   if (inv.type === 'quote') {
     const { purchase_price, ...rest } = inserted;
@@ -526,8 +554,13 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
-  const nextPurchase =
+  const lineType = String(item.type || 'other');
+  const isJobLabourInvoice = inv.type === 'invoice' && lineType === 'labour' && inv.job_id != null;
+  let nextPurchase =
     inv.type === 'quote' ? 0 : bodyPurchase !== undefined ? Number(bodyPurchase) : item.purchase_price ?? 0;
+  if (isJobLabourInvoice) {
+    nextPurchase = computeJobLabourHoursAndCostRate(inv.job_id).costPerHour;
+  }
   db.prepare(`
     UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, created_at = created_at
     WHERE id = ? AND invoice_id = ?
@@ -539,10 +572,8 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
     req.params.itemId,
     req.params.id
   );
-  const subtotal = db.prepare('SELECT COALESCE(SUM(quantity * unit_price), 0) as s FROM invoice_items WHERE invoice_id = ?').get(req.params.id).s;
-  const tax_amount = subtotal * (inv.tax_rate || 0);
-  db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?').run(subtotal, tax_amount, subtotal + tax_amount, req.params.id);
-  if (inv.type === 'invoice') syncInvoicePaymentStatus(req.params.id);
+  if (inv.job_id) syncLabourLinesForJob(inv.job_id);
+  else refreshInvoiceTotalsFromLineItems(req.params.id);
   const hasLpo = db.prepare('SELECT 1 FROM lpo_lines WHERE invoice_item_id = ? LIMIT 1').get(req.params.itemId);
   const hasIpr = db.prepare('SELECT 1 FROM ipr_lines WHERE invoice_item_id = ? LIMIT 1').get(req.params.itemId);
   if (inv.type !== 'quote' && (hasLpo || hasIpr)) recalcPurchaseForInvoiceItem(req.params.itemId);
@@ -559,10 +590,8 @@ invoicesRouter.delete('/:id/items/:itemId', (req, res) => {
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const result = db.prepare('DELETE FROM invoice_items WHERE id = ? AND invoice_id = ?').run(req.params.itemId, req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Item not found' });
-  const subtotal = db.prepare('SELECT COALESCE(SUM(quantity * unit_price), 0) as s FROM invoice_items WHERE invoice_id = ?').get(req.params.id).s;
-  const tax_amount = subtotal * (inv.tax_rate || 0);
-  db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ? WHERE id = ?').run(subtotal, tax_amount, subtotal + tax_amount, req.params.id);
-  if (inv.type === 'invoice') syncInvoicePaymentStatus(req.params.id);
+  if (inv.job_id) syncLabourLinesForJob(inv.job_id);
+  else refreshInvoiceTotalsFromLineItems(req.params.id);
   res.status(204).send();
 });
 

@@ -412,6 +412,10 @@ export default function JobDetail() {
       alert('Create an invoice first (see Invoice section above).');
       return;
     }
+    if (String(line.type || '').toLowerCase() === 'labour') {
+      alert('Labour is already on the job invoice and stays in sync with time logs; you do not need to copy it from the quote.');
+      return;
+    }
     if (!isQuoteLineApproved(line) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
     try {
       await api.invoices.addItem(invoice.id, {
@@ -481,7 +485,8 @@ export default function JobDetail() {
     if (hasUnapprovedQuoteLines(quote) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
     if (!confirm('Copy all quote items into the invoice? This will add them to any existing invoice lines.')) return;
     try {
-      for (const it of quote.items) {
+      const toCopy = quote.items.filter((it) => String(it.type || '').toLowerCase() !== 'labour');
+      for (const it of toCopy) {
         await api.invoices.addItem(invoice.id, {
           description: it.description,
           quantity: it.quantity ?? 1,
@@ -1250,7 +1255,7 @@ export default function JobDetail() {
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
                               <button type="button" className="btn" onClick={() => setEditingItemId(it.id)}>Edit</button>
-                              {invoice && !invoiceLoading && (
+                              {invoice && !invoiceLoading && String(it.type || '').toLowerCase() !== 'labour' && (
                                 <button type="button" className="btn primary" onClick={() => addQuoteLineToInvoice(it)}>
                                   Add to invoice
                                 </button>
