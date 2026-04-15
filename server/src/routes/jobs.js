@@ -41,9 +41,20 @@ function fullJob(jobId) {
     `,
     )
     .all(jobId);
-  const average_labour_cost_per_hour = getAverageLabourCostPerHour();
-  const total_labour_hours = time_logs.reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
-  const total_labour_cost = Math.round(total_labour_hours * average_labour_cost_per_hour * 100) / 100;
+  const frozenCost = job.labour_cost_frozen;
+  const hasFrozen = frozenCost != null && Number.isFinite(Number(frozenCost));
+  let average_labour_cost_per_hour;
+  let total_labour_hours;
+  let total_labour_cost;
+  if (hasFrozen) {
+    total_labour_hours = Number(job.labour_hours_frozen) || 0;
+    average_labour_cost_per_hour = Number(job.labour_rate_frozen) || 0;
+    total_labour_cost = Math.round(Number(frozenCost) * 100) / 100;
+  } else {
+    average_labour_cost_per_hour = getAverageLabourCostPerHour();
+    total_labour_hours = time_logs.reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
+    total_labour_cost = Math.round(total_labour_hours * average_labour_cost_per_hour * 100) / 100;
+  }
   return {
     ...job,
     tasks,
@@ -52,6 +63,7 @@ function fullJob(jobId) {
     average_labour_cost_per_hour,
     total_labour_hours,
     total_labour_cost,
+    labour_cost_locked: hasFrozen,
   };
 }
 
@@ -230,8 +242,11 @@ jobsRouter.delete('/:id/test-drives/:tdId', (req, res) => {
 });
 
 jobsRouter.post('/:id/time-logs', requireAdminAuth, (req, res) => {
-  const row = db.prepare('SELECT id FROM jobs WHERE id = ?').get(req.params.id);
+  const row = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Job not found' });
+  if (row.status === 'completed') {
+    return res.status(400).json({ error: 'Cannot add time logs to a completed job' });
+  }
   const hours = Number(req.body?.hours);
   if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'hours must be a positive number' });
   const workedAtRaw = req.body?.worked_at != null ? String(req.body.worked_at).trim() : '';
@@ -244,6 +259,11 @@ jobsRouter.post('/:id/time-logs', requireAdminAuth, (req, res) => {
 });
 
 jobsRouter.delete('/:id/time-logs/:logId', requireAdminAuth, (req, res) => {
+  const jobRow = db.prepare('SELECT status FROM jobs WHERE id = ?').get(req.params.id);
+  if (!jobRow) return res.status(404).json({ error: 'Job not found' });
+  if (jobRow.status === 'completed') {
+    return res.status(400).json({ error: 'Cannot change time logs on a completed job' });
+  }
   const log = db.prepare('SELECT * FROM job_time_logs WHERE id = ? AND job_id = ?').get(req.params.logId, req.params.id);
   if (!log) return res.status(404).json({ error: 'Time log not found' });
   const isOwner = Number(log.admin_user_id) === Number(req.admin.id);
@@ -307,6 +327,21 @@ jobsRouter.patch('/:id', (req, res) => {
     completed_at ?? row.completed_at,
     req.params.id
   );
+  const fresh = db.prepare('SELECT status, labour_cost_frozen FROM jobs WHERE id = ?').get(req.params.id);
+  const nowCompleted = fresh?.status === 'completed';
+  if (!nowCompleted) {
+    db.prepare(
+      `UPDATE jobs SET labour_hours_frozen = NULL, labour_rate_frozen = NULL, labour_cost_frozen = NULL WHERE id = ?`,
+    ).run(req.params.id);
+  } else if (fresh.labour_cost_frozen == null) {
+    const sumRow = db.prepare('SELECT COALESCE(SUM(hours), 0) AS h FROM job_time_logs WHERE job_id = ?').get(req.params.id);
+    const totalH = Number(sumRow?.h) || 0;
+    const rate = getAverageLabourCostPerHour();
+    const cost = Math.round(totalH * rate * 100) / 100;
+    db.prepare(
+      `UPDATE jobs SET labour_hours_frozen = ?, labour_rate_frozen = ?, labour_cost_frozen = ? WHERE id = ?`,
+    ).run(totalH, rate, cost, req.params.id);
+  }
   if (Array.isArray(tasks)) {
     db.prepare('DELETE FROM job_tasks WHERE job_id = ?').run(req.params.id);
     if (tasks.length) {

@@ -169,6 +169,15 @@ function migrate(db) {
     if (!jobCols.includes('customer_feedback')) {
       db.run('ALTER TABLE jobs ADD COLUMN customer_feedback TEXT');
     }
+    if (!jobCols.includes('labour_hours_frozen')) {
+      db.run('ALTER TABLE jobs ADD COLUMN labour_hours_frozen REAL');
+    }
+    if (!jobCols.includes('labour_rate_frozen')) {
+      db.run('ALTER TABLE jobs ADD COLUMN labour_rate_frozen REAL');
+    }
+    if (!jobCols.includes('labour_cost_frozen')) {
+      db.run('ALTER TABLE jobs ADD COLUMN labour_cost_frozen REAL');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
@@ -598,6 +607,26 @@ function migrate(db) {
     db.run(`INSERT OR IGNORE INTO app_settings (key, value_real) VALUES ('average_labour_cost_per_hour', 0)`);
   } catch (e) {
     if (!e.message?.includes('already exists')) throw e;
+  }
+  try {
+    db.run(`
+      UPDATE jobs
+      SET labour_hours_frozen = (SELECT COALESCE(SUM(hours), 0) FROM job_time_logs tl WHERE tl.job_id = jobs.id),
+          labour_rate_frozen = COALESCE(
+            (SELECT value_real FROM app_settings WHERE key = 'average_labour_cost_per_hour' LIMIT 1),
+            0
+          ),
+          labour_cost_frozen = ROUND(
+            (SELECT COALESCE(SUM(hours), 0) FROM job_time_logs tl WHERE tl.job_id = jobs.id) *
+            COALESCE(
+              (SELECT value_real FROM app_settings WHERE key = 'average_labour_cost_per_hour' LIMIT 1),
+              0
+            ) * 100
+          ) / 100.0
+      WHERE status = 'completed' AND labour_cost_frozen IS NULL
+    `);
+  } catch (e) {
+    console.error('[workshop-db] jobs labour freeze backfill:', e?.message || e);
   }
 
   // Backfill missing columns (in case an older DB exists without the latest schema additions)

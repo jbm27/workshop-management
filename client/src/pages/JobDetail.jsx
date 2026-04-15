@@ -1358,17 +1358,35 @@ export default function JobDetail() {
             </div>
             <p style={{ margin: '0 0 1rem', fontSize: '0.95rem' }}>
               <strong>Job labour (cost):</strong>{' '}
-              {totalH.toLocaleString(undefined, { maximumFractionDigits: 2 })} h total
-              {rate > 0 ? (
+              {job?.labour_cost_locked ? (
                 <>
-                  {' '}
-                  × KES {rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}/h ={' '}
+                  {totalH.toLocaleString(undefined, { maximumFractionDigits: 2 })} h × KES{' '}
+                  {rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}/h ={' '}
+                  <strong>KES {totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: '0.88rem' }}>
+                    {' '}
+                    (fixed when the job was completed — changing the workshop rate does not change this figure.)
+                  </span>
+                </>
+              ) : rate > 0 ? (
+                <>
+                  {totalH.toLocaleString(undefined, { maximumFractionDigits: 2 })} h total × KES{' '}
+                  {rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}/h ={' '}
                   <strong>KES {totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
                 </>
               ) : (
                 <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
-                  {' '}
-                  — set average labour cost under <Link to="/admin/team-members">Team members</Link> to show a cost total.
+                  {totalH > 0 ? (
+                    <>
+                      {totalH.toLocaleString(undefined, { maximumFractionDigits: 2 })} h logged — set average labour cost
+                      under <Link to="/admin/team-members">Team members</Link> to show a cost total.
+                    </>
+                  ) : (
+                    <>
+                      — set average labour cost under <Link to="/admin/team-members">Team members</Link> to show a cost
+                      total.
+                    </>
+                  )}
                 </span>
               )}
             </p>

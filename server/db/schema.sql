@@ -136,6 +136,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   completed_at TEXT,
   customer_rating INTEGER,
   customer_feedback TEXT,
+  labour_hours_frozen REAL,
+  labour_rate_frozen REAL,
+  labour_cost_frozen REAL,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
