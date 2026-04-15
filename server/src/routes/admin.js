@@ -23,6 +23,7 @@ function adminUserRowToPayload(row) {
       can_record_invoice_payments: Number(row.can_record_invoice_payments) === 1,
       can_record_supplier_payments: Number(row.can_record_supplier_payments) === 1,
       can_manage_team_members: Number(row.can_manage_team_members) === 1,
+      can_view_statistics_reports: Number(row.can_view_statistics_reports) === 1,
       can_view_lpo_ipr: Number(row.can_view_lpo_ipr) === 1,
       can_view_stores: Number(row.can_view_stores) === 1,
     },
@@ -132,8 +133,9 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
   const z6 = mechanic ? 0 : Number(p.can_record_invoice_payments) === 1 ? 1 : Number(p.can_record_invoice_payments) ? 1 : 0;
   const z7 = mechanic ? 0 : Number(p.can_record_supplier_payments) === 1 ? 1 : Number(p.can_record_supplier_payments) ? 1 : 0;
   const z8 = mechanic ? 0 : Number(p.can_manage_team_members) === 1 ? 1 : Number(p.can_manage_team_members) ? 1 : 0;
-  const z9 = mechanic ? 0 : Number(p.can_view_lpo_ipr) === 1 ? 1 : Number(p.can_view_lpo_ipr) ? 1 : 0;
-  const z10 = mechanic ? 0 : Number(p.can_view_stores) === 1 ? 1 : Number(p.can_view_stores) ? 1 : 0;
+  const z9 = mechanic ? 0 : Number(p.can_view_statistics_reports) === 1 ? 1 : Number(p.can_view_statistics_reports) ? 1 : 0;
+  const z10 = mechanic ? 0 : Number(p.can_view_lpo_ipr) === 1 ? 1 : Number(p.can_view_lpo_ipr) ? 1 : 0;
+  const z11 = mechanic ? 0 : Number(p.can_view_stores) === 1 ? 1 : Number(p.can_view_stores) ? 1 : 0;
 
   const row = db.prepare(
     `
@@ -142,11 +144,11 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
          can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
          can_approve_lpo_ipr,
          can_record_invoice_payments, can_record_supplier_payments,
-         can_manage_team_members, can_view_lpo_ipr, can_view_stores)
+         can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores)
       VALUES (?, ?, ?, ?, 1, ?,
         ?, ?, ?, ?,
         ?, ?, ?,
-        ?, ?, ?)
+        ?, ?, ?, ?)
     `,
   ).run(
     usernameClean,
@@ -164,6 +166,7 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
     z8,
     z9,
     z10,
+    z11,
   );
   const id = row.lastInsertRowid;
   const inserted = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(id);
@@ -206,6 +209,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
           can_record_invoice_payments: 0,
           can_record_supplier_payments: 0,
           can_manage_team_members: 0,
+          can_view_statistics_reports: 0,
           can_view_lpo_ipr: 0,
           can_view_stores: 0,
         }
@@ -222,6 +226,8 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
             p.can_record_supplier_payments !== undefined ? (p.can_record_supplier_payments ? 1 : 0) : current.can_record_supplier_payments,
           can_manage_team_members:
             p.can_manage_team_members !== undefined ? (p.can_manage_team_members ? 1 : 0) : current.can_manage_team_members,
+          can_view_statistics_reports:
+            p.can_view_statistics_reports !== undefined ? (p.can_view_statistics_reports ? 1 : 0) : current.can_view_statistics_reports,
           can_view_lpo_ipr: p.can_view_lpo_ipr !== undefined ? (p.can_view_lpo_ipr ? 1 : 0) : current.can_view_lpo_ipr,
           can_view_stores: p.can_view_stores !== undefined ? (p.can_view_stores ? 1 : 0) : current.can_view_stores,
         };
@@ -252,6 +258,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
       can_record_invoice_payments = ?,
       can_record_supplier_payments = ?,
       can_manage_team_members = ?,
+      can_view_statistics_reports = ?,
       can_view_lpo_ipr = ?,
       can_view_stores = ?,
       updated_at = datetime('now')
@@ -273,6 +280,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
     next.can_record_invoice_payments,
     next.can_record_supplier_payments,
     next.can_manage_team_members,
+    next.can_view_statistics_reports,
     next.can_view_lpo_ipr,
     next.can_view_stores,
     adminId,
@@ -288,7 +296,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
  * Value = sum of (line quantity × invoice item unit_price) = sale value to customer for those quantities.
  * Attribution prefers assigned_admin_user_id, with fallback to received_confirmed_by_admin_user_id for legacy rows.
  */
-adminRouter.get('/team-stats', requireAdminPermission('can_manage_team_members'), (req, res) => {
+adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_reports'), (req, res) => {
   const fromRaw = String(req.query.from || '').trim();
   const toRaw = String(req.query.to || '').trim();
   const includeInactive = String(req.query.include_inactive || '') === '1';
@@ -386,7 +394,7 @@ adminRouter.get('/team-stats', requireAdminPermission('can_manage_team_members')
   });
 });
 
-adminRouter.get('/team-stats/:adminUserId/parts', requireAdminPermission('can_manage_team_members'), (req, res) => {
+adminRouter.get('/team-stats/:adminUserId/parts', requireAdminPermission('can_view_statistics_reports'), (req, res) => {
   const adminUserId = Number(req.params.adminUserId);
   const fromRaw = String(req.query.from || '').trim();
   const toRaw = String(req.query.to || '').trim();
@@ -472,7 +480,7 @@ adminRouter.get('/team-stats/:adminUserId/parts', requireAdminPermission('can_ma
   res.json({ from: fromRaw, to: toRaw, member, rows });
 });
 
-adminRouter.get('/team-stats/:adminUserId/hours', requireAdminPermission('can_manage_team_members'), (req, res) => {
+adminRouter.get('/team-stats/:adminUserId/hours', requireAdminPermission('can_view_statistics_reports'), (req, res) => {
   const adminUserId = Number(req.params.adminUserId);
   const fromRaw = String(req.query.from || '').trim();
   const toRaw = String(req.query.to || '').trim();

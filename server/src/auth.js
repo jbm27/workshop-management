@@ -55,6 +55,7 @@ function toAdminPayload(row) {
       can_record_invoice_payments: Number(row.can_record_invoice_payments) === 1,
       can_record_supplier_payments: Number(row.can_record_supplier_payments) === 1,
       can_manage_team_members: Number(row.can_manage_team_members) === 1,
+      can_view_statistics_reports: Number(row.can_view_statistics_reports) === 1,
       can_view_lpo_ipr: Number(row.can_view_lpo_ipr) === 1,
       can_view_stores: Number(row.can_view_stores) === 1,
     },

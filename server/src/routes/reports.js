@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { db } from '../db.js';
+import { requireAdminPermission } from '../auth.js';
 
 export const reportsRouter = Router();
+
+reportsRouter.use(requireAdminPermission('can_view_statistics_reports'));
 
 // Dashboard summary
 reportsRouter.get('/dashboard', (req, res) => {

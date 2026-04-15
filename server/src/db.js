@@ -574,6 +574,7 @@ function migrate(db) {
         can_record_supplier_payments INTEGER NOT NULL DEFAULT 0,
 
         can_manage_team_members INTEGER NOT NULL DEFAULT 0,
+        can_view_statistics_reports INTEGER NOT NULL DEFAULT 1,
         can_view_lpo_ipr INTEGER NOT NULL DEFAULT 1,
         can_view_stores INTEGER NOT NULL DEFAULT 1,
 
@@ -672,6 +673,10 @@ function migrate(db) {
       'ALTER TABLE admin_users ADD COLUMN can_record_supplier_payments INTEGER NOT NULL DEFAULT 0',
     );
     ensureCol('can_manage_team_members', 'ALTER TABLE admin_users ADD COLUMN can_manage_team_members INTEGER NOT NULL DEFAULT 0');
+    ensureCol(
+      'can_view_statistics_reports',
+      'ALTER TABLE admin_users ADD COLUMN can_view_statistics_reports INTEGER NOT NULL DEFAULT 1',
+    );
     ensureCol('can_view_lpo_ipr', 'ALTER TABLE admin_users ADD COLUMN can_view_lpo_ipr INTEGER NOT NULL DEFAULT 1');
     ensureCol('can_view_stores', 'ALTER TABLE admin_users ADD COLUMN can_view_stores INTEGER NOT NULL DEFAULT 1');
     ensureCol('is_mechanic', 'ALTER TABLE admin_users ADD COLUMN is_mechanic INTEGER NOT NULL DEFAULT 0');
@@ -695,8 +700,8 @@ function migrate(db) {
            can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
            can_approve_lpo_ipr,
            can_record_invoice_payments, can_record_supplier_payments,
-           can_manage_team_members, can_view_lpo_ipr, can_view_stores)
-        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+           can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores)
+        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
       `,
         [username, displayName, salt, hash],
       );
@@ -834,8 +839,8 @@ export async function initDb() {
            can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
            can_approve_lpo_ipr,
            can_record_invoice_payments, can_record_supplier_payments,
-           can_manage_team_members, can_view_lpo_ipr, can_view_stores)
-        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+           can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores)
+        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
       `,
         [username, displayName, salt, hash],
       );

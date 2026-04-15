@@ -32,6 +32,7 @@ function AppShell({ children }) {
   const canViewStores = admin?.permissions?.can_view_stores;
   const canViewLpoIpr = admin?.permissions?.can_view_lpo_ipr;
   const canManageTeamMembers = admin?.permissions?.can_manage_team_members;
+  const canViewStatsReports = admin?.permissions?.can_view_statistics_reports;
 
   useEffect(() => {
     setNavOpen(false);
@@ -95,8 +96,8 @@ function AppShell({ children }) {
               <NavLink to="/suppliers">Suppliers</NavLink>
               {admin?.permissions?.can_view_lpo_ipr !== false && <NavLink to="/lpo-ipr">LPO / IPR</NavLink>}
               <NavLink to="/job-types">Job types</NavLink>
-              <NavLink to="/feedback">Feedback</NavLink>
-              <NavLink to="/reports/jobs">Job reports</NavLink>
+              {canViewStatsReports !== false && <NavLink to="/feedback">Feedback</NavLink>}
+              {canViewStatsReports !== false && <NavLink to="/reports/jobs">Job reports</NavLink>}
             </>
           )}
           <NavLink to="/time-logs">Time logs</NavLink>
@@ -104,7 +105,7 @@ function AppShell({ children }) {
           {!isMechanic && canManageTeamMembers && (
             <>
               <NavLink to="/admin/team-members">Team members</NavLink>
-              <NavLink to="/admin/team-stats">Team statistics</NavLink>
+              {canViewStatsReports !== false && <NavLink to="/admin/team-stats">Team statistics</NavLink>}
             </>
           )}
         </nav>
@@ -129,6 +130,7 @@ function AdminShell({ location }) {
   const isMechanic = Boolean(admin?.is_mechanic);
   const canViewStores = admin?.permissions?.can_view_stores;
   const canViewLpoIpr = admin?.permissions?.can_view_lpo_ipr;
+  const canViewStatsReports = admin?.permissions?.can_view_statistics_reports;
 
   if (loading) return <div className="page-title">Loading…</div>;
   // Avoid hard route redirects in environments without history fallback.
@@ -157,6 +159,16 @@ function AdminShell({ location }) {
   }
   if (admin && !isMechanic && location.pathname.startsWith('/lpo-ipr') && canViewLpoIpr === false) {
     return <div className="page-title">You do not have access to LPO / IPR.</div>;
+  }
+  if (
+    admin &&
+    !isMechanic &&
+    (location.pathname.startsWith('/feedback') ||
+      location.pathname.startsWith('/reports/jobs') ||
+      location.pathname.startsWith('/admin/team-stats')) &&
+    canViewStatsReports === false
+  ) {
+    return <div className="page-title">You do not have access to statistics and reports.</div>;
   }
 
   return (

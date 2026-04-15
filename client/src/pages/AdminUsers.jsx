@@ -11,6 +11,7 @@ const PERMISSION_FIELDS = [
   { key: 'can_finalize_lpos', label: 'Finalise LPOs (stock intake)' },
   { key: 'can_finalize_iprs', label: 'Finalise IPRs' },
   { key: 'can_manage_team_members', label: 'Manage team members' },
+  { key: 'can_view_statistics_reports', label: 'View statistics and reports' },
   { key: 'can_view_lpo_ipr', label: 'View LPO / IPR page' },
   { key: 'can_view_stores', label: 'View Stores page' },
 ];
@@ -18,7 +19,7 @@ const PERMISSION_FIELDS = [
 function defaultPermissions() {
   const p = {};
   for (const f of PERMISSION_FIELDS) {
-    p[f.key] = f.key === 'can_view_lpo_ipr' || f.key === 'can_view_stores';
+    p[f.key] = f.key === 'can_view_lpo_ipr' || f.key === 'can_view_stores' || f.key === 'can_view_statistics_reports';
   }
   return p;
 }
@@ -113,6 +114,7 @@ export default function AdminUsers() {
     if (u.permissions.can_create_iprs) parts.push('IPR');
     if (u.permissions.can_record_invoice_payments) parts.push('Payments');
     if (u.permissions.can_finalize_lpos) parts.push('Finalise LPO');
+    if (u.permissions.can_view_statistics_reports) parts.push('Reports');
     if (u.permissions.can_manage_team_members) parts.push('Admin');
     return parts.join(' · ');
   };
@@ -155,13 +157,15 @@ export default function AdminUsers() {
 
   const canViewStores = admin?.permissions?.can_view_stores;
   const canViewLpoIpr = admin?.permissions?.can_view_lpo_ipr;
+  const canViewStatsReports = admin?.permissions?.can_view_statistics_reports;
 
   const missingNotes = useMemo(() => {
     const missing = [];
     if (!canViewLpoIpr) missing.push('LPO / IPR');
     if (!canViewStores) missing.push('Stores');
+    if (!canViewStatsReports) missing.push('Statistics / Reports');
     return missing.length ? `View restricted for: ${missing.join(', ')}` : '';
-  }, [canViewStores, canViewLpoIpr]);
+  }, [canViewStatsReports, canViewStores, canViewLpoIpr]);
 
   if (!canManage) {
     return (
