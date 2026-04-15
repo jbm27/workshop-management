@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminAuth } from '../auth.js';
+import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 
 export const jobsRouter = Router();
 
@@ -40,7 +41,18 @@ function fullJob(jobId) {
     `,
     )
     .all(jobId);
-  return { ...job, tasks, test_drives, time_logs };
+  const average_labour_cost_per_hour = getAverageLabourCostPerHour();
+  const total_labour_hours = time_logs.reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
+  const total_labour_cost = Math.round(total_labour_hours * average_labour_cost_per_hour * 100) / 100;
+  return {
+    ...job,
+    tasks,
+    test_drives,
+    time_logs,
+    average_labour_cost_per_hour,
+    total_labour_hours,
+    total_labour_cost,
+  };
 }
 
 const TEST_DRIVE_FUEL_LEVELS = ['Empty', '1/4', '1/2', '3/4', 'Full'];

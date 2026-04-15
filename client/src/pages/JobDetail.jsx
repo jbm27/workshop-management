@@ -1322,7 +1322,17 @@ export default function JobDetail() {
             byUser.set(key, existing);
           }
           const summary = Array.from(byUser.values()).sort((a, b) => b.hours - a.hours);
+          const rate = Number(job?.average_labour_cost_per_hour ?? 0);
+          const totalH =
+            job?.total_labour_hours != null && Number.isFinite(Number(job.total_labour_hours))
+              ? Number(job.total_labour_hours)
+              : (job?.time_logs || []).reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
+          const totalCost =
+            job?.total_labour_cost != null && Number.isFinite(Number(job.total_labour_cost))
+              ? Number(job.total_labour_cost)
+              : Math.round(totalH * rate * 100) / 100;
           return (
+            <>
             <div className="table-wrap" style={{ marginBottom: '1rem' }}>
               <table>
                 <thead>
@@ -1346,6 +1356,23 @@ export default function JobDetail() {
                 </tbody>
               </table>
             </div>
+            <p style={{ margin: '0 0 1rem', fontSize: '0.95rem' }}>
+              <strong>Job labour (cost):</strong>{' '}
+              {totalH.toLocaleString(undefined, { maximumFractionDigits: 2 })} h total
+              {rate > 0 ? (
+                <>
+                  {' '}
+                  × KES {rate.toLocaleString(undefined, { maximumFractionDigits: 2 })}/h ={' '}
+                  <strong>KES {totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
+                </>
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>
+                  {' '}
+                  — set average labour cost under <Link to="/admin/team-members">Team members</Link> to show a cost total.
+                </span>
+              )}
+            </p>
+            </>
           );
         })()}
         <div className="table-wrap">

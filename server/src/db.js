@@ -587,6 +587,19 @@ function migrate(db) {
     db.run('CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_user_id)');
   } catch (_) {}
 
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value_real REAL,
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.run(`INSERT OR IGNORE INTO app_settings (key, value_real) VALUES ('average_labour_cost_per_hour', 0)`);
+  } catch (e) {
+    if (!e.message?.includes('already exists')) throw e;
+  }
+
   // Backfill missing columns (in case an older DB exists without the latest schema additions)
   try {
     const info = db.exec('PRAGMA table_info(admin_users)');

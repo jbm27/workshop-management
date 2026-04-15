@@ -80,6 +80,14 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_user_id);
 
+-- Workshop-wide settings (key/value)
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value_real REAL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+INSERT OR IGNORE INTO app_settings (key, value_real) VALUES ('average_labour_cost_per_hour', 0);
+
 -- Suppliers (before stock_items for FK)
 CREATE TABLE IF NOT EXISTS suppliers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

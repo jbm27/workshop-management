@@ -48,6 +48,10 @@ export default function AdminUsers() {
   const [busy, setBusy] = useState(false);
   const [listError, setListError] = useState('');
   const [saveError, setSaveError] = useState('');
+  const [labourCostPerHour, setLabourCostPerHour] = useState('');
+  const [labourSettingsBusy, setLabourSettingsBusy] = useState(false);
+  const [labourSettingsError, setLabourSettingsError] = useState('');
+  const [labourSettingsSaved, setLabourSettingsSaved] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -64,6 +68,15 @@ export default function AdminUsers() {
   useEffect(() => {
     if (!canManage) return;
     load();
+    setLabourSettingsError('');
+    setLabourSettingsSaved(false);
+    api.admin.workshopSettings
+      .get()
+      .then((s) => {
+        const v = Number(s?.average_labour_cost_per_hour);
+        setLabourCostPerHour(Number.isFinite(v) ? String(v) : '0');
+      })
+      .catch((e) => setLabourSettingsError(String(e?.message || 'Could not load workshop settings.')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage]);
 
@@ -172,6 +185,60 @@ export default function AdminUsers() {
           {missingNotes}
         </p>
       )}
+
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
+        <h2 style={{ marginTop: 0, fontSize: '1.05rem' }}>Labour cost (workshop)</h2>
+        <p style={{ marginTop: 0, fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+          Set an <strong>average cost per hour</strong> (KES) used to estimate <strong>total labour cost</strong> on each
+          job card from time logged. This is an internal cost figure, not the customer labour sell rate on quotes.
+        </p>
+        {labourSettingsError ? (
+          <p style={{ color: 'var(--danger)', marginBottom: '0.75rem' }}>{labourSettingsError}</p>
+        ) : null}
+        {labourSettingsSaved ? (
+          <p style={{ color: '#15803d', marginBottom: '0.75rem', fontSize: '0.9rem' }}>Saved.</p>
+        ) : null}
+        <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+          <label>Average labour cost (KES per hour)</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={labourCostPerHour}
+            onChange={(e) => {
+              setLabourSettingsSaved(false);
+              setLabourCostPerHour(e.target.value);
+            }}
+            style={{ maxWidth: '12rem' }}
+          />
+        </div>
+        <button
+          type="button"
+          className="btn primary"
+          disabled={labourSettingsBusy}
+          onClick={async () => {
+            const n = Number(labourCostPerHour);
+            if (!Number.isFinite(n) || n < 0) {
+              setLabourSettingsError('Enter a valid non-negative number.');
+              return;
+            }
+            setLabourSettingsBusy(true);
+            setLabourSettingsError('');
+            setLabourSettingsSaved(false);
+            try {
+              const out = await api.admin.workshopSettings.update({ average_labour_cost_per_hour: n });
+              setLabourCostPerHour(String(out?.average_labour_cost_per_hour ?? n));
+              setLabourSettingsSaved(true);
+            } catch (e) {
+              setLabourSettingsError(String(e?.message || 'Save failed.'));
+            } finally {
+              setLabourSettingsBusy(false);
+            }
+          }}
+        >
+          {labourSettingsBusy ? 'Saving…' : 'Save labour rate'}
+        </button>
+      </div>
 
       <div className="search-bar" style={{ marginBottom: '1rem' }}>
         <button type="button" className="btn primary" onClick={openCreate}>

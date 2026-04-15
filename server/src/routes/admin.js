@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { denyMechanics, hashPassword, newSessionToken, requireAdminAuth, requireAdminPermission, verifyPassword } from '../auth.js';
+import { getAverageLabourCostPerHour, setAverageLabourCostPerHour } from '../workshopSettings.js';
 
 export const adminRouter = Router();
 
@@ -84,6 +85,24 @@ adminRouter.get('/users/assignable', requireAdminAuth, denyMechanics, (req, res)
 adminRouter.get('/users', requireAdminPermission('can_manage_team_members'), (req, res) => {
   const rows = getAllAdminUsers();
   res.json(rows.map(adminUserRowToPayload));
+});
+
+adminRouter.get('/workshop-settings', requireAdminPermission('can_manage_team_members'), (req, res) => {
+  res.json({
+    average_labour_cost_per_hour: getAverageLabourCostPerHour(),
+  });
+});
+
+adminRouter.patch('/workshop-settings', requireAdminPermission('can_manage_team_members'), (req, res) => {
+  if (req.body?.average_labour_cost_per_hour === undefined) {
+    return res.status(400).json({ error: 'average_labour_cost_per_hour is required' });
+  }
+  try {
+    const v = setAverageLabourCostPerHour(req.body.average_labour_cost_per_hour);
+    res.json({ average_labour_cost_per_hour: v });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Invalid value' });
+  }
 });
 
 adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (req, res) => {
