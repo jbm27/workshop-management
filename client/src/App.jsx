@@ -14,6 +14,7 @@ import SupplierDetail from './pages/SupplierDetail';
 import JobDetail from './pages/JobDetail';
 import CustomerPortal from './pages/CustomerPortal';
 import Feedback from './pages/Feedback';
+import JobReports from './pages/JobReports';
 import AdminLogin from './pages/AdminLogin';
 import AdminUsers from './pages/AdminUsers';
 import TeamStats from './pages/TeamStats';
@@ -95,6 +96,7 @@ function AppShell({ children }) {
               {admin?.permissions?.can_view_lpo_ipr !== false && <NavLink to="/lpo-ipr">LPO / IPR</NavLink>}
               <NavLink to="/job-types">Job types</NavLink>
               <NavLink to="/feedback">Feedback</NavLink>
+              <NavLink to="/reports/jobs">Job reports</NavLink>
             </>
           )}
           <NavLink to="/time-logs">Time logs</NavLink>
@@ -175,6 +177,7 @@ function AdminShell({ location }) {
         <Route path="/lpo-ipr" element={<LpoIpr />} />
         <Route path="/job-types" element={<JobTypes />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/reports/jobs" element={<JobReports />} />
         <Route path="/time-logs" element={<TimeLogs />} />
         <Route path="/assigned-receipts" element={<AssignedReceipts />} />
         <Route path="/admin/team-members" element={<AdminUsers />} />

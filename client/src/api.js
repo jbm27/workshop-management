@@ -202,6 +202,14 @@ export const api = {
       const qs = sp.toString();
       return api.get('/reports/feedback' + (qs ? `?${qs}` : ''));
     },
+    jobsFinancial: (params) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set('from', params.from);
+      if (params?.to) sp.set('to', params.to);
+      if (params?.date_basis) sp.set('date_basis', params.date_basis);
+      const qs = sp.toString();
+      return api.get('/reports/jobs-financial' + (qs ? `?${qs}` : ''));
+    },
   },
   customerPortal: {
     get: (token) => api.get(`/customer-portal/${encodeURIComponent(token)}`),
