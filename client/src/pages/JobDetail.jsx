@@ -89,6 +89,61 @@ function isLabourLine(it) {
   return String(it?.type || '').toLowerCase() === 'labour';
 }
 
+function lineSaleRevenue(it) {
+  return (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
+}
+
+/** Internal line cost: LPO + IPR net where lines exist; else purchase × qty (labour uses total cost on the line). */
+function lineInternalCost(it) {
+  const lpo = Number(it.lpo_allocated_cost) || 0;
+  const ipr = Number(it.ipr_allocated_cost) || 0;
+  if (lpo > 0 || ipr > 0) return lpo + ipr;
+  return (Number(it.quantity) || 0) * (Number(it.purchase_price) || 0);
+}
+
+function marginPct(numerator, denominator) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
+  return (numerator / denominator) * 100;
+}
+
+/** Job report from the job invoice only (ex-VAT subtotal vs internal costs). */
+function computeJobReport(invoice) {
+  if (!invoice || invoice.type !== 'invoice' || !Array.isArray(invoice.items)) return null;
+  const items = invoice.items;
+  let labourRevenue = 0;
+  let labourCost = 0;
+  let sparesRevenue = 0;
+  let sparesCost = 0;
+  for (const it of items) {
+    const rev = lineSaleRevenue(it);
+    const cost = lineInternalCost(it);
+    if (isLabourLine(it)) {
+      labourRevenue += rev;
+      labourCost += cost;
+    } else {
+      sparesRevenue += rev;
+      sparesCost += cost;
+    }
+  }
+  const sumLineRevenue = items.reduce((s, it) => s + lineSaleRevenue(it), 0);
+  const revenue = Number.isFinite(Number(invoice.subtotal)) ? Number(invoice.subtotal) : sumLineRevenue;
+  const totalCost = labourCost + sparesCost;
+  const profit = revenue - totalCost;
+  return {
+    revenue,
+    totalCost,
+    profit,
+    profitMarginPct: marginPct(profit, revenue),
+    labourMarginPct: marginPct(labourRevenue - labourCost, labourRevenue),
+    sparesMarginPct: marginPct(sparesRevenue - sparesCost, sparesRevenue),
+  };
+}
+
+function formatMarginPct(pctVal) {
+  if (pctVal == null || Number.isNaN(pctVal)) return '—';
+  return `${pctVal.toFixed(1)}%`;
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -525,6 +580,8 @@ export default function JobDetail() {
         : Number(invoice.total || 0) - invoicePaidTotal)
       : null;
 
+  const jobReport = !invoiceLoading && invoice ? computeJobReport(invoice) : null;
+
   if (loading) return <div className="page-title">Loading…</div>;
   if (!job) return <div className="page-title">Job not found. <Link to="/jobs">Back to jobs</Link></div>;
 
@@ -674,6 +731,52 @@ export default function JobDetail() {
               </p>
             )}
           </div>
+        </div>
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Job Report</h3>
+          {!invoice && !invoiceLoading && (
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              Create a job invoice to see revenue, costs, and margins (ex-VAT subtotal vs internal costs).
+            </p>
+          )}
+          {invoiceLoading && <p style={{ margin: 0, color: 'var(--text-muted)' }}>Loading…</p>}
+          {invoice && !invoiceLoading && !jobReport && (
+            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>No invoice data for this job.</p>
+          )}
+          {jobReport && (
+            <>
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                Based on the job invoice (ex-VAT). Costs use LPO/IPR allocations where present; otherwise line purchase
+                estimates (labour from time logs × rate).
+              </p>
+              <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Revenue</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.revenue)}</dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Total cost</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.totalCost)}</dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Profit</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.profit)}</dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Profit margin</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.profitMarginPct)}</dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Labour margin</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.labourMarginPct)}</dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Spares margin</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.sparesMarginPct)}</dd>
+                </div>
+              </dl>
+            </>
+          )}
         </div>
       </div>
 
