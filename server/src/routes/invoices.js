@@ -13,7 +13,7 @@ import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
 import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
 import {
   applyLabourPurchaseCostToInvoiceItem,
-  computeJobLabourHoursAndCostRate,
+  computeJobLabourTotalUnitCost,
   ensureStandaloneLabourLineIfMissing,
   refreshInvoiceTotalsFromLineItems,
   syncLabourLinesForJob,
@@ -532,7 +532,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
   }
   let pp = inv.type === 'quote' ? 0 : purchase_price ?? 0;
   if (inv.type === 'invoice' && inv.job_id && lineType === 'labour') {
-    pp = computeJobLabourHoursAndCostRate(inv.job_id).costPerHour;
+    pp = computeJobLabourTotalUnitCost(inv.job_id);
   }
   db.prepare(`
     INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id)
@@ -555,18 +555,25 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
   const lineType = String(item.type || 'other');
-  const isJobLabourInvoice = inv.type === 'invoice' && lineType === 'labour' && inv.job_id != null;
+  const isCanonLabour = lineType === 'labour';
+  const isJobLabourInvoice = inv.type === 'invoice' && isCanonLabour && inv.job_id != null;
+  let nextDesc = description !== undefined ? description : item.description;
+  let nextQty = quantity !== undefined ? quantity : item.quantity;
+  if (isCanonLabour) {
+    nextDesc = 'Labour';
+    nextQty = 1;
+  }
   let nextPurchase =
     inv.type === 'quote' ? 0 : bodyPurchase !== undefined ? Number(bodyPurchase) : item.purchase_price ?? 0;
   if (isJobLabourInvoice) {
-    nextPurchase = computeJobLabourHoursAndCostRate(inv.job_id).costPerHour;
+    nextPurchase = computeJobLabourTotalUnitCost(inv.job_id);
   }
   db.prepare(`
     UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, created_at = created_at
     WHERE id = ? AND invoice_id = ?
   `).run(
-    description !== undefined ? description : item.description,
-    quantity !== undefined ? quantity : item.quantity,
+    nextDesc,
+    nextQty,
     unit_price !== undefined ? unit_price : item.unit_price,
     nextPurchase,
     req.params.itemId,

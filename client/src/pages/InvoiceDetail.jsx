@@ -425,12 +425,13 @@ export default function InvoiceDetail() {
                 </tr>
               )}
               {items.map((it) => {
-                const qty = Number(it.quantity) || 0;
+                const labour = String(it.type || '').toLowerCase() === 'labour';
+                const qty = labour ? 1 : Number(it.quantity) || 0;
                 const price = Number(it.unit_price) || 0;
                 return (
                   <tr key={it.id}>
                     <td>
-                      {it.description}
+                      {labour ? <strong>Labour</strong> : it.description}
                       {!isQuote && Number(it.lpo_line_count) > 0 && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                           LPO net: {kes(Number(it.lpo_allocated_cost) || 0)}
@@ -463,7 +464,16 @@ export default function InvoiceDetail() {
                       </td>
                     )}
                     <td>{qty}</td>
-                    {!isQuote && <td>{kes(it.purchase_price)}</td>}
+                    {!isQuote && (
+                      <td>
+                        {kes(it.purchase_price)}
+                        {labour && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                            Logged hours × labour cost rate
+                          </div>
+                        )}
+                      </td>
+                    )}
                     <td>{kes(price)}</td>
                     <td>{kes(qty * price)}</td>
                   </tr>

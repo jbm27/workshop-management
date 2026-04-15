@@ -638,6 +638,13 @@ function migrate(db) {
     console.error('[workshop-db] quote purchase_price zero migration:', e?.message || e);
   }
 
+  // Labour lines: fixed title and quantity 1 (sale is manual; cost syncs from hours × rate on next update).
+  try {
+    db.run(`UPDATE invoice_items SET quantity = 1, description = 'Labour' WHERE type = 'labour'`);
+  } catch (e) {
+    console.error('[workshop-db] labour line qty/description migration:', e?.message || e);
+  }
+
   // Backfill missing columns (in case an older DB exists without the latest schema additions)
   try {
     const info = db.exec('PRAGMA table_info(admin_users)');

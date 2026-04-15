@@ -41,7 +41,13 @@ export function refreshInvoiceTotalsFromLineItems(invoiceId) {
   if (inv.type === 'invoice') syncInvoicePaymentStatusAfterTotalChange(invoiceId);
 }
 
-/** Logged hours and internal cost rate (KES/h) for labour purchase_price on invoice lines. */
+/** Total internal labour cost (KES) for the job: logged hours × prevailing cost rate (or frozen totals). */
+export function computeJobLabourTotalUnitCost(jobId) {
+  const { hours, costPerHour } = computeJobLabourHoursAndCostRate(jobId);
+  return Math.round(hours * costPerHour * 100) / 100;
+}
+
+/** Logged hours and internal cost rate (KES/h) used to derive total labour cost. */
 export function computeJobLabourHoursAndCostRate(jobId) {
   const jid = parseInt(jobId, 10);
   if (!Number.isFinite(jid) || jid <= 0) return { hours: 0, costPerHour: 0 };
@@ -76,27 +82,27 @@ const insertLabourLine = db.prepare(`
 `);
 
 /**
- * Keeps the canonical `type = labour` line on every job-linked quote/invoice in sync with
- * logged hours (quantity) and internal cost rate (purchase_price on invoices only).
+ * Keeps the canonical `type = labour` line: qty 1, description Labour, sale (unit_price) manual,
+ * purchase_price on invoices = total internal cost (hours × cost rate). Quotes keep purchase at 0.
  */
 export function syncLabourLinesForJob(jobId) {
   const jid = parseInt(jobId, 10);
   if (!Number.isFinite(jid) || jid <= 0) return;
 
-  const { hours, costPerHour } = computeJobLabourHoursAndCostRate(jid);
+  const totalCost = computeJobLabourTotalUnitCost(jid);
   const docs = db.prepare(`SELECT id, type FROM invoices WHERE job_id = ? AND type IN ('quote', 'invoice')`).all(jid);
 
   for (const doc of docs) {
-    const purchase = doc.type === 'quote' ? 0 : costPerHour;
+    const purchase = doc.type === 'quote' ? 0 : totalCost;
     const existing = db
       .prepare(`SELECT id, unit_price FROM invoice_items WHERE invoice_id = ? AND type = 'labour' ORDER BY id ASC LIMIT 1`)
       .get(doc.id);
     if (!existing) {
-      insertLabourLine.run(doc.id, hours, 0, purchase);
+      insertLabourLine.run(doc.id, 1, 0, purchase);
     } else {
       db.prepare(
-        `UPDATE invoice_items SET quantity = ?, purchase_price = ?, description = 'Labour', created_at = created_at WHERE id = ?`,
-      ).run(hours, purchase, existing.id);
+        `UPDATE invoice_items SET quantity = 1, purchase_price = ?, description = 'Labour', created_at = created_at WHERE id = ?`,
+      ).run(purchase, existing.id);
     }
     refreshInvoiceTotalsFromLineItems(doc.id);
   }
@@ -129,7 +135,7 @@ export function applyLabourPurchaseCostToInvoiceItem(invoiceItemId) {
     )
     .get(id);
   if (!meta || String(meta.inv_type) !== 'invoice' || String(meta.line_type) !== 'labour' || !meta.job_id) return false;
-  const { costPerHour } = computeJobLabourHoursAndCostRate(meta.job_id);
-  db.prepare('UPDATE invoice_items SET purchase_price = ? WHERE id = ?').run(costPerHour, id);
+  const total = computeJobLabourTotalUnitCost(meta.job_id);
+  db.prepare('UPDATE invoice_items SET purchase_price = ? WHERE id = ?').run(total, id);
   return true;
 }

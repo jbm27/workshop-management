@@ -85,6 +85,10 @@ function descriptionMatchesUnapprovedQuote(q, description) {
   );
 }
 
+function isLabourLine(it) {
+  return String(it?.type || '').toLowerCase() === 'labour';
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -881,7 +885,9 @@ export default function JobDetail() {
           <>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
               <strong>Purchase</strong> (unit cost) can be an internal estimate. Use the <strong>LPO & IPR</strong> section
-              below to allocate real supplier costs; several purchases can map to one invoice line.
+              below to allocate real supplier costs; several purchases can map to one invoice line. The{' '}
+              <strong>Labour</strong> line is fixed at quantity 1: enter the labour <strong>sale</strong> as the line total;
+              internal <strong>cost</strong> follows logged hours × the average labour cost rate (Team members).
             </p>
             {addInvoiceItem && (
               <form onSubmit={submitInvoiceItem} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
@@ -941,14 +947,32 @@ export default function JobDetail() {
                   {invoice.items?.map((it) => {
                     const purchaseFromAlloc =
                       Number(it.lpo_line_count) > 0 || Number(it.ipr_line_count) > 0;
+                    const labour = isLabourLine(it);
                     return (
                     <tr key={it.id}>
                       {editingInvoiceItemId === it.id ? (
                         <>
-                          <td><input type="text" id={`inv-desc-${it.id}`} defaultValue={it.description} style={{ width: '100%' }} /></td>
-                          <td><input type="number" id={`inv-qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} /></td>
                           <td>
-                            {purchaseFromAlloc ? (
+                            {labour ? (
+                              <span style={{ fontWeight: 600 }}>Labour</span>
+                            ) : (
+                              <input type="text" id={`inv-desc-${it.id}`} defaultValue={it.description} style={{ width: '100%' }} />
+                            )}
+                          </td>
+                          <td>
+                            {labour ? <span>1</span> : (
+                              <input type="number" id={`inv-qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />
+                            )}
+                          </td>
+                          <td>
+                            {labour ? (
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                                KES {Number(it.purchase_price ?? 0).toLocaleString()}
+                                <span style={{ display: 'block', fontSize: '0.75rem' }}>
+                                  Logged hours × labour cost rate (Team members)
+                                </span>
+                              </span>
+                            ) : purchaseFromAlloc ? (
                               <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                                 KES {Number(it.purchase_price ?? 0).toLocaleString()}
                                 <span style={{ display: 'block', fontSize: '0.75rem' }}>Set by LPO / IPR allocations</span>
@@ -964,13 +988,17 @@ export default function JobDetail() {
                               type="button"
                               className="btn primary"
                               onClick={() => {
+                                const sale = Number(document.getElementById(`inv-sale-${it.id}`)?.value) ?? it.unit_price;
+                                if (labour) {
+                                  updateInvoiceItem(it.id, { unit_price: sale });
+                                  return;
+                                }
                                 const desc = document.getElementById(`inv-desc-${it.id}`)?.value?.trim();
                                 const qty = Number(document.getElementById(`inv-qty-${it.id}`)?.value) || 1;
                                 const purchase =
                                   purchaseFromAlloc
                                     ? Number(it.purchase_price ?? 0)
                                     : Number(document.getElementById(`inv-purchase-${it.id}`)?.value) || 0;
-                                const sale = Number(document.getElementById(`inv-sale-${it.id}`)?.value) ?? it.unit_price;
                                 if (desc) updateInvoiceItem(it.id, { description: desc, quantity: qty, purchase_price: purchase, unit_price: sale });
                               }}
                             >
@@ -981,19 +1009,30 @@ export default function JobDetail() {
                         </>
                       ) : (
                         <>
-                          <td>{it.description}</td>
-                          <td>{it.quantity}</td>
+                          <td>{labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}</td>
+                          <td>{labour ? 1 : it.quantity}</td>
                           <td>
-                            {it.purchase_price != null ? 'KES ' + Number(it.purchase_price).toLocaleString() : '—'}
-                            {Number(it.lpo_line_count) > 0 && (
-                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                                LPO net · KES {Number(it.lpo_allocated_cost || 0).toLocaleString()}
-                              </div>
-                            )}
-                            {Number(it.ipr_line_count) > 0 && (
-                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                                IPR net · KES {Number(it.ipr_allocated_cost || 0).toLocaleString()}
-                              </div>
+                            {labour ? (
+                              <>
+                                {it.purchase_price != null ? 'KES ' + Number(it.purchase_price).toLocaleString() : '—'}
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                  Hours × rate (Team members)
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                {it.purchase_price != null ? 'KES ' + Number(it.purchase_price).toLocaleString() : '—'}
+                                {Number(it.lpo_line_count) > 0 && (
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                    LPO net · KES {Number(it.lpo_allocated_cost || 0).toLocaleString()}
+                                  </div>
+                                )}
+                                {Number(it.ipr_line_count) > 0 && (
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                    IPR net · KES {Number(it.ipr_allocated_cost || 0).toLocaleString()}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </td>
                           <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
@@ -1001,7 +1040,9 @@ export default function JobDetail() {
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
                               <button type="button" className="btn" onClick={() => setEditingInvoiceItemId(it.id)}>Edit</button>
-                              <button type="button" className="btn danger" onClick={() => removeInvoiceItem(it.id)}>Remove</button>
+                              {!labour && (
+                                <button type="button" className="btn danger" onClick={() => removeInvoiceItem(it.id)}>Remove</button>
+                              )}
                             </div>
                             {(it.lpo_ref || it.ipr_ref || it.ipr_refs) && (
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
@@ -1183,6 +1224,10 @@ export default function JobDetail() {
         {quoteLoading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
         {!quoteLoading && quote && (
           <>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+              The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour <strong>sale</strong> as that line total.
+              It is not tied to logged hours (hours only affect internal costing on the invoice).
+            </p>
             {addQuoteItem && (
               <form onSubmit={submitQuoteItem} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px auto', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }} className="form-row-quote">
@@ -1224,20 +1269,32 @@ export default function JobDetail() {
                   {(!quote.items || quote.items.length === 0) && (
                     <tr><td colSpan={6} className="empty">No quote lines yet. Add items above.</td></tr>
                   )}
-                  {quote.items?.map((it) => (
+                  {quote.items?.map((it) => {
+                    const labour = isLabourLine(it);
+                    return (
                     <tr key={it.id}>
                       {editingItemId === it.id ? (
                         <>
                           <td>{/* approval is read-only from customer side */}</td>
-                          <td><input type="text" id={`desc-${it.id}`} defaultValue={it.description} style={{ width: '100%' }} /></td>
-                          <td><input type="number" id={`qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} /></td>
+                          <td>
+                            {labour ? (
+                              <span style={{ fontWeight: 600 }}>Labour</span>
+                            ) : (
+                              <input type="text" id={`desc-${it.id}`} defaultValue={it.description} style={{ width: '100%' }} />
+                            )}
+                          </td>
+                          <td>{labour ? <span>1</span> : <input type="number" id={`qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />}</td>
                           <td><input type="number" id={`sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} /></td>
                           <td>—</td>
                           <td>
                             <button type="button" className="btn primary" onClick={() => {
+                              const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
+                              if (labour) {
+                                updateQuoteItem(it.id, { unit_price: sale });
+                                return;
+                              }
                               const desc = document.getElementById(`desc-${it.id}`)?.value?.trim();
                               const qty = Number(document.getElementById(`qty-${it.id}`)?.value) || 1;
-                              const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
                               if (desc) updateQuoteItem(it.id, { description: desc, quantity: qty, unit_price: sale });
                             }}>Save</button>
                             <button type="button" className="btn" onClick={() => setEditingItemId(null)}>Cancel</button>
@@ -1248,8 +1305,8 @@ export default function JobDetail() {
                           <td style={{ textAlign: 'center' }}>
                             {isQuoteLineApproved(it) ? <span style={{ color: 'green', fontWeight: 600 }}>✔</span> : ''}
                           </td>
-                          <td>{it.description}</td>
-                          <td>{it.quantity}</td>
+                          <td>{labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}</td>
+                          <td>{labour ? 1 : it.quantity}</td>
                           <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
                           <td><strong>KES {((it.quantity ?? 1) * (it.unit_price ?? 0)).toLocaleString()}</strong></td>
                           <td>
@@ -1260,13 +1317,16 @@ export default function JobDetail() {
                                   Add to invoice
                                 </button>
                               )}
-                              <button type="button" className="btn danger" onClick={() => removeQuoteItem(it.id)}>Remove</button>
+                              {!labour && (
+                                <button type="button" className="btn danger" onClick={() => removeQuoteItem(it.id)}>Remove</button>
+                              )}
                             </div>
                           </td>
                         </>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

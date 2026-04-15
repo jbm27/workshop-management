@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { denyMechanics, hashPassword, newSessionToken, requireAdminAuth, requireAdminPermission, verifyPassword } from '../auth.js';
 import { getAverageLabourCostPerHour, setAverageLabourCostPerHour } from '../workshopSettings.js';
+import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 
 export const adminRouter = Router();
 
@@ -99,6 +100,10 @@ adminRouter.patch('/workshop-settings', requireAdminPermission('can_manage_team_
   }
   try {
     const v = setAverageLabourCostPerHour(req.body.average_labour_cost_per_hour);
+    const jobRows = db.prepare(`SELECT DISTINCT job_id AS jid FROM invoices WHERE job_id IS NOT NULL`).all();
+    for (const row of jobRows) {
+      if (row?.jid) syncLabourLinesForJob(row.jid);
+    }
     res.json({ average_labour_cost_per_hour: v });
   } catch (e) {
     res.status(400).json({ error: e.message || 'Invalid value' });
