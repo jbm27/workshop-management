@@ -629,6 +629,15 @@ function migrate(db) {
     console.error('[workshop-db] jobs labour freeze backfill:', e?.message || e);
   }
 
+  // Quotes no longer carry purchase estimates; clear any legacy values.
+  try {
+    db.run(
+      `UPDATE invoice_items SET purchase_price = 0 WHERE invoice_id IN (SELECT id FROM invoices WHERE type = 'quote')`,
+    );
+  } catch (e) {
+    console.error('[workshop-db] quote purchase_price zero migration:', e?.message || e);
+  }
+
   // Backfill missing columns (in case an older DB exists without the latest schema additions)
   try {
     const info = db.exec('PRAGMA table_info(admin_users)');

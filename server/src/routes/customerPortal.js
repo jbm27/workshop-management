@@ -59,7 +59,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(quote.id)
     : [];
   const invoiceItems = invoice
     ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(invoice.id)
@@ -113,13 +113,17 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
     .get(invId, customer.id);
   if (!inv) return res.status(404).json({ error: 'Document not found' });
 
-  const items = db
-    .prepare(
-      'SELECT id, description, quantity, unit_price, purchase_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id',
-    )
-    .all(inv.id);
   const docType = String(inv.type || '').toLowerCase();
   const isQuote = docType === 'quote';
+  const items = isQuote
+    ? db
+        .prepare('SELECT id, description, quantity, unit_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id')
+        .all(inv.id)
+    : db
+        .prepare(
+          'SELECT id, description, quantity, unit_price, purchase_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id',
+        )
+        .all(inv.id);
   const quote = isQuote ? portalDocumentForCustomer(inv, items) : null;
   const invoice = !isQuote ? portalDocumentForCustomer(inv, items) : null;
 
