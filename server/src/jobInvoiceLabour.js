@@ -41,9 +41,26 @@ export function refreshInvoiceTotalsFromLineItems(invoiceId) {
   if (inv.type === 'invoice') syncInvoicePaymentStatusAfterTotalChange(invoiceId);
 }
 
-/** Total internal labour cost (KES) for the job: logged hours × prevailing cost rate (or frozen totals). */
+/**
+ * Total internal labour cost (KES) for the job — same basis as `fullJob` on the jobs API:
+ * when the job has a frozen labour cost, use that figure; otherwise logged hours × average cost rate.
+ * (Avoids `hours × rate` disagreeing with `labour_cost_frozen` after rounding or legacy rows.)
+ */
 export function computeJobLabourTotalUnitCost(jobId) {
-  const { hours, costPerHour } = computeJobLabourHoursAndCostRate(jobId);
+  const jid = parseInt(jobId, 10);
+  if (!Number.isFinite(jid) || jid <= 0) return 0;
+
+  const job = db
+    .prepare(`SELECT labour_cost_frozen FROM jobs WHERE id = ?`)
+    .get(jid);
+  if (!job) return 0;
+
+  const frozenCost = job.labour_cost_frozen;
+  if (frozenCost != null && Number.isFinite(Number(frozenCost))) {
+    return Math.round(Number(frozenCost) * 100) / 100;
+  }
+
+  const { hours, costPerHour } = computeJobLabourHoursAndCostRate(jid);
   return Math.round(hours * costPerHour * 100) / 100;
 }
 
