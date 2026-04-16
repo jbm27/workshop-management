@@ -367,7 +367,7 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
       `
       SELECT admin_user_id, reason, COALESCE(SUM(hours), 0) AS h
       FROM mechanic_idle_time_logs
-      WHERE reason IN ('waiting_spares', 'no_work')
+      WHERE reason IN ('waiting_spares', 'no_work', 'annual_leave', 'sick_leave', 'compassionate_leave')
         AND date(worked_at) >= date(?)
         AND date(worked_at) <= date(?)
       GROUP BY admin_user_id, reason
@@ -378,11 +378,20 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
   const idleMap = new Map();
   for (const row of idleByUserReason) {
     const uid = Number(row.admin_user_id);
-    if (!idleMap.has(uid)) idleMap.set(uid, { waiting_spares: 0, no_work: 0 });
+    if (!idleMap.has(uid)) idleMap.set(uid, {
+      waiting_spares: 0,
+      no_work: 0,
+      annual_leave: 0,
+      sick_leave: 0,
+      compassionate_leave: 0,
+    });
     const bucket = idleMap.get(uid);
     const hrs = Number(row.h) || 0;
     if (row.reason === 'waiting_spares') bucket.waiting_spares = hrs;
     if (row.reason === 'no_work') bucket.no_work = hrs;
+    if (row.reason === 'annual_leave') bucket.annual_leave = hrs;
+    if (row.reason === 'sick_leave') bucket.sick_leave = hrs;
+    if (row.reason === 'compassionate_leave') bucket.compassionate_leave = hrs;
   }
 
   const partsMap = new Map(partsRows.map((r) => [Number(r.admin_user_id), r]));
@@ -392,9 +401,18 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
     const id = Number(u.id);
     const p = partsMap.get(id);
     const h = hoursMap.get(id);
-    const idle = idleMap.get(id) || { waiting_spares: 0, no_work: 0 };
+    const idle = idleMap.get(id) || {
+      waiting_spares: 0,
+      no_work: 0,
+      annual_leave: 0,
+      sick_leave: 0,
+      compassionate_leave: 0,
+    };
     const wWait = Number(idle.waiting_spares) || 0;
     const wNo = Number(idle.no_work) || 0;
+    const lAnnual = Number(idle.annual_leave) || 0;
+    const lSick = Number(idle.sick_leave) || 0;
+    const lCompassionate = Number(idle.compassionate_leave) || 0;
     const qty = Number(p?.parts_quantity || 0);
     const val = Number(p?.parts_value || 0);
     return {
@@ -409,6 +427,10 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
       wasted_hours_waiting_spares: Math.round((wWait + Number.EPSILON) * 100) / 100,
       wasted_hours_no_work: Math.round((wNo + Number.EPSILON) * 100) / 100,
       wasted_hours_total: Math.round((wWait + wNo + Number.EPSILON) * 100) / 100,
+      absent_hours_annual_leave: Math.round((lAnnual + Number.EPSILON) * 100) / 100,
+      absent_hours_sick_leave: Math.round((lSick + Number.EPSILON) * 100) / 100,
+      absent_hours_compassionate_leave: Math.round((lCompassionate + Number.EPSILON) * 100) / 100,
+      absent_hours_total: Math.round((lAnnual + lSick + lCompassionate + Number.EPSILON) * 100) / 100,
     };
   });
 

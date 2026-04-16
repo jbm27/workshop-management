@@ -205,8 +205,8 @@ jobsRouter.get('/time-logs/mine', requireAdminAuth, (req, res) => {
 
 jobsRouter.post('/time-logs/idle', requireAdminAuth, (req, res) => {
   const reason = String(req.body?.reason || '').trim();
-  if (!['waiting_spares', 'no_work'].includes(reason)) {
-    return res.status(400).json({ error: 'reason must be waiting_spares or no_work' });
+  if (!['waiting_spares', 'no_work', 'annual_leave', 'sick_leave', 'compassionate_leave'].includes(reason)) {
+    return res.status(400).json({ error: 'reason must be waiting_spares, no_work, annual_leave, sick_leave, or compassionate_leave' });
   }
   const hours = Number(req.body?.hours);
   if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'hours must be a positive number' });

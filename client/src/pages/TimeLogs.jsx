@@ -9,13 +9,16 @@ function fmtJobLabel(j) {
   return `${j.job_number || `Job #${j.id}`} · ${reg}${veh ? ` · ${veh}` : ''}`;
 }
 
-const IDLE_REASON_OPTIONS = [
+const NON_JOB_REASON_OPTIONS = [
   { value: 'waiting_spares', label: 'Waiting for spares' },
   { value: 'no_work', label: 'No work to do' },
+  { value: 'annual_leave', label: 'Annual leave' },
+  { value: 'sick_leave', label: 'Sick leave' },
+  { value: 'compassionate_leave', label: 'Compassionate leave' },
 ];
 
 function idleReasonLabel(reason) {
-  return IDLE_REASON_OPTIONS.find((x) => x.value === reason)?.label || 'Idle time';
+  return NON_JOB_REASON_OPTIONS.find((x) => x.value === reason)?.label || 'Idle / absent';
 }
 
 export default function TimeLogs() {
@@ -24,7 +27,7 @@ export default function TimeLogs() {
   const [jobs, setJobs] = useState([]);
   const [jobSearch, setJobSearch] = useState('');
   const [selectedJobId, setSelectedJobId] = useState('');
-  const [activityType, setActivityType] = useState('job'); // job | idle
+  const [activityType, setActivityType] = useState('job'); // job | idle | absent
   const [idleReason, setIdleReason] = useState('waiting_spares');
   const [hours, setHours] = useState('');
   const [workedDate, setWorkedDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -58,13 +61,23 @@ export default function TimeLogs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workedDate]);
 
+  useEffect(() => {
+    if (activityType === 'job') return;
+    const allowed = activityType === 'absent'
+      ? ['annual_leave', 'sick_leave', 'compassionate_leave']
+      : ['waiting_spares', 'no_work'];
+    if (!allowed.includes(idleReason)) {
+      setIdleReason(allowed[0]);
+    }
+  }, [activityType, idleReason]);
+
   const submit = async (e) => {
     e.preventDefault();
     const hrs = Number(hours);
     if (!hrs || hrs <= 0) return alert('Enter a positive hours value');
     setBusy(true);
     try {
-      if (activityType === 'idle') {
+      if (activityType === 'idle' || activityType === 'absent') {
         await api.jobs.addIdleTimeLog({
           reason: idleReason,
           hours: hrs,
@@ -113,7 +126,8 @@ export default function TimeLogs() {
     <>
       <h1 className="page-title">Time logs</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Log your daily hours against jobs, or as idle time when waiting for spares / no work. Job pages show a summary by employee.
+        Log your daily hours against jobs, idle time (waiting for spares / no work), or absence (annual, sick, compassionate leave).
+        Job pages show a summary by employee.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -123,6 +137,7 @@ export default function TimeLogs() {
             <select value={activityType} onChange={(e) => setActivityType(e.target.value)}>
               <option value="job">Job work</option>
               <option value="idle">Idle time</option>
+              <option value="absent">Absent</option>
             </select>
           </div>
           {activityType === 'job' ? (
@@ -150,9 +165,14 @@ export default function TimeLogs() {
             </>
           ) : (
             <div className="form-group">
-              <label>Idle reason *</label>
+              <label>{activityType === 'absent' ? 'Leave type *' : 'Idle reason *'}</label>
               <select value={idleReason} onChange={(e) => setIdleReason(e.target.value)} required>
-                {IDLE_REASON_OPTIONS.map((opt) => (
+                {(activityType === 'absent'
+                  ? NON_JOB_REASON_OPTIONS.filter((opt) =>
+                      ['annual_leave', 'sick_leave', 'compassionate_leave'].includes(opt.value),
+                    )
+                  : NON_JOB_REASON_OPTIONS.filter((opt) => ['waiting_spares', 'no_work'].includes(opt.value))
+                ).map((opt) => (
                   <option key={opt.value} value={opt.value}>
                     {opt.label}
                   </option>

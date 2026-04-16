@@ -19,6 +19,9 @@ function defaultDateRange() {
 function idleReasonLabel(reason) {
   if (reason === 'waiting_spares') return 'Waiting for spares';
   if (reason === 'no_work') return 'No work to do';
+  if (reason === 'annual_leave') return 'Annual leave';
+  if (reason === 'sick_leave') return 'Sick leave';
+  if (reason === 'compassionate_leave') return 'Compassionate leave';
   return 'Idle time';
 }
 
@@ -78,6 +81,9 @@ export default function TeamStats() {
     const val = m.reduce((s, r) => s + Number(r.parts_value_total || 0), 0);
     const wastedWait = m.reduce((s, r) => s + Number(r.wasted_hours_waiting_spares || 0), 0);
     const wastedNo = m.reduce((s, r) => s + Number(r.wasted_hours_no_work || 0), 0);
+    const absentAnnual = m.reduce((s, r) => s + Number(r.absent_hours_annual_leave || 0), 0);
+    const absentSick = m.reduce((s, r) => s + Number(r.absent_hours_sick_leave || 0), 0);
+    const absentCompassionate = m.reduce((s, r) => s + Number(r.absent_hours_compassionate_leave || 0), 0);
     return {
       partsQty: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       partsValue: Math.round(val + Number.EPSILON),
@@ -85,6 +91,10 @@ export default function TeamStats() {
       wastedHoursWaitingSpares: Math.round((wastedWait + Number.EPSILON) * 100) / 100,
       wastedHoursNoWork: Math.round((wastedNo + Number.EPSILON) * 100) / 100,
       wastedHours: Math.round((wastedWait + wastedNo + Number.EPSILON) * 100) / 100,
+      absentHoursAnnualLeave: Math.round((absentAnnual + Number.EPSILON) * 100) / 100,
+      absentHoursSickLeave: Math.round((absentSick + Number.EPSILON) * 100) / 100,
+      absentHoursCompassionateLeave: Math.round((absentCompassionate + Number.EPSILON) * 100) / 100,
+      absentHours: Math.round((absentAnnual + absentSick + absentCompassionate + Number.EPSILON) * 100) / 100,
     };
   }, [data]);
 
@@ -109,12 +119,18 @@ export default function TeamStats() {
     let job = 0;
     let wait = 0;
     let noWork = 0;
+    let annualLeave = 0;
+    let sickLeave = 0;
+    let compassionateLeave = 0;
     for (const r of detailModal.rows || []) {
       const h = Number(r.hours) || 0;
       total += h;
       if (r.entry_type === 'idle') {
         if (r.idle_reason === 'waiting_spares') wait += h;
         else if (r.idle_reason === 'no_work') noWork += h;
+        else if (r.idle_reason === 'annual_leave') annualLeave += h;
+        else if (r.idle_reason === 'sick_leave') sickLeave += h;
+        else if (r.idle_reason === 'compassionate_leave') compassionateLeave += h;
       } else {
         job += h;
       }
@@ -125,6 +141,9 @@ export default function TeamStats() {
       jobHours: r2(job),
       wastedWaiting: r2(wait),
       wastedNoWork: r2(noWork),
+      absentAnnualLeave: r2(annualLeave),
+      absentSickLeave: r2(sickLeave),
+      absentCompassionateLeave: r2(compassionateLeave),
     };
   }, [detailModal]);
 
@@ -226,7 +245,13 @@ export default function TeamStats() {
           <strong>{totals.wastedHours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> wasted hours
           (<strong>{totals.wastedHoursWaitingSpares.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
           waiting for spares,{' '}
-          <strong>{totals.wastedHoursNoWork.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> no work).
+          <strong>{totals.wastedHoursNoWork.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> no work),{' '}
+          <strong>{totals.absentHours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> absent hours
+          (<strong>{totals.absentHoursAnnualLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
+          annual leave,{' '}
+          <strong>{totals.absentHoursSickLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> sick leave,{' '}
+          <strong>{totals.absentHoursCompassionateLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
+          compassionate leave).
         </p>
       )}
 
@@ -242,18 +267,21 @@ export default function TeamStats() {
                 <th>Hours logged</th>
                 <th>Waiting for spares</th>
                 <th>No work</th>
+                <th>Annual leave</th>
+                <th>Sick leave</th>
+                <th>Compassionate leave</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={8}>Loading…</td>
+                  <td colSpan={11}>Loading…</td>
                 </tr>
               )}
               {!loading && data && data.members.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="empty">
+                  <td colSpan={11} className="empty">
                     No team members match the filters.
                   </td>
                 </tr>
@@ -275,6 +303,15 @@ export default function TeamStats() {
                     </td>
                     <td>
                       {Number(r.wasted_hours_no_work || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </td>
+                    <td>
+                      {Number(r.absent_hours_annual_leave || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </td>
+                    <td>
+                      {Number(r.absent_hours_sick_leave || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </td>
+                    <td>
+                      {Number(r.absent_hours_compassionate_leave || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -327,7 +364,19 @@ export default function TeamStats() {
                   <strong>
                     {hoursDetailTotals.wastedNoWork.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </strong>{' '}
-                  no work).
+                  no work,{' '}
+                  <strong>
+                    {hoursDetailTotals.absentAnnualLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </strong>{' '}
+                  annual leave,{' '}
+                  <strong>
+                    {hoursDetailTotals.absentSickLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </strong>{' '}
+                  sick leave,{' '}
+                  <strong>
+                    {hoursDetailTotals.absentCompassionateLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </strong>{' '}
+                  compassionate leave).
                 </p>
               )}
               <div className="table-wrap">

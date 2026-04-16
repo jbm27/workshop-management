@@ -144,7 +144,7 @@ function migrate(db) {
       CREATE TABLE IF NOT EXISTS mechanic_idle_time_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         admin_user_id INTEGER NOT NULL REFERENCES admin_users(id),
-        reason TEXT NOT NULL, -- waiting_spares, no_work
+        reason TEXT NOT NULL, -- waiting_spares, no_work, annual_leave, sick_leave, compassionate_leave
         hours REAL NOT NULL,
         notes TEXT,
         worked_at TEXT NOT NULL DEFAULT (datetime('now')),
