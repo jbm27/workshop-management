@@ -76,11 +76,15 @@ export default function TeamStats() {
     const m = data?.members || [];
     const qty = m.reduce((s, r) => s + Number(r.parts_quantity_total || 0), 0);
     const val = m.reduce((s, r) => s + Number(r.parts_value_total || 0), 0);
+    const wastedWait = m.reduce((s, r) => s + Number(r.wasted_hours_waiting_spares || 0), 0);
+    const wastedNo = m.reduce((s, r) => s + Number(r.wasted_hours_no_work || 0), 0);
     return {
       partsQty: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       partsValue: Math.round(val + Number.EPSILON),
       hours: Math.round(m.reduce((s, r) => s + r.hours_logged, 0) * 100) / 100,
-      wastedHours: Math.round(m.reduce((s, r) => s + Number(r.wasted_hours_total || 0), 0) * 100) / 100,
+      wastedHoursWaitingSpares: Math.round((wastedWait + Number.EPSILON) * 100) / 100,
+      wastedHoursNoWork: Math.round((wastedNo + Number.EPSILON) * 100) / 100,
+      wastedHours: Math.round((wastedWait + wastedNo + Number.EPSILON) * 100) / 100,
     };
   }, [data]);
 
@@ -101,8 +105,27 @@ export default function TeamStats() {
 
   const hoursDetailTotals = useMemo(() => {
     if (!detailModal || detailModal.type !== 'hours' || detailModal.loading) return null;
-    const hrs = (detailModal.rows || []).reduce((s, r) => s + (Number(r.hours) || 0), 0);
-    return { hours: Math.round((hrs + Number.EPSILON) * 100) / 100 };
+    let total = 0;
+    let job = 0;
+    let wait = 0;
+    let noWork = 0;
+    for (const r of detailModal.rows || []) {
+      const h = Number(r.hours) || 0;
+      total += h;
+      if (r.entry_type === 'idle') {
+        if (r.idle_reason === 'waiting_spares') wait += h;
+        else if (r.idle_reason === 'no_work') noWork += h;
+      } else {
+        job += h;
+      }
+    }
+    const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
+    return {
+      hours: r2(total),
+      jobHours: r2(job),
+      wastedWaiting: r2(wait),
+      wastedNoWork: r2(noWork),
+    };
   }, [detailModal]);
 
   const openParts = async (member) => {
@@ -201,7 +224,9 @@ export default function TeamStats() {
           <strong>{kesWhole(totals.partsValue)}</strong> parts value,{' '}
           <strong>{totals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> hours logged,{' '}
           <strong>{totals.wastedHours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> wasted hours
-          (waiting spares + no work).
+          (<strong>{totals.wastedHoursWaitingSpares.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
+          waiting for spares,{' '}
+          <strong>{totals.wastedHoursNoWork.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> no work).
         </p>
       )}
 
@@ -215,19 +240,20 @@ export default function TeamStats() {
                 <th>Parts (qty)</th>
                 <th>Parts value</th>
                 <th>Hours logged</th>
-                <th>Wasted hours</th>
+                <th>Waiting for spares</th>
+                <th>No work</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={7}>Loading…</td>
+                  <td colSpan={8}>Loading…</td>
                 </tr>
               )}
               {!loading && data && data.members.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="empty">
+                  <td colSpan={8} className="empty">
                     No team members match the filters.
                   </td>
                 </tr>
@@ -244,7 +270,12 @@ export default function TeamStats() {
                     <td>{Number(r.parts_quantity_total || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                     <td>{kesWhole(r.parts_value_total)}</td>
                     <td>{r.hours_logged.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                    <td>{Number(r.wasted_hours_total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td>
+                      {Number(r.wasted_hours_waiting_spares || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </td>
+                    <td>
+                      {Number(r.wasted_hours_no_work || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         <button type="button" className="btn" onClick={() => openHours(r)}>View hours</button>
@@ -286,7 +317,17 @@ export default function TeamStats() {
                 <p style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>
                   <strong>Period total (this member):</strong>{' '}
                   <strong>{hoursDetailTotals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
-                  hours worked.
+                  hours logged (
+                  <strong>{hoursDetailTotals.jobHours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
+                  job,{' '}
+                  <strong>
+                    {hoursDetailTotals.wastedWaiting.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </strong>{' '}
+                  waiting for spares,{' '}
+                  <strong>
+                    {hoursDetailTotals.wastedNoWork.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </strong>{' '}
+                  no work).
                 </p>
               )}
               <div className="table-wrap">

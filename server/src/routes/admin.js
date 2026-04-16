@@ -362,27 +362,39 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
     `,
     )
     .all(fromRaw, toRaw);
-  const wastedRows = db
+  const idleByUserReason = db
     .prepare(
       `
-      SELECT admin_user_id, COALESCE(SUM(hours), 0) AS wasted_hours
+      SELECT admin_user_id, reason, COALESCE(SUM(hours), 0) AS h
       FROM mechanic_idle_time_logs
       WHERE reason IN ('waiting_spares', 'no_work')
         AND date(worked_at) >= date(?)
         AND date(worked_at) <= date(?)
-      GROUP BY admin_user_id
+      GROUP BY admin_user_id, reason
     `,
     )
     .all(fromRaw, toRaw);
 
+  const idleMap = new Map();
+  for (const row of idleByUserReason) {
+    const uid = Number(row.admin_user_id);
+    if (!idleMap.has(uid)) idleMap.set(uid, { waiting_spares: 0, no_work: 0 });
+    const bucket = idleMap.get(uid);
+    const hrs = Number(row.h) || 0;
+    if (row.reason === 'waiting_spares') bucket.waiting_spares = hrs;
+    if (row.reason === 'no_work') bucket.no_work = hrs;
+  }
+
   const partsMap = new Map(partsRows.map((r) => [Number(r.admin_user_id), r]));
   const hoursMap = new Map(hoursRows.map((r) => [Number(r.admin_user_id), r]));
-  const wastedMap = new Map(wastedRows.map((r) => [Number(r.admin_user_id), r]));
 
   const members = users.map((u) => {
     const id = Number(u.id);
     const p = partsMap.get(id);
     const h = hoursMap.get(id);
+    const idle = idleMap.get(id) || { waiting_spares: 0, no_work: 0 };
+    const wWait = Number(idle.waiting_spares) || 0;
+    const wNo = Number(idle.no_work) || 0;
     const qty = Number(p?.parts_quantity || 0);
     const val = Number(p?.parts_value || 0);
     return {
@@ -394,7 +406,9 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
       parts_quantity_total: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       parts_value_total: Math.round(val + Number.EPSILON),
       hours_logged: Math.round((Number(h?.hours_logged || 0) + Number.EPSILON) * 100) / 100,
-      wasted_hours_total: Math.round((Number(wastedMap.get(id)?.wasted_hours || 0) + Number.EPSILON) * 100) / 100,
+      wasted_hours_waiting_spares: Math.round((wWait + Number.EPSILON) * 100) / 100,
+      wasted_hours_no_work: Math.round((wNo + Number.EPSILON) * 100) / 100,
+      wasted_hours_total: Math.round((wWait + wNo + Number.EPSILON) * 100) / 100,
     };
   });
 
