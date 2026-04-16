@@ -100,7 +100,7 @@ function AppShell({ children }) {
               {canViewStatsReports !== false && <NavLink to="/reports/jobs">Job reports</NavLink>}
             </>
           )}
-          <NavLink to="/time-logs">Time logs</NavLink>
+          {isMechanic && <NavLink to="/time-logs">Time logs</NavLink>}
           <NavLink to="/assigned-receipts">Assigned parts</NavLink>
           {!isMechanic && canManageTeamMembers && (
             <>
@@ -159,6 +159,9 @@ function AdminShell({ location }) {
   }
   if (admin && !isMechanic && location.pathname.startsWith('/lpo-ipr') && canViewLpoIpr === false) {
     return <div className="page-title">You do not have access to LPO / IPR.</div>;
+  }
+  if (admin && !isMechanic && location.pathname.startsWith('/time-logs')) {
+    return <div className="page-title">Time logs are available to mechanics only.</div>;
   }
   if (
     admin &&
