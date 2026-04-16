@@ -16,6 +16,12 @@ function defaultDateRange() {
   return { from: iso(from), to: iso(to) };
 }
 
+function idleReasonLabel(reason) {
+  if (reason === 'waiting_spares') return 'Waiting for spares';
+  if (reason === 'no_work') return 'No work to do';
+  return 'Idle time';
+}
+
 export default function TeamStats() {
   const { admin } = useAdmin();
   const canManage = admin?.permissions?.can_manage_team_members;
@@ -74,6 +80,7 @@ export default function TeamStats() {
       partsQty: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       partsValue: Math.round(val + Number.EPSILON),
       hours: Math.round(m.reduce((s, r) => s + r.hours_logged, 0) * 100) / 100,
+      wastedHours: Math.round(m.reduce((s, r) => s + Number(r.wasted_hours_total || 0), 0) * 100) / 100,
     };
   }, [data]);
 
@@ -192,7 +199,9 @@ export default function TeamStats() {
           Period <strong>{data.from}</strong> to <strong>{data.to}</strong> (all listed members) —{' '}
           <strong>{totals.partsQty.toLocaleString(undefined, { maximumFractionDigits: 3 })}</strong> parts,{' '}
           <strong>{kesWhole(totals.partsValue)}</strong> parts value,{' '}
-          <strong>{totals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> hours logged.
+          <strong>{totals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> hours logged,{' '}
+          <strong>{totals.wastedHours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> wasted hours
+          (waiting spares + no work).
         </p>
       )}
 
@@ -206,18 +215,19 @@ export default function TeamStats() {
                 <th>Parts (qty)</th>
                 <th>Parts value</th>
                 <th>Hours logged</th>
+                <th>Wasted hours</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6}>Loading…</td>
+                  <td colSpan={7}>Loading…</td>
                 </tr>
               )}
               {!loading && data && data.members.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="empty">
+                  <td colSpan={7} className="empty">
                     No team members match the filters.
                   </td>
                 </tr>
@@ -234,6 +244,7 @@ export default function TeamStats() {
                     <td>{Number(r.parts_quantity_total || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                     <td>{kesWhole(r.parts_value_total)}</td>
                     <td>{r.hours_logged.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td>{Number(r.wasted_hours_total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         <button type="button" className="btn" onClick={() => openHours(r)}>View hours</button>
@@ -294,6 +305,7 @@ export default function TeamStats() {
                     ) : (
                       <tr>
                         <th>Date</th>
+                        <th>Activity</th>
                         <th>Hours</th>
                         <th>Job / Vehicle</th>
                         <th>Notes</th>
@@ -303,12 +315,12 @@ export default function TeamStats() {
                   <tbody>
                     {detailModal.loading && (
                       <tr>
-                        <td colSpan={detailModal.type === 'parts' ? 7 : 4}>Loading…</td>
+                        <td colSpan={detailModal.type === 'parts' ? 7 : 5}>Loading…</td>
                       </tr>
                     )}
                     {!detailModal.loading && detailModal.rows.length === 0 && (
                       <tr>
-                        <td colSpan={detailModal.type === 'parts' ? 7 : 4} className="empty">
+                        <td colSpan={detailModal.type === 'parts' ? 7 : 5} className="empty">
                           No records for this period.
                         </td>
                       </tr>
@@ -329,9 +341,10 @@ export default function TeamStats() {
                       detailModal.rows.map((r) => (
                         <tr key={`h-${r.id}`}>
                           <td>{String(r.worked_at || '').slice(0, 10) || '—'}</td>
+                          <td>{r.entry_type === 'idle' ? idleReasonLabel(r.idle_reason) : 'Job work'}</td>
                           <td>{Number(r.hours || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                           <td>
-                            {r.job_number || '—'}
+                            {r.entry_type === 'idle' ? '—' : r.job_number || '—'}
                             {r.vehicle_registration ? ` · ${r.vehicle_registration}` : ''}
                             {(r.vehicle_make || r.vehicle_model) ? ` · ${[r.vehicle_make, r.vehicle_model].filter(Boolean).join(' ')}` : ''}
                           </td>
@@ -358,6 +371,7 @@ export default function TeamStats() {
                     <tfoot>
                       <tr style={{ borderTop: '2px solid var(--border)' }}>
                         <td style={{ fontWeight: 600, color: 'var(--text-muted)' }}>Total</td>
+                        <td />
                         <td style={{ fontWeight: 600 }}>
                           {hoursDetailTotals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </td>

@@ -9,12 +9,23 @@ function fmtJobLabel(j) {
   return `${j.job_number || `Job #${j.id}`} · ${reg}${veh ? ` · ${veh}` : ''}`;
 }
 
+const IDLE_REASON_OPTIONS = [
+  { value: 'waiting_spares', label: 'Waiting for spares' },
+  { value: 'no_work', label: 'No work to do' },
+];
+
+function idleReasonLabel(reason) {
+  return IDLE_REASON_OPTIONS.find((x) => x.value === reason)?.label || 'Idle time';
+}
+
 export default function TimeLogs() {
   const { admin } = useAdmin();
   const isMechanic = Boolean(admin?.is_mechanic);
   const [jobs, setJobs] = useState([]);
   const [jobSearch, setJobSearch] = useState('');
   const [selectedJobId, setSelectedJobId] = useState('');
+  const [activityType, setActivityType] = useState('job'); // job | idle
+  const [idleReason, setIdleReason] = useState('waiting_spares');
   const [hours, setHours] = useState('');
   const [workedDate, setWorkedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
@@ -49,17 +60,26 @@ export default function TimeLogs() {
 
   const submit = async (e) => {
     e.preventDefault();
-    const jobId = Number(selectedJobId);
     const hrs = Number(hours);
-    if (!jobId) return alert('Select a job');
     if (!hrs || hrs <= 0) return alert('Enter a positive hours value');
     setBusy(true);
     try {
-      await api.jobs.addTimeLog(jobId, {
-        hours: hrs,
-        worked_at: workedDate ? `${workedDate}T12:00:00` : undefined,
-        notes: notes.trim() || undefined,
-      });
+      if (activityType === 'idle') {
+        await api.jobs.addIdleTimeLog({
+          reason: idleReason,
+          hours: hrs,
+          worked_at: workedDate ? `${workedDate}T12:00:00` : undefined,
+          notes: notes.trim() || undefined,
+        });
+      } else {
+        const jobId = Number(selectedJobId);
+        if (!jobId) return alert('Select a job');
+        await api.jobs.addTimeLog(jobId, {
+          hours: hrs,
+          worked_at: workedDate ? `${workedDate}T12:00:00` : undefined,
+          notes: notes.trim() || undefined,
+        });
+      }
       setHours('');
       setNotes('');
       await loadMyLogs();
@@ -73,7 +93,11 @@ export default function TimeLogs() {
   const removeLog = async (row) => {
     if (!confirm('Remove this time log?')) return;
     try {
-      await api.jobs.deleteTimeLog(row.job_id, row.id);
+      if (row.entry_type === 'idle') {
+        await api.jobs.deleteIdleTimeLog(row.id);
+      } else {
+        await api.jobs.deleteTimeLog(row.job_id, row.id);
+      }
       await loadMyLogs();
     } catch (err) {
       alert(err.message);
@@ -89,31 +113,53 @@ export default function TimeLogs() {
     <>
       <h1 className="page-title">Time logs</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Log your daily hours against jobs. Job pages show a summary by employee.
+        Log your daily hours against jobs, or as idle time when waiting for spares / no work. Job pages show a summary by employee.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <form onSubmit={submit}>
           <div className="form-group">
-            <label>Find job</label>
-            <input
-              type="search"
-              value={jobSearch}
-              onChange={(e) => setJobSearch(e.target.value)}
-              placeholder="Search by job number, registration, customer…"
-            />
-          </div>
-          <div className="form-group">
-            <label>Job *</label>
-            <select value={selectedJobId} onChange={(e) => setSelectedJobId(e.target.value)} required>
-              <option value="">— Select job —</option>
-              {jobs.map((j) => (
-                <option key={j.id} value={j.id}>
-                  {fmtJobLabel(j)}
-                </option>
-              ))}
+            <label>Activity type *</label>
+            <select value={activityType} onChange={(e) => setActivityType(e.target.value)}>
+              <option value="job">Job work</option>
+              <option value="idle">Idle time</option>
             </select>
           </div>
+          {activityType === 'job' ? (
+            <>
+              <div className="form-group">
+                <label>Find job</label>
+                <input
+                  type="search"
+                  value={jobSearch}
+                  onChange={(e) => setJobSearch(e.target.value)}
+                  placeholder="Search by job number, registration, customer…"
+                />
+              </div>
+              <div className="form-group">
+                <label>Job *</label>
+                <select value={selectedJobId} onChange={(e) => setSelectedJobId(e.target.value)} required>
+                  <option value="">— Select job —</option>
+                  {jobs.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {fmtJobLabel(j)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            <div className="form-group">
+              <label>Idle reason *</label>
+              <select value={idleReason} onChange={(e) => setIdleReason(e.target.value)} required>
+                {IDLE_REASON_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div
             style={{
               display: 'grid',
@@ -149,6 +195,7 @@ export default function TimeLogs() {
             <thead>
               <tr>
                 <th>Job</th>
+                <th>Activity</th>
                 <th>Hours</th>
                 <th>Notes</th>
                 <th></th>
@@ -156,21 +203,24 @@ export default function TimeLogs() {
             </thead>
             <tbody>
               {loadingLogs && (
-                <tr><td colSpan={4}>Loading…</td></tr>
+                <tr><td colSpan={5}>Loading…</td></tr>
               )}
               {!loadingLogs && myLogs.length === 0 && (
-                <tr><td colSpan={4} className="empty">No time logs for this date.</td></tr>
+                <tr><td colSpan={5} className="empty">No time logs for this date.</td></tr>
               )}
               {!loadingLogs &&
                 myLogs.map((r) => (
                   <tr key={r.id}>
                     <td>
-                      {isMechanic ? (
+                      {r.entry_type === 'idle' ? (
+                        '—'
+                      ) : isMechanic ? (
                         r.job_number || `Job #${r.job_id}`
                       ) : (
                         <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
                       )}
                     </td>
+                    <td>{r.entry_type === 'idle' ? idleReasonLabel(r.idle_reason) : 'Job work'}</td>
                     <td>{Number(r.hours || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{r.notes || '—'}</td>
                     <td>
@@ -193,7 +243,9 @@ export default function TimeLogs() {
             myLogs.map((r) => (
               <div key={r.id} className="time-log-card">
                 <div className="time-log-card-job">
-                  {isMechanic ? (
+                  {r.entry_type === 'idle' ? (
+                    idleReasonLabel(r.idle_reason)
+                  ) : isMechanic ? (
                     r.job_number || `Job #${r.job_id}`
                   ) : (
                     <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>

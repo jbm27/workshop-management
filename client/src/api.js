@@ -103,7 +103,9 @@ export const api = {
     createQuote: (id) => api.post(`/jobs/${id}/quote`, {}),
     createInvoice: (id) => api.post(`/jobs/${id}/invoice`, {}),
     addTimeLog: (jobId, body) => api.post(`/jobs/${jobId}/time-logs`, body),
+    addIdleTimeLog: (body) => api.post('/jobs/time-logs/idle', body),
     deleteTimeLog: (jobId, logId) => api.delete(`/jobs/${jobId}/time-logs/${logId}`),
+    deleteIdleTimeLog: (logId) => api.delete(`/jobs/time-logs/idle/${logId}`),
     myTimeLogs: (date) => api.get('/jobs/time-logs/mine' + (date ? `?date=${encodeURIComponent(date)}` : '')),
   },
   invoices: {

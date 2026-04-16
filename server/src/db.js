@@ -139,6 +139,23 @@ function migrate(db) {
   } catch (e) {
     if (!e.message?.includes('already exists')) throw e;
   }
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS mechanic_idle_time_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_user_id INTEGER NOT NULL REFERENCES admin_users(id),
+        reason TEXT NOT NULL, -- waiting_spares, no_work
+        hours REAL NOT NULL,
+        notes TEXT,
+        worked_at TEXT NOT NULL DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_mechanic_idle_time_logs_admin ON mechanic_idle_time_logs(admin_user_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_mechanic_idle_time_logs_worked_at ON mechanic_idle_time_logs(worked_at)');
+  } catch (e) {
+    if (!e.message?.includes('already exists')) throw e;
+  }
   // Ensure job_tasks has a completed flag for checklist behaviour
   try {
     const jtInfo = db.exec("PRAGMA table_info(job_tasks)");

@@ -362,9 +362,22 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
     `,
     )
     .all(fromRaw, toRaw);
+  const wastedRows = db
+    .prepare(
+      `
+      SELECT admin_user_id, COALESCE(SUM(hours), 0) AS wasted_hours
+      FROM mechanic_idle_time_logs
+      WHERE reason IN ('waiting_spares', 'no_work')
+        AND date(worked_at) >= date(?)
+        AND date(worked_at) <= date(?)
+      GROUP BY admin_user_id
+    `,
+    )
+    .all(fromRaw, toRaw);
 
   const partsMap = new Map(partsRows.map((r) => [Number(r.admin_user_id), r]));
   const hoursMap = new Map(hoursRows.map((r) => [Number(r.admin_user_id), r]));
+  const wastedMap = new Map(wastedRows.map((r) => [Number(r.admin_user_id), r]));
 
   const members = users.map((u) => {
     const id = Number(u.id);
@@ -381,6 +394,7 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
       parts_quantity_total: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       parts_value_total: Math.round(val + Number.EPSILON),
       hours_logged: Math.round((Number(h?.hours_logged || 0) + Number.EPSILON) * 100) / 100,
+      wasted_hours_total: Math.round((Number(wastedMap.get(id)?.wasted_hours || 0) + Number.EPSILON) * 100) / 100,
     };
   });
 
@@ -495,11 +509,13 @@ adminRouter.get('/team-stats/:adminUserId/hours', requireAdminPermission('can_vi
     .get(adminUserId);
   if (!member) return res.status(404).json({ error: 'Team member not found' });
 
-  const rows = db
+  const jobRows = db
     .prepare(
       `
       SELECT
         tl.id,
+        'job' AS entry_type,
+        NULL AS idle_reason,
         tl.job_id,
         j.job_number,
         v.registration AS vehicle_registration,
@@ -518,6 +534,35 @@ adminRouter.get('/team-stats/:adminUserId/hours', requireAdminPermission('can_vi
     `,
     )
     .all(adminUserId, fromRaw, toRaw);
+  const idleRows = db
+    .prepare(
+      `
+      SELECT
+        il.id,
+        'idle' AS entry_type,
+        il.reason AS idle_reason,
+        NULL AS job_id,
+        NULL AS job_number,
+        NULL AS vehicle_registration,
+        NULL AS vehicle_make,
+        NULL AS vehicle_model,
+        il.hours,
+        il.notes,
+        il.worked_at
+      FROM mechanic_idle_time_logs il
+      WHERE il.admin_user_id = ?
+        AND date(il.worked_at) >= date(?)
+        AND date(il.worked_at) <= date(?)
+      ORDER BY il.worked_at DESC, il.id DESC
+    `,
+    )
+    .all(adminUserId, fromRaw, toRaw);
+  const rows = [...jobRows, ...idleRows].sort((a, b) => {
+    const aw = String(a.worked_at || '');
+    const bw = String(b.worked_at || '');
+    if (bw !== aw) return bw.localeCompare(aw);
+    return Number(b.id || 0) - Number(a.id || 0);
+  });
 
   res.json({ from: fromRaw, to: toRaw, member, rows });
 });

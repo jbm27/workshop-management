@@ -116,26 +116,122 @@ jobsRouter.get('/time-logs/mine', requireAdminAuth, (req, res) => {
   const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
   const sql = hasDate
     ? `
-      SELECT tl.*, j.job_number, v.registration, v.make, v.model
-      FROM job_time_logs tl
-      JOIN jobs j ON j.id = tl.job_id
-      JOIN vehicles v ON v.id = j.vehicle_id
-      WHERE tl.admin_user_id = ?
-        AND date(tl.worked_at) = ?
-      ORDER BY tl.worked_at DESC, tl.id DESC
+      SELECT * FROM (
+        SELECT
+          tl.id,
+          tl.job_id,
+          tl.admin_user_id,
+          tl.hours,
+          tl.notes,
+          tl.worked_at,
+          tl.created_at,
+          j.job_number,
+          v.registration,
+          v.make,
+          v.model,
+          'job' AS entry_type,
+          NULL AS idle_reason
+        FROM job_time_logs tl
+        JOIN jobs j ON j.id = tl.job_id
+        JOIN vehicles v ON v.id = j.vehicle_id
+        WHERE tl.admin_user_id = ?
+          AND date(tl.worked_at) = ?
+        UNION ALL
+        SELECT
+          il.id,
+          NULL AS job_id,
+          il.admin_user_id,
+          il.hours,
+          il.notes,
+          il.worked_at,
+          il.created_at,
+          NULL AS job_number,
+          NULL AS registration,
+          NULL AS make,
+          NULL AS model,
+          'idle' AS entry_type,
+          il.reason AS idle_reason
+        FROM mechanic_idle_time_logs il
+        WHERE il.admin_user_id = ?
+          AND date(il.worked_at) = ?
+      )
+      ORDER BY worked_at DESC, id DESC
     `
     : `
-      SELECT tl.*, j.job_number, v.registration, v.make, v.model
-      FROM job_time_logs tl
-      JOIN jobs j ON j.id = tl.job_id
-      JOIN vehicles v ON v.id = j.vehicle_id
-      WHERE tl.admin_user_id = ?
-      ORDER BY tl.worked_at DESC, tl.id DESC
+      SELECT * FROM (
+        SELECT
+          tl.id,
+          tl.job_id,
+          tl.admin_user_id,
+          tl.hours,
+          tl.notes,
+          tl.worked_at,
+          tl.created_at,
+          j.job_number,
+          v.registration,
+          v.make,
+          v.model,
+          'job' AS entry_type,
+          NULL AS idle_reason
+        FROM job_time_logs tl
+        JOIN jobs j ON j.id = tl.job_id
+        JOIN vehicles v ON v.id = j.vehicle_id
+        WHERE tl.admin_user_id = ?
+        UNION ALL
+        SELECT
+          il.id,
+          NULL AS job_id,
+          il.admin_user_id,
+          il.hours,
+          il.notes,
+          il.worked_at,
+          il.created_at,
+          NULL AS job_number,
+          NULL AS registration,
+          NULL AS make,
+          NULL AS model,
+          'idle' AS entry_type,
+          il.reason AS idle_reason
+        FROM mechanic_idle_time_logs il
+        WHERE il.admin_user_id = ?
+      )
+      ORDER BY worked_at DESC, id DESC
     `;
   const rows = hasDate
-    ? db.prepare(sql).all(req.admin.id, date)
-    : db.prepare(sql).all(req.admin.id);
+    ? db.prepare(sql).all(req.admin.id, date, req.admin.id, date)
+    : db.prepare(sql).all(req.admin.id, req.admin.id);
   res.json(rows);
+});
+
+jobsRouter.post('/time-logs/idle', requireAdminAuth, (req, res) => {
+  const reason = String(req.body?.reason || '').trim();
+  if (!['waiting_spares', 'no_work'].includes(reason)) {
+    return res.status(400).json({ error: 'reason must be waiting_spares or no_work' });
+  }
+  const hours = Number(req.body?.hours);
+  if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'hours must be a positive number' });
+  const workedAtRaw = req.body?.worked_at != null ? String(req.body.worked_at).trim() : '';
+  const workedAt = workedAtRaw || null;
+  const notes = req.body?.notes ? String(req.body.notes).trim() : null;
+  const result = db.prepare(
+    `INSERT INTO mechanic_idle_time_logs (admin_user_id, reason, hours, notes, worked_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')))`,
+  ).run(req.admin.id, reason, hours, notes, workedAt);
+  const row = db.prepare('SELECT * FROM mechanic_idle_time_logs WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json({ ...row, entry_type: 'idle', idle_reason: row.reason });
+});
+
+jobsRouter.delete('/time-logs/idle/:logId', requireAdminAuth, (req, res) => {
+  const id = Number(req.params.logId);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid idle log id' });
+  const row = db.prepare('SELECT * FROM mechanic_idle_time_logs WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'Idle time log not found' });
+  const isOwner = Number(row.admin_user_id) === Number(req.admin.id);
+  if (!isOwner && !req.admin.permissions?.can_manage_team_members) {
+    return res.status(403).json({ error: 'You can only remove your own idle time logs' });
+  }
+  db.prepare('DELETE FROM mechanic_idle_time_logs WHERE id = ?').run(id);
+  res.status(204).send();
 });
 
 /** Create a workshop job from a standalone quote (no job yet) and link the quote to it. */
