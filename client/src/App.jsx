@@ -105,7 +105,7 @@ function AppShell({ children }) {
           {!isMechanic && canManageTeamMembers && (
             <>
               <NavLink to="/admin/team-members">Team members</NavLink>
-              {canViewStatsReports !== false && <NavLink to="/admin/team-stats">Team statistics</NavLink>}
+              {canViewStatsReports !== false && <NavLink to="/admin/team-stats">Team Stats</NavLink>}
             </>
           )}
         </nav>
