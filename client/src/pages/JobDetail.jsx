@@ -1147,6 +1147,7 @@ export default function JobDetail() {
       </div>
 
       {!isMechanic && (
+      <>
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <h3 style={{ margin: 0 }}>Invoice</h3>
@@ -1761,6 +1762,7 @@ export default function JobDetail() {
           </table>
         </div>
       </div>
+      </>
       )}
     </>
   );
