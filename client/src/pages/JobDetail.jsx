@@ -615,6 +615,7 @@ export default function JobDetail() {
     setSendQuoteModal({ phase: 'loading' });
     try {
       const { portal_url } = await api.customers.portalLink(Number(cid));
+      await api.jobs.recordQuotePrepared(id);
       const vehicleLabel = [job.registration, job.make, job.model].filter(Boolean).join(' ');
       const message = buildQuotePortalMessage({
         customerName: job.customer_name,
@@ -625,6 +626,7 @@ export default function JobDetail() {
         portalUrl: portal_url,
       });
       setSendQuoteModal({ phase: 'ready', message });
+      api.jobs.get(id).then(setJob).catch(() => {});
     } catch (e) {
       setSendQuoteModal({ phase: 'error', error: String(e?.message || 'Could not generate portal link.') });
     }

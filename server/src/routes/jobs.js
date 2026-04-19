@@ -300,6 +300,23 @@ jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
   res.status(201).json({ job, invoice: { ...invoiceRow, items: invItems } });
 });
 
+/** First time staff sends quote to customer (portal message): record quote_prepared_at for job reports (time to quote). */
+jobsRouter.post('/:id/quote-prepared', requireAdminAuth, (req, res) => {
+  const jobId = Number(req.params.id);
+  if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
+  const row = db.prepare('SELECT id, quote_prepared_at FROM jobs WHERE id = ?').get(jobId);
+  if (!row) return res.status(404).json({ error: 'Job not found' });
+  const hadTimestamp = Boolean(row.quote_prepared_at);
+  db.prepare(
+    `UPDATE jobs SET quote_prepared_at = COALESCE(quote_prepared_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`,
+  ).run(jobId);
+  const out = db.prepare('SELECT quote_prepared_at, created_at FROM jobs WHERE id = ?').get(jobId);
+  res.json({
+    quote_prepared_at: out.quote_prepared_at,
+    first_recorded: !hadTimestamp,
+  });
+});
+
 jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
   try {
     const jobId = Number(req.params.id);

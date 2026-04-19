@@ -195,6 +195,9 @@ function migrate(db) {
     if (!jobCols.includes('labour_cost_frozen')) {
       db.run('ALTER TABLE jobs ADD COLUMN labour_cost_frozen REAL');
     }
+    if (!jobCols.includes('quote_prepared_at')) {
+      db.run('ALTER TABLE jobs ADD COLUMN quote_prepared_at TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }

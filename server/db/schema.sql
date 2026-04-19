@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   labour_hours_frozen REAL,
   labour_rate_frozen REAL,
   labour_cost_frozen REAL,
+  quote_prepared_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

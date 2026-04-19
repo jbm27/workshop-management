@@ -102,6 +102,8 @@ export const api = {
     deleteTestDrive: (jobId, tdId) => api.delete(`/jobs/${jobId}/test-drives/${tdId}`),
     createQuote: (id) => api.post(`/jobs/${id}/quote`, {}),
     createInvoice: (id) => api.post(`/jobs/${id}/invoice`, {}),
+    /** Sets quote_prepared_at once (first Send quote) for time-to-quote reporting. */
+    recordQuotePrepared: (id) => api.post(`/jobs/${id}/quote-prepared`, {}),
     addTimeLog: (jobId, body) => api.post(`/jobs/${jobId}/time-logs`, body),
     addIdleTimeLog: (body) => api.post('/jobs/time-logs/idle', body),
     deleteTimeLog: (jobId, logId) => api.delete(`/jobs/${jobId}/time-logs/${logId}`),

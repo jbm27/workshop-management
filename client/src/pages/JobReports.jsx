@@ -19,6 +19,15 @@ function stars(rating) {
   return '★'.repeat(Math.min(5, r)) + '☆'.repeat(Math.max(0, 5 - Math.min(5, r)));
 }
 
+/** Human-readable duration from elapsed hours (from job creation to first successful Send quote). */
+function formatTimeToQuote(h) {
+  if (h == null || !Number.isFinite(h)) return '—';
+  if (h < 24) return `${h.toFixed(1)} h`;
+  const d = Math.floor(h / 24);
+  const rem = h - d * 24;
+  return `${d}d ${rem.toFixed(1)} h`;
+}
+
 function defaultFromTo() {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -110,7 +119,8 @@ export default function JobReports() {
         <div className="card" style={{ marginBottom: '1rem' }}>
           <h3 style={{ marginTop: 0 }}>Period averages ({payload.date_basis === 'completed' ? 'completed date' : 'created date'})</h3>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: 0 }}>
-            {s.job_count} job{s.job_count === 1 ? '' : 's'} · {s.jobs_with_invoice} with an invoice · Averages are simple means across all jobs in the table (margins exclude rows where the value is not applicable).
+            {s.job_count} job{s.job_count === 1 ? '' : 's'} · {s.jobs_with_invoice} with an invoice · Averages are simple means across all jobs in the table (margins exclude rows where the value is not applicable).{' '}
+            <strong>Time to quote</strong> is from job creation to the first successful <em>Send quote</em> (portal link ready); jobs without that action show &quot;—&quot; and are omitted from the average.
           </p>
           <div className="table-wrap">
             <table>
@@ -124,6 +134,7 @@ export default function JobReports() {
                   <th style={{ textAlign: 'right' }}>Avg labour margin</th>
                   <th style={{ textAlign: 'right' }}>Avg spares margin</th>
                   <th style={{ textAlign: 'right' }}>Avg rating</th>
+                  <th style={{ textAlign: 'right' }}>Avg time to quote</th>
                   <th style={{ textAlign: 'right' }}>Σ revenue</th>
                   <th style={{ textAlign: 'right' }}>Σ profit</th>
                   <th style={{ textAlign: 'right' }}>Aggregate profit margin</th>
@@ -140,6 +151,9 @@ export default function JobReports() {
                   <td style={{ textAlign: 'right' }}>{pct(s.avg_spares_margin_pct)}</td>
                   <td style={{ textAlign: 'right' }}>
                     {s.avg_customer_rating != null ? `${s.avg_customer_rating.toFixed(1)} / 5` : '—'}
+                  </td>
+                  <td style={{ textAlign: 'right' }} title={s.avg_time_to_quote_hours != null ? `${s.avg_time_to_quote_hours} h` : ''}>
+                    {formatTimeToQuote(s.avg_time_to_quote_hours)}
                   </td>
                   <td style={{ textAlign: 'right' }}>{kes(s.sum_revenue)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(s.sum_profit)}</td>
@@ -166,6 +180,7 @@ export default function JobReports() {
                   <th>Job</th>
                   <th>Customer</th>
                   <th>Vehicle</th>
+                  <th style={{ textAlign: 'right' }}>Time to quote</th>
                   <th style={{ textAlign: 'right' }}>Revenue</th>
                   <th style={{ textAlign: 'right' }}>Total cost</th>
                   <th style={{ textAlign: 'right' }}>Profit</th>
@@ -186,6 +201,12 @@ export default function JobReports() {
                     </td>
                     <td>{r.customer_name || '—'}</td>
                     <td>{r.vehicle_label || '—'}</td>
+                    <td
+                      style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
+                      title={r.quote_prepared_at ? `Quote sent: ${r.quote_prepared_at}` : ''}
+                    >
+                      {formatTimeToQuote(r.time_to_quote_hours)}
+                    </td>
                     <td style={{ textAlign: 'right' }}>{kes(r.revenue)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.total_cost)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.profit)}</td>

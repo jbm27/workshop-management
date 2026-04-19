@@ -100,6 +100,17 @@ function meanFinite(values) {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
+/** Hours from job creation to first “Send quote” (quote_prepared_at); null if not recorded. */
+function timeToQuoteHours(createdAt, quotePreparedAt) {
+  if (!createdAt || !quotePreparedAt) return null;
+  const t0 = Date.parse(String(createdAt).replace(' ', 'T'));
+  const t1 = Date.parse(String(quotePreparedAt).replace(' ', 'T'));
+  if (!Number.isFinite(t0) || !Number.isFinite(t1)) return null;
+  const ms = t1 - t0;
+  if (ms < 0) return null;
+  return Math.round((ms / 3600000) * 100) / 100;
+}
+
 function pct(numerator, denominator) {
   if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
   return (numerator / denominator) * 100;
@@ -175,6 +186,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       j.status,
       j.created_at,
       j.completed_at,
+      j.quote_prepared_at,
       j.customer_rating,
       c.name AS customer_name,
       v.registration,
@@ -205,6 +217,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
         avg_labour_margin_pct: null,
         avg_spares_margin_pct: null,
         avg_customer_rating: null,
+        avg_time_to_quote_hours: null,
         sum_revenue: 0,
         sum_profit: 0,
         aggregate_profit_margin_pct: null,
@@ -256,12 +269,15 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     const inv = invByJob.get(j.id);
     const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
     const fin = computeInvoiceFinancials(inv || null, items);
+    const timeToQuote = timeToQuoteHours(j.created_at, j.quote_prepared_at);
     return {
       job_id: j.id,
       job_number: j.job_number,
       status: j.status,
       created_at: j.created_at,
       completed_at: j.completed_at,
+      quote_prepared_at: j.quote_prepared_at ?? null,
+      time_to_quote_hours: timeToQuote,
       customer_name: j.customer_name,
       vehicle_label: [j.registration, j.make, j.model].filter(Boolean).join(' '),
       customer_rating: j.customer_rating != null ? Number(j.customer_rating) : null,
@@ -284,6 +300,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     avg_labour_margin_pct: meanFinite(rows.map((r) => r.labour_margin_pct)),
     avg_spares_margin_pct: meanFinite(rows.map((r) => r.spares_margin_pct)),
     avg_customer_rating: meanFinite(rows.map((r) => r.customer_rating)),
+    avg_time_to_quote_hours: meanFinite(rows.map((r) => r.time_to_quote_hours)),
     sum_revenue: Math.round(sumRevenue * 100) / 100,
     sum_profit: Math.round(sumProfit * 100) / 100,
     aggregate_profit_margin_pct: sumRevenue > 0 ? (sumProfit / sumRevenue) * 100 : null,
