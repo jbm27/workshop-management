@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
   password_salt TEXT NOT NULL,
   password_hash TEXT NOT NULL,
   active INTEGER NOT NULL DEFAULT 1,
-  -- Workshop mechanic: only Time logs + Assigned parts in the admin app; all other permissions forced off.
+  -- Workshop mechanic: Time logs, Assigned parts, and active Jobs (test drives); all other permissions forced off.
   is_mechanic INTEGER NOT NULL DEFAULT 0,
 
   -- Action permissions (initial set)
@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS job_tasks (
 CREATE TABLE IF NOT EXISTS job_test_drives (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  admin_user_id INTEGER REFERENCES admin_users(id),
   odometer INTEGER NOT NULL,
   fuel TEXT,
   created_at TEXT DEFAULT (datetime('now'))

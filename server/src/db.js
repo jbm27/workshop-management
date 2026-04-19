@@ -114,6 +114,7 @@ function migrate(db) {
       CREATE TABLE IF NOT EXISTS job_test_drives (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        admin_user_id INTEGER REFERENCES admin_users(id),
         odometer INTEGER NOT NULL,
         fuel TEXT,
         created_at TEXT DEFAULT (datetime('now'))
@@ -122,6 +123,15 @@ function migrate(db) {
     db.run('CREATE INDEX IF NOT EXISTS idx_job_test_drives_job ON job_test_drives(job_id)');
   } catch (e) {
     if (!e.message?.includes('already exists')) throw e;
+  }
+  try {
+    const tdInfo = db.exec('PRAGMA table_info(job_test_drives)');
+    const tdCols = (tdInfo[0]?.values || []).map((row) => row[1]);
+    if (tdCols.length && !tdCols.includes('admin_user_id')) {
+      db.run('ALTER TABLE job_test_drives ADD COLUMN admin_user_id INTEGER REFERENCES admin_users(id)');
+    }
+  } catch (e) {
+    if (!e.message?.includes('duplicate column')) throw e;
   }
   try {
     db.run(`

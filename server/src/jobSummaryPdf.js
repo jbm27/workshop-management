@@ -264,18 +264,21 @@ export function streamJobSummaryPdf(res, payload) {
     y = doc.y + 6;
   } else {
     doc.fontSize(7).font('Helvetica-Bold');
-    doc.text('When', margin, y, { width: 72 });
-    doc.text('Odo (km)', margin + 74, y, { width: 48, align: 'right' });
-    doc.text('Fuel', margin + 128, y, { width: 40 });
+    doc.text('When', margin, y, { width: 56 });
+    doc.text('Odo (km)', margin + 58, y, { width: 40, align: 'right' });
+    doc.text('Fuel', margin + 102, y, { width: 32 });
+    doc.text('Logged by', margin + 138, y, { width: contentWidth - 138 });
     y = doc.y + 2;
     doc.moveTo(margin, y).lineTo(margin + contentWidth, y).stroke('#cccccc');
     y += 4;
     doc.font('Helvetica');
     for (const td of tdList) {
       y = ensureSpace(doc, y, 12, margin, contentWidth, jn);
-      doc.text(fmtDateTimeShort(td.created_at), margin, y, { width: 72 });
-      doc.text(td.odometer != null ? String(td.odometer) : '—', margin + 74, y, { width: 48, align: 'right' });
-      doc.text(String(td.fuel || '—'), margin + 128, y, { width: contentWidth - 128 });
+      const who = td.logged_by_display_name || td.logged_by_username || '—';
+      doc.text(fmtDateTimeShort(td.created_at), margin, y, { width: 56 });
+      doc.text(td.odometer != null ? String(td.odometer) : '—', margin + 58, y, { width: 40, align: 'right' });
+      doc.text(String(td.fuel || '—'), margin + 102, y, { width: 32 });
+      doc.text(String(who), margin + 138, y, { width: contentWidth - 138 });
       y = doc.y + 1;
     }
     y += 4;

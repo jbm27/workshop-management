@@ -7,6 +7,25 @@ import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
 
 export const jobsRouter = Router();
 
+/** Workshop jobs mechanics may open (test drives, etc.). */
+const MECHANIC_ALLOWED_JOB_STATUSES = ['in_progress', 'vehicle_released'];
+
+function stripJobForMechanic(job) {
+  if (!job) return job;
+  const out = { ...job };
+  delete out.customer_phone;
+  delete out.customer_email;
+  return out;
+}
+
+function assertNotMechanic(req, res) {
+  if (req.admin?.is_mechanic) {
+    res.status(403).json({ error: 'Your account cannot perform this action' });
+    return false;
+  }
+  return true;
+}
+
 function nextJobNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('job_number');
   const next = (row?.value ?? 1000) + 1;
@@ -30,7 +49,16 @@ function fullJob(jobId) {
     .prepare('SELECT id, description, sort_order, completed FROM job_tasks WHERE job_id = ? ORDER BY sort_order, id')
     .all(jobId);
   const test_drives = db
-    .prepare('SELECT id, odometer, fuel, created_at FROM job_test_drives WHERE job_id = ? ORDER BY id ASC')
+    .prepare(
+      `
+      SELECT td.id, td.job_id, td.admin_user_id, td.odometer, td.fuel, td.created_at,
+        au.display_name AS logged_by_display_name, au.username AS logged_by_username
+      FROM job_test_drives td
+      LEFT JOIN admin_users au ON au.id = td.admin_user_id
+      WHERE td.job_id = ?
+      ORDER BY td.id ASC
+    `,
+    )
     .all(jobId);
   const time_logs = db
     .prepare(
@@ -71,18 +99,23 @@ function fullJob(jobId) {
 
 const TEST_DRIVE_FUEL_LEVELS = ['Empty', '1/4', '1/2', '3/4', 'Full'];
 
-jobsRouter.get('/', (req, res) => {
+jobsRouter.get('/', requireAdminAuth, (req, res) => {
+  const isM = req.admin.is_mechanic;
   const status = req.query.status;
   const q = (req.query.q || '').trim();
   let stmt, rows;
   const taskCountSelect = '(SELECT COUNT(*) FROM job_tasks WHERE job_id = j.id) as task_count';
+  const mechanicStatusFilter = isM ? `AND j.status IN ('in_progress','vehicle_released')` : '';
+  if (isM && status && !MECHANIC_ALLOWED_JOB_STATUSES.includes(String(status))) {
+    return res.json([]);
+  }
   if (status) {
     stmt = db.prepare(`
       SELECT j.*, v.registration, v.make, v.model, c.name as customer_name, ${taskCountSelect}
       FROM jobs j
       JOIN vehicles v ON j.vehicle_id = v.id
       LEFT JOIN customers c ON j.customer_id = c.id
-      WHERE j.status = ?
+      WHERE j.status = ? ${mechanicStatusFilter}
       ORDER BY j.created_at DESC
     `);
     rows = stmt.all(status);
@@ -93,7 +126,8 @@ jobsRouter.get('/', (req, res) => {
       JOIN vehicles v ON j.vehicle_id = v.id
       LEFT JOIN customers c ON j.customer_id = c.id
       LEFT JOIN job_tasks jtk ON jtk.job_id = j.id
-      WHERE j.job_number LIKE ? OR jtk.description LIKE ? OR v.registration LIKE ? OR (c.name LIKE ?)
+      WHERE (j.job_number LIKE ? OR jtk.description LIKE ? OR v.registration LIKE ? OR (c.name LIKE ?))
+        ${isM ? `AND j.status IN ('in_progress','vehicle_released')` : ''}
       GROUP BY j.id
       ORDER BY j.created_at DESC
     `);
@@ -105,11 +139,12 @@ jobsRouter.get('/', (req, res) => {
       FROM jobs j
       JOIN vehicles v ON j.vehicle_id = v.id
       LEFT JOIN customers c ON j.customer_id = c.id
+      WHERE 1=1 ${mechanicStatusFilter}
       ORDER BY j.created_at DESC
     `);
     rows = stmt.all();
   }
-  res.json(rows);
+  res.json(isM ? rows.map(stripJobForMechanic) : rows);
 });
 
 jobsRouter.get('/time-logs/mine', requireAdminAuth, (req, res) => {
@@ -237,6 +272,7 @@ jobsRouter.delete('/time-logs/idle/:logId', requireAdminAuth, (req, res) => {
 
 /** Create a workshop job from a standalone quote (no job yet) and link the quote to it. */
 jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
   const quoteId = Number(req.body?.quote_id);
   if (!Number.isFinite(quoteId)) return res.status(400).json({ error: 'quote_id is required' });
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(quoteId);
@@ -440,15 +476,28 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
   }
 });
 
-jobsRouter.get('/:id', (req, res) => {
-  const job = fullJob(req.params.id);
+jobsRouter.get('/:id', requireAdminAuth, (req, res) => {
+  const jobId = Number(req.params.id);
+  if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
+  const job = fullJob(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json(job);
+  if (req.admin.is_mechanic && !MECHANIC_ALLOWED_JOB_STATUSES.includes(job.status)) {
+    return res.status(403).json({ error: 'This job is not available for workshop staff' });
+  }
+  res.json(req.admin.is_mechanic ? stripJobForMechanic(job) : job);
 });
 
-jobsRouter.post('/:id/test-drives', (req, res) => {
-  const row = db.prepare('SELECT id, odometer_in FROM jobs WHERE id = ?').get(req.params.id);
+jobsRouter.post('/:id/test-drives', requireAdminAuth, (req, res) => {
+  const jobId = Number(req.params.id);
+  if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
+  const row = db.prepare('SELECT id, odometer_in, status FROM jobs WHERE id = ?').get(jobId);
   if (!row) return res.status(404).json({ error: 'Job not found' });
+  if (row.status === 'completed') {
+    return res.status(400).json({ error: 'Cannot add test drives to a completed job' });
+  }
+  if (req.admin.is_mechanic && !MECHANIC_ALLOWED_JOB_STATUSES.includes(row.status)) {
+    return res.status(403).json({ error: 'This job is not available for workshop staff' });
+  }
   const { odometer, fuel } = req.body;
   const odo = Number(odometer);
   if (!Number.isFinite(odo) || odo < 0) return res.status(400).json({ error: 'Valid odometer (km) on return to workshop is required' });
@@ -457,7 +506,7 @@ jobsRouter.post('/:id/test-drives', (req, res) => {
   }
   const lastTd = db
     .prepare('SELECT odometer FROM job_test_drives WHERE job_id = ? ORDER BY id DESC LIMIT 1')
-    .get(req.params.id);
+    .get(jobId);
   const baseline = lastTd ? Number(lastTd.odometer) : Number(row.odometer_in);
   if (!Number.isFinite(baseline)) {
     return res.status(400).json({ error: 'Set mileage in (km) before adding a test drive' });
@@ -467,17 +516,37 @@ jobsRouter.post('/:id/test-drives', (req, res) => {
       error: 'Odometer must be at or above the previous reading (mileage in or last test drive return)',
     });
   }
-  db.prepare('INSERT INTO job_test_drives (job_id, odometer, fuel) VALUES (?, ?, ?)').run(req.params.id, Math.round(odo), fuel);
-  res.status(201).json(fullJob(req.params.id));
+  db.prepare('INSERT INTO job_test_drives (job_id, admin_user_id, odometer, fuel) VALUES (?, ?, ?, ?)').run(
+    jobId,
+    req.admin.id,
+    Math.round(odo),
+    fuel,
+  );
+  const job = fullJob(jobId);
+  res.status(201).json(req.admin.is_mechanic ? stripJobForMechanic(job) : job);
 });
 
-jobsRouter.delete('/:id/test-drives/:tdId', (req, res) => {
-  const td = db.prepare('SELECT id FROM job_test_drives WHERE id = ? AND job_id = ?').get(req.params.tdId, req.params.id);
+jobsRouter.delete('/:id/test-drives/:tdId', requireAdminAuth, (req, res) => {
+  const jobId = Number(req.params.id);
+  const tdId = Number(req.params.tdId);
+  if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(tdId) || tdId <= 0) {
+    return res.status(400).json({ error: 'Invalid id' });
+  }
+  const jobRow = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(jobId);
+  if (!jobRow) return res.status(404).json({ error: 'Job not found' });
+  if (jobRow.status === 'completed') {
+    return res.status(400).json({ error: 'Cannot change test drives on a completed job' });
+  }
+  const td = db.prepare('SELECT * FROM job_test_drives WHERE id = ? AND job_id = ?').get(tdId, jobId);
   if (!td) return res.status(404).json({ error: 'Test drive not found' });
-  db.prepare('DELETE FROM job_test_drives WHERE id = ?').run(req.params.tdId);
-  const job = fullJob(req.params.id);
+  const isOwner = Number(td.admin_user_id) === Number(req.admin.id);
+  if (!isOwner && !req.admin.permissions?.can_manage_team_members) {
+    return res.status(403).json({ error: 'You can only remove test drives you logged' });
+  }
+  db.prepare('DELETE FROM job_test_drives WHERE id = ?').run(tdId);
+  const job = fullJob(jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
-  res.json(job);
+  res.json(req.admin.is_mechanic ? stripJobForMechanic(job) : job);
 });
 
 jobsRouter.post('/:id/time-logs', requireAdminAuth, (req, res) => {
@@ -515,7 +584,8 @@ jobsRouter.delete('/:id/time-logs/:logId', requireAdminAuth, (req, res) => {
   res.json(fullJob(req.params.id));
 });
 
-jobsRouter.post('/', (req, res) => {
+jobsRouter.post('/', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
   const { vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
   if (!vehicle_id) return res.status(400).json({ error: 'vehicle_id is required' });
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required (bill-to for this job)' });
@@ -548,7 +618,8 @@ jobsRouter.post('/', (req, res) => {
   res.status(201).json(out);
 });
 
-jobsRouter.patch('/:id', (req, res) => {
+jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
   const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Job not found' });
   const { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
@@ -619,7 +690,8 @@ function nextInvoiceNumber() {
   return `INV-${next}`;
 }
 
-jobsRouter.post('/:id/quote', (req, res) => {
+jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
   const job = db.prepare('SELECT id, customer_id, vehicle_id FROM jobs WHERE id = ?').get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
   const existing = db.prepare('SELECT id FROM invoices WHERE job_id = ? AND type = ?').get(req.params.id, 'quote');
@@ -642,7 +714,8 @@ jobsRouter.post('/:id/quote', (req, res) => {
   res.status(201).json({ ...row, items });
 });
 
-jobsRouter.post('/:id/invoice', (req, res) => {
+jobsRouter.post('/:id/invoice', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
   const job = db.prepare('SELECT id, customer_id, vehicle_id FROM jobs WHERE id = ?').get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
   const existing = db.prepare('SELECT id FROM invoices WHERE job_id = ? AND type = ?').get(req.params.id, 'invoice');

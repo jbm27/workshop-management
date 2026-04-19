@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { useAdmin } from '../auth/AdminContext';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -61,6 +62,8 @@ function buildValuablesPayload(checks, notes) {
 }
 
 export default function Jobs() {
+  const { admin } = useAdmin();
+  const isMechanic = Boolean(admin?.is_mechanic);
   const [list, setList] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -116,9 +119,10 @@ export default function Jobs() {
   }, [status, q]);
 
   useEffect(() => {
+    if (isMechanic) return;
     api.vehicles.list().then(setVehicles).catch(console.error);
     api.customers.list().then(setCustomers).catch(console.error);
-  }, []);
+  }, [isMechanic]);
 
   const openCreate = () => {
     setForm({
@@ -229,6 +233,11 @@ export default function Jobs() {
   return (
     <>
       <h1 className="page-title">Jobs</h1>
+      {isMechanic && (
+        <p style={{ color: 'var(--text-muted)', marginTop: '-0.35rem', marginBottom: '1rem', maxWidth: '42rem' }}>
+          You can open jobs that are <strong>in progress</strong> or <strong>vehicle released</strong> to view mileage and log test drives.
+        </p>
+      )}
       <div className="search-bar">
         <input
           type="search"
@@ -243,7 +252,9 @@ export default function Jobs() {
           <option value="completed">Complete</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <button type="button" className="btn primary" onClick={openCreate}>New job</button>
+        {!isMechanic && (
+          <button type="button" className="btn primary" onClick={openCreate}>New job</button>
+        )}
       </div>
       {loadError && (
         <div

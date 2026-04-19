@@ -205,6 +205,7 @@ export default function JobDetail() {
   const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
 
   const { admin } = useAdmin();
+  const isMechanic = Boolean(admin?.is_mechanic);
   const canRecordInvoicePayments = admin?.permissions?.can_record_invoice_payments;
 
   useEffect(() => {
@@ -232,7 +233,13 @@ export default function JobDetail() {
   }, [id]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || admin?.is_mechanic) {
+      if (admin?.is_mechanic) {
+        setQuote(null);
+        setQuoteLoading(false);
+      }
+      return;
+    }
     setQuoteLoading(true);
     api.invoices
       .list({ job_id: id, type: 'quote' })
@@ -240,10 +247,16 @@ export default function JobDetail() {
       .then(setQuote)
       .catch(() => setQuote(null))
       .finally(() => setQuoteLoading(false));
-  }, [id]);
+  }, [id, admin?.is_mechanic]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || admin?.is_mechanic) {
+      if (admin?.is_mechanic) {
+        setInvoice(null);
+        setInvoiceLoading(false);
+      }
+      return;
+    }
     setInvoiceLoading(true);
     api.invoices
       .list({ job_id: id, type: 'invoice' })
@@ -251,7 +264,7 @@ export default function JobDetail() {
       .then(setInvoice)
       .catch(() => setInvoice(null))
       .finally(() => setInvoiceLoading(false));
-  }, [id]);
+  }, [id, admin?.is_mechanic]);
 
   const updateStatus = async (newStatus) => {
     if (newStatus === 'completed') {
@@ -683,7 +696,7 @@ export default function JobDetail() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <h1 className="page-title" style={{ margin: 0 }}>{job.job_number}</h1>
         <Link to="/jobs" className="btn">← Jobs</Link>
-        {job.status === 'completed' ? (
+        {!isMechanic && job.status === 'completed' ? (
           <button
             type="button"
             className="btn"
@@ -695,26 +708,28 @@ export default function JobDetail() {
           </button>
         ) : null}
         <span className={`badge ${job.status}`}>{jobStatusLabel(job.status)}</span>
-        <select
-          key={`${job.id}-${job.status}-${statusMenuKey}`}
-          aria-label="Change job status"
-          defaultValue=""
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v) updateStatus(v);
-          }}
-          className="btn"
-          style={{ width: 'auto' }}
-        >
-          <option value="">Change status…</option>
-          <option value="in_progress">In progress</option>
-          <option value="vehicle_released">Vehicle released</option>
-          <option value="completed">Complete</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+        {!isMechanic && (
+          <select
+            key={`${job.id}-${job.status}-${statusMenuKey}`}
+            aria-label="Change job status"
+            defaultValue=""
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v) updateStatus(v);
+            }}
+            className="btn"
+            style={{ width: 'auto' }}
+          >
+            <option value="">Change status…</option>
+            <option value="in_progress">In progress</option>
+            <option value="vehicle_released">Vehicle released</option>
+            <option value="completed">Complete</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        )}
       </div>
 
-      {sendQuoteModal && (
+      {!isMechanic && sendQuoteModal && (
         <div className="modal-overlay" onClick={closeSendQuoteModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
             <header>Send quote to customer</header>
@@ -768,7 +783,7 @@ export default function JobDetail() {
         </div>
       )}
 
-      {closeJobModal && (
+      {!isMechanic && closeJobModal && (
         <div className="modal-overlay" onClick={() => { setCloseJobModal(false); setStatusMenuKey((k) => k + 1); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
             <header>Close job – final readings</header>
@@ -806,113 +821,127 @@ export default function JobDetail() {
         </div>
       )}
 
-      <div className="grid-2">
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Vehicle & customer</h3>
-          <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
-          <p>{job.customer_name}</p>
-          <p>{job.customer_phone || '—'}</p>
-          <p>{job.customer_email || '—'}</p>
-        </div>
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Job details</h3>
-          <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
-          {job.notes && <p><em>{job.notes}</em></p>}
-          <div
-            style={{
-              marginTop: '1rem',
-              paddingTop: '1rem',
-              borderTop: '1px solid var(--border)',
-            }}
-          >
-            <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.95rem' }}>Financial summary</h4>
-            <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Quoted amount</dt>
-                <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                  {quoteLoading ? '…' : quote ? formatKes(quote.total) : '—'}
-                </dd>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Invoiced amount</dt>
-                <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                  {invoiceLoading ? '…' : invoice ? formatKes(invoice.total) : '—'}
-                </dd>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Amount paid</dt>
-                <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                  {invoiceLoading ? '…' : invoice ? formatKes(invoicePaidTotal) : '—'}
-                </dd>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Balance</dt>
-                <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                  {invoiceLoading ? '…' : invoice ? formatKes(invoiceBalance) : '—'}
-                </dd>
-              </div>
-            </dl>
-            {(quote || invoice) && (
-              <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem' }}>
-                {quote && (
-                  <>
-                    <Link to={`/invoices/${quote.id}`}>Open quote</Link>
-                    {invoice ? ' · ' : ''}
-                  </>
-                )}
-                {invoice && <Link to={`/invoices/${invoice.id}`}>Open invoice</Link>}
+      {!isMechanic ? (
+        <div className="grid-2">
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Vehicle & customer</h3>
+            <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
+            <p>{job.customer_name}</p>
+            <p>{job.customer_phone || '—'}</p>
+            <p>{job.customer_email || '—'}</p>
+          </div>
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Job details</h3>
+            <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
+            {job.notes && <p><em>{job.notes}</em></p>}
+            <div
+              style={{
+                marginTop: '1rem',
+                paddingTop: '1rem',
+                borderTop: '1px solid var(--border)',
+              }}
+            >
+              <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.95rem' }}>Financial summary</h4>
+              <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Quoted amount</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                    {quoteLoading ? '…' : quote ? formatKes(quote.total) : '—'}
+                  </dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Invoiced amount</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                    {invoiceLoading ? '…' : invoice ? formatKes(invoice.total) : '—'}
+                  </dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Amount paid</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                    {invoiceLoading ? '…' : invoice ? formatKes(invoicePaidTotal) : '—'}
+                  </dd>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Balance</dt>
+                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                    {invoiceLoading ? '…' : invoice ? formatKes(invoiceBalance) : '—'}
+                  </dd>
+                </div>
+              </dl>
+              {(quote || invoice) && (
+                <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem' }}>
+                  {quote && (
+                    <>
+                      <Link to={`/invoices/${quote.id}`}>Open quote</Link>
+                      {invoice ? ' · ' : ''}
+                    </>
+                  )}
+                  {invoice && <Link to={`/invoices/${invoice.id}`}>Open invoice</Link>}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>Job Report</h3>
+            {!invoice && !invoiceLoading && (
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                Create a job invoice to see revenue, costs, and margins (ex-VAT subtotal vs internal costs).
               </p>
+            )}
+            {invoiceLoading && <p style={{ margin: 0, color: 'var(--text-muted)' }}>Loading…</p>}
+            {invoice && !invoiceLoading && !jobReport && (
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>No invoice data for this job.</p>
+            )}
+            {jobReport && (
+              <>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Based on the job invoice (ex-VAT). Costs use LPO/IPR allocations where present; otherwise line purchase
+                  estimates (labour from time logs × rate).
+                </p>
+                <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Revenue</dt>
+                    <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.revenue)}</dd>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Total cost</dt>
+                    <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.totalCost)}</dd>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Profit</dt>
+                    <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.profit)}</dd>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Profit margin</dt>
+                    <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.profitMarginPct)}</dd>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Labour margin</dt>
+                    <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.labourMarginPct)}</dd>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                    <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Spares margin</dt>
+                    <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.sparesMarginPct)}</dd>
+                  </div>
+                </dl>
+              </>
             )}
           </div>
         </div>
+      ) : (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Job Report</h3>
-          {!invoice && !invoiceLoading && (
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-              Create a job invoice to see revenue, costs, and margins (ex-VAT subtotal vs internal costs).
-            </p>
-          )}
-          {invoiceLoading && <p style={{ margin: 0, color: 'var(--text-muted)' }}>Loading…</p>}
-          {invoice && !invoiceLoading && !jobReport && (
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>No invoice data for this job.</p>
-          )}
-          {jobReport && (
-            <>
-              <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Based on the job invoice (ex-VAT). Costs use LPO/IPR allocations where present; otherwise line purchase
-                estimates (labour from time logs × rate).
-              </p>
-              <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Revenue</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.revenue)}</dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Total cost</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.totalCost)}</dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Profit</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatKes(jobReport.profit)}</dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Profit margin</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.profitMarginPct)}</dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Labour margin</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.labourMarginPct)}</dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Spares margin</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>{formatMarginPct(jobReport.sparesMarginPct)}</dd>
-                </div>
-              </dl>
-            </>
-          )}
+          <h3 style={{ marginTop: 0 }}>Vehicle & job</h3>
+          <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
+          <p>{job.customer_name}</p>
+          <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
+          {job.notes && <p style={{ marginTop: '0.5rem' }}><em>{job.notes}</em></p>}
+          <p style={{ marginTop: '0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+            Mileage in / fuel in and valuables are maintained by office staff. You can log test drives once mileage in is set.
+          </p>
         </div>
-      </div>
+      )}
 
+      {!isMechanic && (
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Tasks</h3>
         {tasks.length === 0 && !tasksDirty && <p style={{ color: 'var(--text-muted)' }}>No tasks yet.</p>}
@@ -941,6 +970,7 @@ export default function JobDetail() {
           )}
         </div>
       </div>
+      )}
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Mileage & fuel</h3>
@@ -949,6 +979,8 @@ export default function JobDetail() {
             <strong>Mileage in</strong>
             {mileageInLocked ? (
               <span>{Number(job.odometer_in).toLocaleString()} km</span>
+            ) : isMechanic ? (
+              <span style={{ color: 'var(--text-muted)' }}>Not set — office staff must save mileage in before test drives.</span>
             ) : (
               <>
                 <input
@@ -965,6 +997,8 @@ export default function JobDetail() {
             <strong>Fuel in</strong>
             {fuelInLocked ? (
               <span>{job.fuel_in}</span>
+            ) : isMechanic ? (
+              <span style={{ color: 'var(--text-muted)' }}>Not set</span>
             ) : (
               <select
                 value={readings.fuel_in}
@@ -977,13 +1011,18 @@ export default function JobDetail() {
               </select>
             )}
           </div>
-          {tdComputed.map((row) => (
-            <div key={row.id} style={rowStyle}>
-              <strong>Test drive {row.index + 1}:</strong>
-              Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
-            </div>
-          ))}
-          {canAddTestDrive && (
+          {tdComputed.map((row) => {
+            const tdRow = testDrivesList[row.index];
+            const who = tdRow?.logged_by_display_name || tdRow?.logged_by_username || '—';
+            return (
+              <div key={row.id} style={rowStyle}>
+                <strong>Test drive {row.index + 1}:</strong>
+                Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
+                <span style={{ color: 'var(--text-muted)' }}> · Logged by {who}</span>
+              </div>
+            );
+          })}
+          {canAddTestDrive && job.status !== 'completed' && (
             <div style={rowStyle}>
               <strong>Add test drive:</strong>
               Mileage in
@@ -1013,27 +1052,39 @@ export default function JobDetail() {
           )}
           <div style={rowStyle}>
             <strong>Mileage out</strong>
-            <input
-              type="number"
-              min="0"
-              value={readings.odometer_out}
-              onChange={(e) => { setReadings((r) => ({ ...r, odometer_out: e.target.value })); setReadingsDirty(true); }}
-              style={inlineInp}
-            />
-            km, Mileage covered {formatKmDelta(ho.mileageCovered)},
+            {isMechanic ? (
+              <span>
+                {job.odometer_out != null ? `${Number(job.odometer_out).toLocaleString()} km` : '—'}
+              </span>
+            ) : (
+              <input
+                type="number"
+                min="0"
+                value={readings.odometer_out}
+                onChange={(e) => { setReadings((r) => ({ ...r, odometer_out: e.target.value })); setReadingsDirty(true); }}
+                style={inlineInp}
+              />
+            )}
+            {!isMechanic ? ' km, ' : ', '}
+            Mileage covered {formatKmDelta(ho.mileageCovered)},
             <strong>Fuel out</strong>
-            <select
-              value={readings.fuel_out}
-              onChange={(e) => { setReadings((r) => ({ ...r, fuel_out: e.target.value })); setReadingsDirty(true); }}
-              style={inlineSel}
-            >
-              {fuelOptions.map((opt) => (
-                <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
-              ))}
-            </select>
+            {isMechanic ? (
+              <span>{job.fuel_out || '—'}</span>
+            ) : (
+              <select
+                value={readings.fuel_out}
+                onChange={(e) => { setReadings((r) => ({ ...r, fuel_out: e.target.value })); setReadingsDirty(true); }}
+                style={inlineSel}
+              >
+                {fuelOptions.map((opt) => (
+                  <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
+                ))}
+              </select>
+            )}
             , Fuel used {ho.fuelUsed}
           </div>
         </div>
+        {!isMechanic && (
         <div
           className="form-group"
           style={{
@@ -1085,7 +1136,8 @@ export default function JobDetail() {
             style={{ width: '100%', resize: 'vertical', minHeight: '4.5rem' }}
           />
         </div>
-        {readingsDirty && (
+        )}
+        {readingsDirty && !isMechanic && (
           <div style={{ marginTop: '1rem' }}>
             <button type="button" className="btn primary" onClick={saveReadings}>
               Save readings
@@ -1094,6 +1146,7 @@ export default function JobDetail() {
         )}
       </div>
 
+      {!isMechanic && (
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <h3 style={{ margin: 0 }}>Invoice</h3>
@@ -1708,6 +1761,7 @@ export default function JobDetail() {
           </table>
         </div>
       </div>
+      )}
     </>
   );
 }

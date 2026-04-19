@@ -22,7 +22,10 @@ import TimeLogs from './pages/TimeLogs';
 import AssignedReceipts from './pages/AssignedReceipts';
 import { AdminProvider, useAdmin } from './auth/AdminContext';
 
-const MECHANIC_PATHS = new Set(['/time-logs', '/assigned-receipts']);
+function isMechanicAllowedPath(pathname) {
+  if (pathname === '/time-logs' || pathname === '/assigned-receipts' || pathname === '/jobs') return true;
+  return /^\/jobs\/\d+$/.test(pathname);
+}
 
 function AppShell({ children }) {
   const { admin, logout } = useAdmin();
@@ -100,7 +103,12 @@ function AppShell({ children }) {
               {canViewStatsReports !== false && <NavLink to="/reports/jobs">Job reports</NavLink>}
             </>
           )}
-          {isMechanic && <NavLink to="/time-logs">Time logs</NavLink>}
+          {isMechanic && (
+            <>
+              <NavLink to="/jobs">Jobs</NavLink>
+              <NavLink to="/time-logs">Time logs</NavLink>
+            </>
+          )}
           <NavLink to="/assigned-receipts">Assigned parts</NavLink>
           {!isMechanic && canManageTeamMembers && (
             <>
@@ -141,12 +149,12 @@ function AdminShell({ location }) {
     return <Navigate to="/time-logs" replace />;
   }
 
-  if (admin && isMechanic && !MECHANIC_PATHS.has(location.pathname)) {
+  if (admin && isMechanic && !isMechanicAllowedPath(location.pathname)) {
     return (
       <AppShell>
         <h1 className="page-title">Limited access</h1>
         <p style={{ color: 'var(--text-muted)' }}>
-          Your account can only use <NavLink to="/time-logs">Time logs</NavLink> and{' '}
+          Your account can use <NavLink to="/jobs">Jobs</NavLink> (test drives), <NavLink to="/time-logs">Time logs</NavLink>, and{' '}
           <NavLink to="/assigned-receipts">Assigned parts</NavLink>.
         </p>
       </AppShell>
