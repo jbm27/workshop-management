@@ -1757,7 +1757,7 @@ export default function JobDetail() {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>LPO & IPR</h3>
         {!invoiceLoading && invoice && (
-          <JobInvoiceLpoIprPanel invoice={invoice} onInvoiceUpdated={setInvoice} />
+          <JobInvoiceLpoIprPanel invoice={invoice} onInvoiceUpdated={setInvoice} repeatCostInvoice={isRepeatJob} />
         )}
         {!invoiceLoading && !invoice && (
           <p style={{ color: 'var(--text-muted)', margin: 0 }}>

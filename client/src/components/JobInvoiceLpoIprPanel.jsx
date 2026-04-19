@@ -46,7 +46,7 @@ function formLineFromSaved(ln) {
   }
   return {
     key: `ln-${ln.id}`,
-    invoice_item_id: String(ln.invoice_item_id),
+    invoice_item_id: ln.invoice_item_id != null && ln.invoice_item_id !== '' ? String(ln.invoice_item_id) : '',
     description: ln.description,
     quantity: String(ln.quantity),
     unit_cost: String(ln.unit_cost),
@@ -91,7 +91,7 @@ function iprFormLineFromSaved(ln) {
   };
 }
 
-export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
+export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated, repeatCostInvoice = false }) {
   const [lpos, setLpos] = useState([]);
   const [lpoModal, setLpoModal] = useState(false);
   const [editingLpo, setEditingLpo] = useState(null);
@@ -187,7 +187,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
       const quantity = Number(ln.quantity);
       const unit_cost = Number(ln.unit_cost);
       if (!invoice_item_id && !description && !ln.quantity?.toString().trim() && !ln.unit_cost?.toString().trim()) continue;
-      if (!invoice_item_id) return alert('Each line must be linked to an invoice line');
+      if (!invoice_item_id && !repeatCostInvoice) return alert('Each line must be linked to an invoice line');
       if (!description) return alert('Each line needs a purchase description');
       if (!quantity || quantity <= 0) return alert('Each line needs a positive quantity');
       if (!Number.isFinite(unit_cost) || unit_cost < 0) return alert('Each line needs a valid unit cost');
@@ -200,7 +200,13 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
         if (!Number.isFinite(vat_rate) || vat_rate < 0 || vat_rate > 100)
           return alert('Custom VAT % must be between 0 and 100');
       }
-      lines.push({ invoice_item_id, description, quantity, unit_cost, vat_rate, vat_exempt });
+      const linePayload = { description, quantity, unit_cost, vat_rate, vat_exempt };
+      if (Number.isFinite(invoice_item_id) && invoice_item_id > 0) {
+        linePayload.invoice_item_id = invoice_item_id;
+      } else if (repeatCostInvoice) {
+        linePayload.invoice_item_id = null;
+      }
+      lines.push(linePayload);
     }
     if (lines.length === 0) return alert('Add at least one LPO line');
     setBusy(true);
@@ -451,14 +457,25 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem' }}>
-        <button type="button" className="btn primary" onClick={openCreateLpo} disabled={busy || items.length === 0 || !canCreateLpos}>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={openCreateLpo}
+          disabled={busy || (!repeatCostInvoice && items.length === 0) || !canCreateLpos}
+        >
           Create LPO
         </button>
         <button type="button" className="btn primary" onClick={openCreateIpr} disabled={busy || items.length === 0 || !canCreateIprs}>
           Create IPR
         </button>
-        {items.length === 0 && (
+        {items.length === 0 && !repeatCostInvoice && (
           <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Add invoice lines first.</span>
+        )}
+        {repeatCostInvoice && (
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Repeat visit: LPO lines do not need to be tied to an invoice line unless you want purchase totals rolled into a
+            line (e.g. Labour).
+          </span>
         )}
       </div>
 
@@ -729,8 +746,10 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
             <div className="body">
               <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                 <strong>Unit cost</strong> is <strong>exclusive of VAT</strong>. Choose per line: no VAT, standard VAT
-                (16%), VAT exempt, or a custom rate. Amounts allocated to the invoice line use the <strong>net</strong>{' '}
-                total only; VAT affects LPO totals, supplier balance, and PDFs.
+                (16%), VAT exempt, or a custom rate.
+                {repeatCostInvoice
+                  ? ' On a repeat job, leave the invoice line blank unless you are allocating this purchase to an existing line (internal labour line, etc.).'
+                  : ' Amounts allocated to the invoice line use the net total only; VAT affects LPO totals, supplier balance, and PDFs.'}
               </p>
               <div className="form-group">
                 <label>Supplier *</label>
@@ -762,7 +781,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                   <table>
                     <thead>
                       <tr>
-                        <th>Invoice line *</th>
+                        <th>{repeatCostInvoice ? 'Invoice line (optional)' : 'Invoice line *'}</th>
                         <th>Purchase description *</th>
                         <th>Qty</th>
                         <th>Unit (ex VAT)</th>
@@ -784,7 +803,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                               }}
                               style={{ maxWidth: '200px' }}
                             >
-                              <option value="">—</option>
+                              <option value="">{repeatCostInvoice ? '— (repeat visit, no line)' : '—'}</option>
                               {items.map((it) => (
                                 <option key={it.id} value={it.id}>
                                   {(it.description || '').slice(0, 60)}
@@ -799,7 +818,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated }) {
                               onChange={(e) =>
                                 setLpoLines((rows) => rows.map((r, i) => (i === idx ? { ...r, description: e.target.value } : r)))
                               }
-                              placeholder="e.g. Paint 5L"
+                              placeholder={repeatCostInvoice ? 'e.g. Oil filter (supplier part)' : 'e.g. Paint 5L'}
                               style={{ width: '100%', minWidth: '120px' }}
                             />
                           </td>

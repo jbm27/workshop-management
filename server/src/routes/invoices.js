@@ -23,6 +23,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const invoicesRouter = Router();
 
+/** Internal cost invoice on a repeat job — LPO lines may omit invoice_item_id (no customer sale lines). */
+function invoiceBelongsToRepeatJob(invoiceId) {
+  const invId = parseInt(invoiceId, 10);
+  if (!Number.isFinite(invId)) return false;
+  const row = db
+    .prepare(
+      `
+    SELECT COALESCE(j.is_repeat_job, 0) AS is_repeat_job
+    FROM invoices i
+    JOIN jobs j ON j.id = i.job_id
+    WHERE i.id = ?
+  `,
+    )
+    .get(invId);
+  return row && Number(row.is_repeat_job) === 1;
+}
+
 function fullInvoicePayload(invoiceId) {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
@@ -613,6 +630,7 @@ invoicesRouter.post('/:id/lpos', requireAdminPermission('can_create_lpos'), (req
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'LPOs apply to invoices only' });
+  const repeatCostDoc = invoiceBelongsToRepeatJob(req.params.id);
   const { supplier_id, notes, lines } = req.body;
   if (supplier_id == null || supplier_id === '') return res.status(400).json({ error: 'supplier_id is required' });
   const sup = db.prepare('SELECT id FROM suppliers WHERE id = ?').get(supplier_id);
@@ -629,20 +647,29 @@ invoicesRouter.post('/:id/lpos', requireAdminPermission('can_create_lpos'), (req
   );
   const itemIds = [];
   for (const ln of lines) {
-    const iid = ln.invoice_item_id;
+    const rawIid = ln.invoice_item_id;
     const desc = (ln.description || '').trim();
     const qty = Number(ln.quantity);
     const uc = Number(ln.unit_cost);
-    if (iid == null || iid === '') return res.status(400).json({ error: 'Each line needs invoice_item_id' });
+    let iid = null;
+    if (rawIid != null && rawIid !== '') {
+      const n = Number(rawIid);
+      if (!Number.isFinite(n) || n <= 0) {
+        return res.status(400).json({ error: 'Each line needs a valid invoice_item_id when set' });
+      }
+      const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(n, req.params.id);
+      if (!item) return res.status(400).json({ error: 'Invalid invoice_item_id for this invoice' });
+      iid = n;
+    } else if (!repeatCostDoc) {
+      return res.status(400).json({ error: 'Each line needs invoice_item_id' });
+    }
     if (!desc) return res.status(400).json({ error: 'Each line needs a description' });
     if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Each line needs a positive quantity' });
     if (!Number.isFinite(uc) || uc < 0) return res.status(400).json({ error: 'Each line needs a valid unit_cost' });
-    const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(iid, req.params.id);
-    if (!item) return res.status(400).json({ error: 'Invalid invoice_item_id for this invoice' });
     const { vat_rate, vat_exempt } = normalizeLpoLineVat(ln);
     if (vat_exempt !== 1 && vat_rate > 100) return res.status(400).json({ error: 'vat_rate cannot exceed 100' });
     insLine.run(lpoId, iid, desc, qty, uc, vat_rate, vat_exempt);
-    itemIds.push(iid);
+    if (iid != null) itemIds.push(iid);
   }
   recalcPurchaseForItemIds(itemIds);
   res.status(201).json(fullInvoicePayload(req.params.id));
@@ -672,26 +699,36 @@ invoicesRouter.patch('/:id/lpos/:lpoId', requireAdminPermission('can_create_lpos
   }
   if (Array.isArray(lines)) {
     if (lines.length === 0) return res.status(400).json({ error: 'At least one LPO line is required' });
+    const repeatCostDoc = invoiceBelongsToRepeatJob(req.params.id);
     db.prepare('DELETE FROM lpo_lines WHERE lpo_id = ?').run(req.params.lpoId);
     const insLine = db.prepare(
       `INSERT INTO lpo_lines (lpo_id, invoice_item_id, stock_item_id, description, quantity, unit_cost, vat_rate, vat_exempt) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
     );
     const newItemIds = [];
     for (const ln of lines) {
-      const iid = ln.invoice_item_id;
+      const rawIid = ln.invoice_item_id;
       const desc = (ln.description || '').trim();
       const qty = Number(ln.quantity);
       const uc = Number(ln.unit_cost);
-      if (iid == null || iid === '') return res.status(400).json({ error: 'Each line needs invoice_item_id' });
+      let iid = null;
+      if (rawIid != null && rawIid !== '') {
+        const n = Number(rawIid);
+        if (!Number.isFinite(n) || n <= 0) {
+          return res.status(400).json({ error: 'Each line needs a valid invoice_item_id when set' });
+        }
+        const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(n, req.params.id);
+        if (!item) return res.status(400).json({ error: 'Invalid invoice_item_id for this invoice' });
+        iid = n;
+      } else if (!repeatCostDoc) {
+        return res.status(400).json({ error: 'Each line needs invoice_item_id' });
+      }
       if (!desc) return res.status(400).json({ error: 'Each line needs a description' });
       if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Each line needs a positive quantity' });
       if (!Number.isFinite(uc) || uc < 0) return res.status(400).json({ error: 'Each line needs a valid unit_cost' });
-      const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(iid, req.params.id);
-      if (!item) return res.status(400).json({ error: 'Invalid invoice_item_id for this invoice' });
       const { vat_rate, vat_exempt } = normalizeLpoLineVat(ln);
       if (vat_exempt !== 1 && vat_rate > 100) return res.status(400).json({ error: 'vat_rate cannot exceed 100' });
       insLine.run(req.params.lpoId, iid, desc, qty, uc, vat_rate, vat_exempt);
-      newItemIds.push(iid);
+      if (iid != null) newItemIds.push(iid);
     }
     recalcPurchaseForItemIds([...oldItemIds, ...newItemIds]);
     db.prepare(`UPDATE lpos SET approved = 0, approved_at = NULL, approved_by_admin_user_id = NULL, updated_at = datetime('now') WHERE id = ?`)
