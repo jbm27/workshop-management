@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminAuth } from '../auth.js';
+import { allocateRepeatJobNumber } from '../repeatJobFamily.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
@@ -655,24 +656,41 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
       }
     }
   }
-  const job_number = nextJobNumber();
-  const result = db.prepare(`
+  let job_number = is_repeat_job ? allocateRepeatJobNumber(related_job_id) : nextJobNumber();
+  const insertJob = db.prepare(`
     INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status, is_repeat_job, related_job_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)
-  `).run(
-    job_number,
-    vehicle_id,
-    customer_id || null,
-    notes || null,
-    odometer_in || null,
-    odometer_out || null,
-    fuel_in || null,
-    fuel_out || null,
-    valuables_in_vehicle || null,
-    due_date || null,
-    is_repeat_job ? 1 : 0,
-    is_repeat_job ? related_job_id : null,
-  );
+  `);
+  let result;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    try {
+      result = insertJob.run(
+        job_number,
+        vehicle_id,
+        customer_id || null,
+        notes || null,
+        odometer_in || null,
+        odometer_out || null,
+        fuel_in || null,
+        fuel_out || null,
+        valuables_in_vehicle || null,
+        due_date || null,
+        is_repeat_job ? 1 : 0,
+        is_repeat_job ? related_job_id : null,
+      );
+      break;
+    } catch (e) {
+      const unique =
+        is_repeat_job &&
+        e &&
+        (e.code === 'SQLITE_CONSTRAINT_UNIQUE' || String(e?.message || '').toLowerCase().includes('unique'));
+      if (unique && attempt < 7) {
+        job_number = allocateRepeatJobNumber(related_job_id);
+        continue;
+      }
+      throw e;
+    }
+  }
   const jobId = result.lastInsertRowid;
   if (is_repeat_job) {
     ensureRepeatJobCostInvoice(jobId, customer_id, vehicle_id);

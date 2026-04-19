@@ -76,9 +76,11 @@ export default function JobReports() {
       <p style={{ color: 'var(--text-muted)', marginTop: '-0.5rem', marginBottom: '1rem', maxWidth: '52rem' }}>
         Financial figures match each job&apos;s invoice (ex-VAT subtotal vs internal costs: LPO/IPR allocations where set,
         otherwise line purchase estimates; labour from time logs × rate).{' '}
-        <strong>Repeat job costs</strong> shows internal spend on repeat jobs linked to that row: on a normal job it is the
-        sum of costs from repeat jobs that point to it (reducing <strong>Profit after repeat</strong>); on a repeat job row
-        it is that job&apos;s own internal cost lump. Margins are undefined when the relevant revenue is zero.
+        <strong>Repeat job costs</strong> shows internal spend on repeat visits linked to that row: on the original (mother)
+        job it is the sum of costs from every repeat visit in the same family (same job number before the <code>-1</code>,{' '}
+        <code>-2</code>, … suffix), even when a visit was created from another visit in the chain — this reduces{' '}
+        <strong>Profit after repeat</strong> on the mother job. On a repeat row it is that visit&apos;s own internal cost lump.{' '}
+        Use <strong>P&amp;L group</strong> to roll visits into one bucket. Margins are undefined when the relevant revenue is zero.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -191,6 +193,7 @@ export default function JobReports() {
               <thead>
                 <tr>
                   <th>Job</th>
+                  <th>P&amp;L group</th>
                   <th>Customer</th>
                   <th>Vehicle</th>
                   <th style={{ textAlign: 'right' }}>Time to quote</th>
@@ -219,6 +222,16 @@ export default function JobReports() {
                         <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No invoice</span>
                       )}
                     </td>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: '0.88rem' }} title="Roll-up key for profit and loss (mother job number)">
+                      {r.repeat_root_job_id != null && r.repeat_root_job_id !== r.job_id ? (
+                        <>
+                          <Link to={`/jobs/${r.repeat_root_job_id}`}>{r.repeat_family_job_number || '—'}</Link>
+                          <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>mother job</span>
+                        </>
+                      ) : (
+                        <Link to={`/jobs/${r.job_id}`}>{r.repeat_family_job_number || r.job_number || '—'}</Link>
+                      )}
+                    </td>
                     <td>{r.customer_name || '—'}</td>
                     <td>{r.vehicle_label || '—'}</td>
                     <td
@@ -245,7 +258,14 @@ export default function JobReports() {
                     <td style={{ textAlign: 'right' }}>{kes(r.total_cost)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.profit)}</td>
                     <td style={{ textAlign: 'right' }}>{pct(r.profit_margin_pct)}</td>
-                    <td style={{ textAlign: 'right' }} title={r.is_repeat_job ? 'This job’s own LPO/IPR + labour cost lump' : 'Sum of repeat jobs linked to this job'}>
+                    <td
+                      style={{ textAlign: 'right' }}
+                      title={
+                        r.is_repeat_job
+                          ? 'This visit’s own LPO/IPR + labour cost lump'
+                          : 'Sum of internal costs on all repeat visits in this P&L group (same mother line)'
+                      }
+                    >
                       {kes(r.repeat_job_costs)}
                     </td>
                     <td style={{ textAlign: 'right' }}>{kes(r.profit_after_repeat)}</td>

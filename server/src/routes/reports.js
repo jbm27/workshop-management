@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminPermission } from '../auth.js';
 import { computeInvoiceFinancials, pct } from '../invoiceFinancials.js';
+import { findRepeatRootJobId, repeatNumberBaseFromJobNumber } from '../repeatJobFamily.js';
 
 export const reportsRouter = Router();
 
@@ -268,16 +269,17 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     }
   }
 
-  const linkedRepeatCostsByParent = new Map();
+  /** Roll repeat-visit costs up to the mother job so J1001-1 + J1001-2 both sit on J1001 for P&L. */
+  const linkedRepeatCostsByRoot = new Map();
   for (const j of jobs) {
     if (Number(j.is_repeat_job) !== 1 || !j.related_job_id) continue;
-    const pid = Number(j.related_job_id);
-    if (!Number.isFinite(pid) || pid <= 0) continue;
+    const rootId = findRepeatRootJobId(j.id);
+    if (!rootId) continue;
     const inv = invByJob.get(j.id);
     const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
     const finChild = computeInvoiceFinancials(inv || null, items);
     const c = Number(finChild.total_cost) || 0;
-    linkedRepeatCostsByParent.set(pid, (linkedRepeatCostsByParent.get(pid) || 0) + c);
+    linkedRepeatCostsByRoot.set(rootId, (linkedRepeatCostsByRoot.get(rootId) || 0) + c);
   }
 
   const rows = jobs.map((j) => {
@@ -288,13 +290,17 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     const jobBayH = jobBayHours(j.created_at, j.vehicle_released_at, j.completed_at);
     const revPerHour = revenuePerJobHourKes(inv || null, fin.revenue, j.created_at, j.vehicle_released_at, j.completed_at);
     const isRepeat = Number(j.is_repeat_job) === 1;
-    const linkedFromChildren = !isRepeat ? Number(linkedRepeatCostsByParent.get(j.id)) || 0 : 0;
+    const linkedFromChildren = !isRepeat ? Number(linkedRepeatCostsByRoot.get(j.id)) || 0 : 0;
     const repeatJobCosts = isRepeat ? Number(fin.total_cost) || 0 : linkedFromChildren;
     const profitAfterRepeat = (Number(fin.profit) || 0) - linkedFromChildren;
     const profitMarginAfterRepeatPct = pct(profitAfterRepeat, fin.revenue);
+    const repeatFamilyJobNumber = repeatNumberBaseFromJobNumber(j.job_number);
+    const repeatRootJobId = findRepeatRootJobId(j.id);
     return {
       job_id: j.id,
       job_number: j.job_number,
+      repeat_family_job_number: repeatFamilyJobNumber,
+      repeat_root_job_id: repeatRootJobId,
       status: j.status,
       created_at: j.created_at,
       completed_at: j.completed_at,
