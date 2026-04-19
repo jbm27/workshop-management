@@ -144,6 +144,27 @@ function formatMarginPct(pctVal) {
   return `${pctVal.toFixed(1)}%`;
 }
 
+/** Plain-text message for WhatsApp / SMS with customer portal link. */
+function buildQuotePortalMessage({ customerName, quoteNumber, jobNumber, vehicleLabel, totalFormatted, portalUrl }) {
+  const name = String(customerName || '').trim() || 'there';
+  const lines = [
+    `Hi ${name},`,
+    '',
+    `Your quote ${quoteNumber || '—'} is ready for job ${jobNumber || '—'}.`,
+  ];
+  if (vehicleLabel) lines.push(`Vehicle: ${vehicleLabel}`);
+  lines.push(
+    '',
+    `Quoted total: ${totalFormatted}`,
+    '',
+    'Please open our customer portal to review the line items and approve anything you would like us to proceed with:',
+    String(portalUrl || ''),
+    '',
+    'Thank you.',
+  );
+  return lines.join('\n');
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -179,6 +200,9 @@ export default function JobDetail() {
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [payNotes, setPayNotes] = useState('');
   const [addingPay, setAddingPay] = useState(false);
+  /** null | { phase: 'loading' } | { phase: 'ready', message: string } | { phase: 'error', error: string } */
+  const [sendQuoteModal, setSendQuoteModal] = useState(null);
+  const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
 
   const { admin } = useAdmin();
   const canRecordInvoicePayments = admin?.permissions?.can_record_invoice_payments;
@@ -580,6 +604,48 @@ export default function JobDetail() {
         : Number(invoice.total || 0) - invoicePaidTotal)
       : null;
 
+  const openSendQuoteModal = async () => {
+    if (!quote || !job) return;
+    const cid = job.customer_id;
+    if (cid == null || !Number(cid)) {
+      alert('This job has no bill-to customer. Set the customer on the job before sending a portal message.');
+      return;
+    }
+    setSendQuoteCopied(false);
+    setSendQuoteModal({ phase: 'loading' });
+    try {
+      const { portal_url } = await api.customers.portalLink(Number(cid));
+      const vehicleLabel = [job.registration, job.make, job.model].filter(Boolean).join(' ');
+      const message = buildQuotePortalMessage({
+        customerName: job.customer_name,
+        quoteNumber: quote.invoice_number,
+        jobNumber: job.job_number,
+        vehicleLabel,
+        totalFormatted: formatKes(quote.total),
+        portalUrl: portal_url,
+      });
+      setSendQuoteModal({ phase: 'ready', message });
+    } catch (e) {
+      setSendQuoteModal({ phase: 'error', error: String(e?.message || 'Could not generate portal link.') });
+    }
+  };
+
+  const copySendQuoteMessage = async () => {
+    if (sendQuoteModal?.phase !== 'ready') return;
+    try {
+      await navigator.clipboard.writeText(sendQuoteModal.message);
+      setSendQuoteCopied(true);
+      window.setTimeout(() => setSendQuoteCopied(false), 2500);
+    } catch {
+      alert('Could not copy automatically. Select the text in the box and press Ctrl+C (Cmd+C on Mac).');
+    }
+  };
+
+  const closeSendQuoteModal = () => {
+    setSendQuoteModal(null);
+    setSendQuoteCopied(false);
+  };
+
   const jobReport = !invoiceLoading && invoice ? computeJobReport(invoice) : null;
 
   if (loading) return <div className="page-title">Loading…</div>;
@@ -645,6 +711,60 @@ export default function JobDetail() {
           <option value="cancelled">Cancelled</option>
         </select>
       </div>
+
+      {sendQuoteModal && (
+        <div className="modal-overlay" onClick={closeSendQuoteModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <header>Send quote to customer</header>
+            <div className="body">
+              {sendQuoteModal.phase === 'loading' && (
+                <p style={{ margin: 0, color: 'var(--text-muted)' }}>Preparing message…</p>
+              )}
+              {sendQuoteModal.phase === 'error' && (
+                <p style={{ margin: 0, color: 'var(--danger)' }}>{sendQuoteModal.error}</p>
+              )}
+              {sendQuoteModal.phase === 'ready' && (
+                <>
+                  <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: 0 }}>
+                    Copy the text below and paste it into WhatsApp (or SMS / email). It includes the customer portal link so they can view and approve the quote.
+                  </p>
+                  <textarea
+                    readOnly
+                    value={sendQuoteModal.message}
+                    rows={14}
+                    onFocus={(e) => e.target.select()}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      fontFamily: 'inherit',
+                      fontSize: '0.88rem',
+                      lineHeight: 1.45,
+                      padding: '0.65rem',
+                      borderRadius: 'var(--radius)',
+                      border: '1px solid var(--border)',
+                      resize: 'vertical',
+                      minHeight: '12rem',
+                    }}
+                  />
+                  {sendQuoteCopied ? (
+                    <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: '#15803d' }}>Copied to clipboard.</p>
+                  ) : null}
+                </>
+              )}
+            </div>
+            <footer>
+              {sendQuoteModal.phase === 'ready' ? (
+                <button type="button" className="btn primary" onClick={() => void copySendQuoteMessage()}>
+                  Copy to clipboard
+                </button>
+              ) : null}
+              <button type="button" className="btn" onClick={closeSendQuoteModal}>
+                {sendQuoteModal.phase === 'loading' ? 'Cancel' : 'Close'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {closeJobModal && (
         <div className="modal-overlay" onClick={() => { setCloseJobModal(false); setStatusMenuKey((k) => k + 1); }}>
@@ -1327,6 +1447,9 @@ export default function JobDetail() {
           {quote && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{quote.invoice_number}</span>
+              <button type="button" className="btn" onClick={() => void openSendQuoteModal()}>
+                Send quote
+              </button>
               {quote.items && quote.items.length > 0 && (
                 <button type="button" className="btn primary" onClick={() => api.invoices.downloadPDF(quote.id)}>
                   Download PDF
