@@ -17,6 +17,27 @@ function isRowReceived(r) {
   return Number(r.received_confirmed) === 1;
 }
 
+/** Case-insensitive substring match across visible row fields (pending + received). */
+function assignedRowMatchesQuery(r, rawQuery) {
+  const q = String(rawQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    r.doc_type,
+    r.doc_ref,
+    r.line_description,
+    r.invoice_line_description,
+    r.vehicle_registration,
+    r.vehicle_type,
+    r.job_number,
+    r.job_id,
+    r.quantity,
+    r.unit_cost,
+  ]
+    .map((x) => String(x ?? '').toLowerCase())
+    .join(' ');
+  return hay.includes(q);
+}
+
 function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle }) {
   return rows.map((r) => {
     const isDone = isRowReceived(r);
@@ -135,6 +156,8 @@ export default function AssignedReceipts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyRow, setBusyRow] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [receivedPanelOpen, setReceivedPanelOpen] = useState(false);
 
   const load = () =>
     api.invoices
@@ -189,6 +212,20 @@ export default function AssignedReceipts() {
     };
   }, [rows]);
 
+  const searchTrim = searchQuery.trim();
+  const pendingFiltered = useMemo(
+    () => pendingRows.filter((r) => assignedRowMatchesQuery(r, searchTrim)),
+    [pendingRows, searchTrim],
+  );
+  const receivedFiltered = useMemo(
+    () => receivedRows.filter((r) => assignedRowMatchesQuery(r, searchTrim)),
+    [receivedRows, searchTrim],
+  );
+
+  useEffect(() => {
+    if (searchTrim && receivedFiltered.length > 0) setReceivedPanelOpen(true);
+  }, [searchTrim, receivedFiltered.length]);
+
   const pendingCount = pendingRows.length;
   const receivedCount = receivedRows.length;
   const colSpan = isMechanic ? 7 : 8;
@@ -198,15 +235,51 @@ export default function AssignedReceipts() {
       <h1 className="page-title">Assigned parts to receive</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
         Parts/lines assigned to you across LPOs and IPRs. Showing <strong>pending</strong> below (
-        <strong>{pendingCount}</strong>).
+        {searchTrim ? (
+          <>
+            <strong>{pendingFiltered.length}</strong> of {pendingCount} match search
+          </>
+        ) : (
+          <strong>{pendingCount}</strong>
+        )}
+        ).
         {receivedCount > 0 ? (
           <>
             {' '}
-            <strong>{receivedCount}</strong> marked received — expand <strong>Received parts</strong> to review or
-            undo.
+            {searchTrim ? (
+              <>
+                Received: <strong>{receivedFiltered.length}</strong> of {receivedCount} match — open{' '}
+                <strong>Received parts</strong> for details.
+              </>
+            ) : (
+              <>
+                <strong>{receivedCount}</strong> marked received — expand <strong>Received parts</strong> to review or
+                undo.
+              </>
+            )}
           </>
         ) : null}
       </p>
+
+      <div className="card" style={{ marginBottom: '1rem', padding: '0.85rem 1rem' }}>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label htmlFor="assigned-parts-search">Search assigned lines</label>
+          <input
+            id="assigned-parts-search"
+            type="search"
+            placeholder="Plate, job number, LPO/IPR ref, line description…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            autoComplete="off"
+            style={{ width: '100%', maxWidth: '32rem' }}
+          />
+        </div>
+        <p style={{ margin: '0.45rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+          Filters both <strong>pending</strong> and <strong>received</strong> lines. Clear the field to show everything
+          again.
+        </p>
+      </div>
+
       {error ? (
         <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
           {error}
@@ -249,9 +322,16 @@ export default function AssignedReceipts() {
                   </td>
                 </tr>
               )}
-              {!loading && pendingRows.length > 0 && (
+              {!loading && pendingRows.length > 0 && pendingFiltered.length === 0 && (
+                <tr>
+                  <td colSpan={colSpan} className="empty">
+                    No pending lines match your search. Try another term or clear the search field.
+                  </td>
+                </tr>
+              )}
+              {!loading && pendingFiltered.length > 0 && (
                 <AssignedDesktopRows
-                  rows={pendingRows}
+                  rows={pendingFiltered}
                   isMechanic={isMechanic}
                   busyRow={busyRow}
                   onToggle={toggleReceived}
@@ -275,9 +355,14 @@ export default function AssignedReceipts() {
             review.
           </p>
         )}
-        {!loading && pendingRows.length > 0 && (
+        {!loading && pendingRows.length > 0 && pendingFiltered.length === 0 && (
+          <p className="empty" style={{ padding: '1.25rem 0' }}>
+            No pending lines match your search.
+          </p>
+        )}
+        {!loading && pendingFiltered.length > 0 && (
           <AssignedMobileCards
-            rows={pendingRows}
+            rows={pendingFiltered}
             isMechanic={isMechanic}
             busyRow={busyRow}
             onToggle={toggleReceived}
@@ -289,6 +374,8 @@ export default function AssignedReceipts() {
         <details
           className="card"
           style={{ marginTop: '1rem', padding: 0, overflow: 'hidden' }}
+          open={receivedPanelOpen}
+          onToggle={(e) => setReceivedPanelOpen(e.target.open)}
         >
           <summary
             style={{
@@ -299,7 +386,8 @@ export default function AssignedReceipts() {
               userSelect: 'none',
             }}
           >
-            Received parts ({receivedCount})
+            Received parts (
+            {searchTrim ? `${receivedFiltered.length} of ${receivedCount} match` : receivedCount})
           </summary>
           <div style={{ borderTop: '1px solid var(--border)' }}>
             <div className="assigned-table-desktop" style={{ borderRadius: 0, border: 'none', boxShadow: 'none' }}>
@@ -318,12 +406,20 @@ export default function AssignedReceipts() {
                     </tr>
                   </thead>
                   <tbody>
-                    <AssignedDesktopRows
-                      rows={receivedRows}
-                      isMechanic={isMechanic}
-                      busyRow={busyRow}
-                      onToggle={toggleReceived}
-                    />
+                    {receivedFiltered.length === 0 ? (
+                      <tr>
+                        <td colSpan={colSpan} className="empty">
+                          No received lines match your search.
+                        </td>
+                      </tr>
+                    ) : (
+                      <AssignedDesktopRows
+                        rows={receivedFiltered}
+                        isMechanic={isMechanic}
+                        busyRow={busyRow}
+                        onToggle={toggleReceived}
+                      />
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -332,12 +428,18 @@ export default function AssignedReceipts() {
               className="assigned-cards-only-mobile"
               style={{ padding: '0 1.25rem 1rem', borderRadius: 0, border: 'none', boxShadow: 'none' }}
             >
-              <AssignedMobileCards
-                rows={receivedRows}
-                isMechanic={isMechanic}
-                busyRow={busyRow}
-                onToggle={toggleReceived}
-              />
+              {receivedFiltered.length === 0 ? (
+                <p className="empty" style={{ padding: '1rem 0' }}>
+                  No received lines match your search.
+                </p>
+              ) : (
+                <AssignedMobileCards
+                  rows={receivedFiltered}
+                  isMechanic={isMechanic}
+                  busyRow={busyRow}
+                  onToggle={toggleReceived}
+                />
+              )}
             </div>
           </div>
         </details>
