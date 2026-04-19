@@ -346,11 +346,11 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
       ? db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at ASC, id ASC').all(invoice.id)
       : [];
 
-    const lpos = invoice
+    const lpoHeaders = invoice
       ? db
           .prepare(
             `
-        SELECT l.ref, l.finalized, l.approved, s.name AS supplier_name
+        SELECT l.id, l.ref, l.finalized, l.approved, s.name AS supplier_name
         FROM lpos l
         JOIN suppliers s ON s.id = l.supplier_id
         WHERE l.invoice_id = ?
@@ -360,9 +360,31 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
           .all(invoice.id)
       : [];
 
-    const iprs = invoice
-      ? db.prepare(`SELECT ref, finalized, approved FROM iprs WHERE invoice_id = ? ORDER BY id`).all(invoice.id)
+    const lpoLineStmt = db.prepare(
+      `
+      SELECT ll.description, ll.quantity, ll.unit_cost,
+        (COALESCE(ll.quantity, 0) * COALESCE(ll.unit_cost, 0)) AS line_net
+      FROM lpo_lines ll
+      WHERE ll.lpo_id = ?
+      ORDER BY ll.id
+    `,
+    );
+    const lpoDetails = lpoHeaders.map((l) => ({ ...l, lines: lpoLineStmt.all(l.id) }));
+
+    const iprHeaders = invoice
+      ? db.prepare(`SELECT id, ref, finalized, approved FROM iprs WHERE invoice_id = ? ORDER BY id`).all(invoice.id)
       : [];
+
+    const iprLineStmt = db.prepare(
+      `
+      SELECT il.description, il.quantity, il.unit_cost,
+        (COALESCE(il.quantity, 0) * COALESCE(il.unit_cost, 0)) AS line_net
+      FROM ipr_lines il
+      WHERE il.ipr_id = ?
+      ORDER BY il.id
+    `,
+    );
+    const iprDetails = iprHeaders.map((ip) => ({ ...ip, lines: iprLineStmt.all(ip.id) }));
 
     streamJobSummaryPdf(res, {
       job: jobForPdf,
@@ -374,8 +396,8 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
       invoice,
       invoiceItems,
       payments,
-      lpos,
-      iprs,
+      lpoDetails,
+      iprDetails,
     });
   } catch (e) {
     console.error('[job summary pdf]', e);

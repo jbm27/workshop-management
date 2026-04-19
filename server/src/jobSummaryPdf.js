@@ -103,6 +103,16 @@ function trunc(s, max) {
   return `${t.slice(0, max - 1)}…`;
 }
 
+/** Wide money columns so large KSh amounts stay on one line at ~6.8pt. */
+function tableColumnWidths(contentWidth) {
+  const gap = 8;
+  const wAmt = 100;
+  const wUnit = 84;
+  const wQty = 42;
+  const wDesc = Math.max(100, contentWidth - wAmt - wUnit - wQty - 3 * gap);
+  return { wDesc, wQty, wUnit, wAmt, gap };
+}
+
 /**
  * @param {import('express').Response} res
  * @param {object} payload
@@ -118,8 +128,8 @@ export function streamJobSummaryPdf(res, payload) {
     invoice,
     invoiceItems,
     payments,
-    lpos,
-    iprs,
+    lpoDetails,
+    iprDetails,
   } = payload;
 
   const jobNumber = String(job.job_number || `Job-${job.id}`);
@@ -259,7 +269,7 @@ export function streamJobSummaryPdf(res, payload) {
     y += 4;
   }
 
-  const drawCompactLineItems = (label, invRow, items, isQuote) => {
+  const drawQuoteInvoiceLineItems = (label, invRow, items, isQuote) => {
     y = sectionTitle(doc, margin, y, contentWidth, jn, label);
     if (!invRow) {
       doc.fontSize(7.5).font('Helvetica').text('—', margin, y);
@@ -267,44 +277,53 @@ export function streamJobSummaryPdf(res, payload) {
       return;
     }
     doc.fontSize(7.5).font('Helvetica');
-    const bits = [
-      invRow.invoice_number ? `No. ${invRow.invoice_number}` : null,
-      `Status: ${invRow.status || '—'}`,
-      invRow.total != null ? `Total ${kshFormat(invRow.total)}` : null,
-      invRow.subtotal != null ? `Subtotal ${kshFormat(invRow.subtotal)}` : null,
-    ].filter(Boolean);
-    doc.text(bits.join('   ·   '), margin, y, { width: contentWidth, lineGap: 0.5 });
-    y = doc.y + 4;
+    const no = invRow.invoice_number ? `No. ${invRow.invoice_number}` : '—';
+    doc.text(`${no} · Status: ${invRow.status || '—'}`, margin, y, { width: contentWidth, lineGap: 1 });
+    y = doc.y + 2;
+    const sub = invRow.subtotal != null ? kshFormat(invRow.subtotal) : '—';
+    const tot = invRow.total != null ? kshFormat(invRow.total) : '—';
+    doc.text(`Subtotal: ${sub}`, margin, y, { width: contentWidth, lineGap: 0.5 });
+    y = doc.y + 1;
+    doc.text(`Total (incl. VAT where applicable): ${tot}`, margin, y, { width: contentWidth, lineGap: 0.5 });
+    y = doc.y + 5;
+
     const list = Array.isArray(items) ? items : [];
     if (!list.length) {
-      doc.text('No line items.', margin, y);
+      doc.fontSize(7.5).font('Helvetica').text('No line items.', margin, y);
       y = doc.y + 6;
       return;
     }
+
+    const { wDesc, wQty, wUnit, wAmt, gap } = tableColumnWidths(contentWidth);
+    const xQty = margin + wDesc + gap;
+    const xUnit = xQty + wQty + gap;
+    const xAmt = xUnit + wUnit + gap;
+
     doc.fontSize(6.8).font('Helvetica-Bold');
-    const wDesc = contentWidth - 110;
     doc.text('Description', margin, y, { width: wDesc });
-    doc.text('Qty', margin + wDesc, y, { width: 28, align: 'right' });
-    doc.text('Unit', margin + wDesc + 30, y, { width: 38, align: 'right' });
-    doc.text('Amount', margin + wDesc + 72, y, { width: 38, align: 'right' });
+    doc.text('Qty', xQty, y, { width: wQty, align: 'right' });
+    doc.text('Unit', xUnit, y, { width: wUnit, align: 'right' });
+    doc.text('Amount', xAmt, y, { width: wAmt, align: 'right' });
     y = doc.y + 1;
     doc.moveTo(margin, y).lineTo(margin + contentWidth, y).stroke('#dddddd');
     y += 3;
     doc.font('Helvetica');
     for (const it of list) {
-      const desc = trunc(String(it.description || '—'), 80);
+      const desc = String(it.description || '—');
       const qty = Number(it.quantity) || 0;
       const unit = Number(it.unit_price) || 0;
       const amt = qty * unit;
       const h = Math.max(
-        doc.heightOfString(desc, { width: wDesc }),
-        doc.heightOfString(qty.toFixed(2), { width: 28, align: 'right' }),
+        doc.heightOfString(desc, { width: wDesc, lineGap: 0.3 }),
+        doc.heightOfString(qty.toFixed(2), { width: wQty, align: 'right' }),
+        doc.heightOfString(kshFormat(unit), { width: wUnit, align: 'right' }),
+        doc.heightOfString(kshFormat(amt), { width: wAmt, align: 'right' }),
       );
       y = ensureSpace(doc, y, h + 4, margin, contentWidth, jn);
       doc.text(desc, margin, y, { width: wDesc, lineGap: 0.3 });
-      doc.text(qty.toFixed(2), margin + wDesc, y, { width: 28, align: 'right' });
-      doc.text(kshFormat(unit), margin + wDesc + 30, y, { width: 38, align: 'right' });
-      doc.text(kshFormat(amt), margin + wDesc + 72, y, { width: 38, align: 'right' });
+      doc.text(qty.toFixed(2), xQty, y, { width: wQty, align: 'right' });
+      doc.text(kshFormat(unit), xUnit, y, { width: wUnit, align: 'right' });
+      doc.text(kshFormat(amt), xAmt, y, { width: wAmt, align: 'right' });
       y += h + 1;
     }
     if (!isQuote && list.length) {
@@ -321,40 +340,95 @@ export function streamJobSummaryPdf(res, payload) {
     }
   };
 
-  drawCompactLineItems('Quote', quote, quoteItems, true);
-  drawCompactLineItems('Invoice', invoice, invoiceItems, false);
+  const drawCostLineTable = (lines, unitHeading, amountHeading) => {
+    const { wDesc, wQty, wUnit, wAmt, gap } = tableColumnWidths(contentWidth);
+    const xQty = margin + wDesc + gap;
+    const xUnit = xQty + wQty + gap;
+    const xAmt = xUnit + wUnit + gap;
+
+    doc.fontSize(6.8).font('Helvetica-Bold');
+    doc.text('Description', margin, y, { width: wDesc });
+    doc.text('Qty', xQty, y, { width: wQty, align: 'right' });
+    doc.text(unitHeading, xUnit, y, { width: wUnit, align: 'right' });
+    doc.text(amountHeading, xAmt, y, { width: wAmt, align: 'right' });
+    y = doc.y + 1;
+    doc.moveTo(margin, y).lineTo(margin + contentWidth, y).stroke('#dddddd');
+    y += 3;
+    doc.font('Helvetica');
+    const list = Array.isArray(lines) ? lines : [];
+    if (!list.length) {
+      doc.fontSize(7).text('No lines.', margin, y);
+      y = doc.y + 4;
+      return;
+    }
+    for (const ln of list) {
+      const desc = String(ln.description || '—');
+      const qty = Number(ln.quantity) || 0;
+      const uc = Number(ln.unit_cost) || 0;
+      const net = Number(ln.line_net) != null && Number.isFinite(Number(ln.line_net)) ? Number(ln.line_net) : qty * uc;
+      const h = Math.max(
+        doc.heightOfString(desc, { width: wDesc, lineGap: 0.3 }),
+        doc.heightOfString(qty.toFixed(2), { width: wQty, align: 'right' }),
+        doc.heightOfString(kshFormat(uc), { width: wUnit, align: 'right' }),
+        doc.heightOfString(kshFormat(net), { width: wAmt, align: 'right' }),
+      );
+      y = ensureSpace(doc, y, h + 4, margin, contentWidth, jn);
+      doc.text(desc, margin, y, { width: wDesc, lineGap: 0.3 });
+      doc.text(qty.toFixed(2), xQty, y, { width: wQty, align: 'right' });
+      doc.text(kshFormat(uc), xUnit, y, { width: wUnit, align: 'right' });
+      doc.text(kshFormat(net), xAmt, y, { width: wAmt, align: 'right' });
+      y += h + 1;
+    }
+    y += 2;
+  };
+
+  drawQuoteInvoiceLineItems('Quote', quote, quoteItems, true);
+  drawQuoteInvoiceLineItems('Invoice', invoice, invoiceItems, false);
 
   y = sectionTitle(doc, margin, y, contentWidth, jn, 'LPOs (invoice)');
   doc.fontSize(7.5).font('Helvetica');
-  const lpoList = Array.isArray(lpos) ? lpos : [];
-  if (!invoice || !lpoList.length) {
+  const lpoDocs = Array.isArray(lpoDetails) ? lpoDetails : [];
+  if (!invoice || !lpoDocs.length) {
     doc.text(invoice ? '—' : 'No invoice —', margin, y);
     y = doc.y + 6;
   } else {
-    for (const l of lpoList) {
-      y = ensureSpace(doc, y, 12, margin, contentWidth, jn);
+    for (const l of lpoDocs) {
+      y = ensureSpace(doc, y, 28, margin, contentWidth, jn);
       const fin = Number(l.finalized) === 1 ? 'finalised' : 'open';
       const appr = Number(l.approved) === 1 ? 'approved' : 'not appr.';
-      doc.text(`${l.ref || '—'} · ${l.supplier_name || '—'} · ${fin} · ${appr}`, margin, y, { width: contentWidth });
-      y = doc.y + 1;
+      doc.font('Helvetica-Bold').text(`${l.ref || '—'} · ${l.supplier_name || '—'} · ${fin} · ${appr}`, margin, y, {
+        width: contentWidth,
+        lineGap: 0.5,
+      });
+      y = doc.y + 3;
+      doc.font('Helvetica');
+      doc.fontSize(6.5).fillColor('#333333').text('Line totals are ex-VAT (qty × unit cost).', margin, y, { width: contentWidth });
+      doc.fillColor('#000000');
+      y = doc.y + 3;
+      drawCostLineTable(l.lines, 'Unit (ex)', 'Line (ex)');
     }
-    y += 4;
+    y += 2;
   }
 
   y = sectionTitle(doc, margin, y, contentWidth, jn, 'IPRs (invoice)');
-  const iprList = Array.isArray(iprs) ? iprs : [];
-  if (!invoice || !iprList.length) {
+  const iprDocs = Array.isArray(iprDetails) ? iprDetails : [];
+  if (!invoice || !iprDocs.length) {
     doc.fontSize(7.5).font('Helvetica').text(invoice ? '—' : 'No invoice —', margin, y);
     y = doc.y + 6;
   } else {
-    for (const ip of iprList) {
-      y = ensureSpace(doc, y, 12, margin, contentWidth, jn);
+    for (const ip of iprDocs) {
+      y = ensureSpace(doc, y, 28, margin, contentWidth, jn);
       const fin = Number(ip.finalized) === 1 ? 'finalised' : 'open';
       const appr = Number(ip.approved) === 1 ? 'approved' : 'not appr.';
-      doc.text(`${ip.ref || '—'} · ${fin} · ${appr}`, margin, y, { width: contentWidth });
-      y = doc.y + 1;
+      doc.font('Helvetica-Bold').text(`${ip.ref || '—'} · ${fin} · ${appr}`, margin, y, { width: contentWidth, lineGap: 0.5 });
+      y = doc.y + 3;
+      doc.font('Helvetica');
+      doc.fontSize(6.5).fillColor('#333333').text('Line totals are ex-VAT (qty × unit cost).', margin, y, { width: contentWidth });
+      doc.fillColor('#000000');
+      y = doc.y + 3;
+      drawCostLineTable(ip.lines, 'Unit (ex)', 'Line (ex)');
     }
-    y += 4;
+    y += 2;
   }
 
   y = sectionTitle(doc, margin, y, contentWidth, jn, 'Invoice payments');
@@ -363,20 +437,29 @@ export function streamJobSummaryPdf(res, payload) {
     doc.fontSize(7.5).font('Helvetica').text(invoice ? '—' : 'No invoice —', margin, y);
     y = doc.y + 6;
   } else {
+    const payAmtW = 92;
+    const payDateW = 86;
+    const payNotesX = margin + payDateW + payAmtW + 10;
+    const payNotesW = margin + contentWidth - payNotesX;
     doc.fontSize(7).font('Helvetica-Bold');
-    doc.text('Paid at', margin, y, { width: 88 });
-    doc.text('Amount', margin + 90, y, { width: 52, align: 'right' });
-    doc.text('Notes', margin + 146, y, { width: contentWidth - 146 });
+    doc.text('Paid at', margin, y, { width: payDateW });
+    doc.text('Amount', margin + payDateW, y, { width: payAmtW, align: 'right' });
+    doc.text('Notes', payNotesX, y, { width: payNotesW });
     y = doc.y + 2;
     doc.moveTo(margin, y).lineTo(margin + contentWidth, y).stroke('#cccccc');
     y += 4;
     doc.font('Helvetica');
     for (const p of payList) {
-      y = ensureSpace(doc, y, 12, margin, contentWidth, jn);
-      doc.text(fmtDateTimeShort(p.paid_at), margin, y, { width: 88 });
-      doc.text(kshFormat(p.amount), margin + 90, y, { width: 52, align: 'right' });
-      doc.text(trunc(p.notes, 70), margin + 146, y, { width: contentWidth - 146 });
-      y = doc.y + 1;
+      const payH = Math.max(
+        doc.heightOfString(fmtDateTimeShort(p.paid_at), { width: payDateW }),
+        doc.heightOfString(kshFormat(p.amount), { width: payAmtW, align: 'right' }),
+        doc.heightOfString(trunc(p.notes, 80), { width: payNotesW }),
+      );
+      y = ensureSpace(doc, y, payH + 4, margin, contentWidth, jn);
+      doc.text(fmtDateTimeShort(p.paid_at), margin, y, { width: payDateW });
+      doc.text(kshFormat(p.amount), margin + payDateW, y, { width: payAmtW, align: 'right' });
+      doc.text(trunc(p.notes, 80), payNotesX, y, { width: payNotesW });
+      y += payH + 1;
     }
     y += 4;
   }
