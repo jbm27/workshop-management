@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useAdmin } from '../auth/AdminContext';
+import { FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -91,7 +92,7 @@ export default function Jobs() {
     newVehicle: { ...EMPTY_VEHICLE },
   });
 
-  const FUEL_OPTIONS = ['', 'Empty', '1/4', '1/2', '3/4', 'Full'];
+  const FUEL_OPTIONS = ['', ...FUEL_LEVEL_OPTIONS];
 
   const load = () => {
     setLoadError('');

@@ -1,4 +1,17 @@
-const FUEL_LEVEL_FRAC = { Empty: 0, '1/4': 0.25, '1/2': 0.5, '3/4': 0.75, Full: 1 };
+/** Ordered fuel gauge levels (⅛ steps). Stored as these strings on jobs / test drives. */
+export const FUEL_LEVEL_OPTIONS = ['Empty', '1/8', '1/4', '3/8', '1/2', '5/8', '3/4', '7/8', 'Full'];
+
+const FUEL_LEVEL_FRAC = {
+  Empty: 0,
+  '1/8': 1 / 8,
+  '1/4': 2 / 8,
+  '3/8': 3 / 8,
+  '1/2': 4 / 8,
+  '5/8': 5 / 8,
+  '3/4': 6 / 8,
+  '7/8': 7 / 8,
+  Full: 1,
+};
 
 function fuelLevelToFrac(level) {
   if (level == null || level === '') return null;
@@ -7,12 +20,19 @@ function fuelLevelToFrac(level) {
 }
 
 function formatTankFrac(frac) {
-  const q = Math.round(frac * 4) / 4;
+  const q = Math.round(frac * 8) / 8;
   if (q <= 0) return 'minimal';
-  if (q === 0.25) return '¼';
-  if (q === 0.5) return '½';
-  if (q === 0.75) return '¾';
   if (q >= 1) return '1';
+  const eighthUnicode = {
+    0.125: '⅛',
+    0.25: '¼',
+    0.375: '⅜',
+    0.5: '½',
+    0.625: '⅝',
+    0.75: '¾',
+    0.875: '⅞',
+  };
+  if (eighthUnicode[q] != null) return eighthUnicode[q];
   return `${Math.round(frac * 100)}%`;
 }
 
@@ -21,7 +41,8 @@ function describeFuelUsed(prevLevel, currLevel) {
   const b = fuelLevelToFrac(currLevel);
   if (a === null || b === null) return '—';
   const used = a - b;
-  if (Math.abs(used) < 0.02) return '—';
+  const usedE = Math.round(used * 8) / 8;
+  if (Math.abs(usedE) < 0.0625) return '—';
   if (used < 0) return `≈ +${formatTankFrac(-used)} (gauge)`;
   return `≈ ${formatTankFrac(used)} tank`;
 }

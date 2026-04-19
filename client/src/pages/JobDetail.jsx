@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
 import { useAdmin } from '../auth/AdminContext';
-import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
+import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -596,7 +596,7 @@ export default function JobDetail() {
     }
   };
 
-  const fuelOptions = ['', 'Empty', '1/4', '1/2', '3/4', 'Full'];
+  const fuelOptions = ['', ...FUEL_LEVEL_OPTIONS];
 
   const formatKes = (n) => {
     const x = Number(n);

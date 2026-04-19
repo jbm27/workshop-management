@@ -97,7 +97,7 @@ function fullJob(jobId) {
   };
 }
 
-const TEST_DRIVE_FUEL_LEVELS = ['Empty', '1/4', '1/2', '3/4', 'Full'];
+const TEST_DRIVE_FUEL_LEVELS = ['Empty', '1/8', '1/4', '3/8', '1/2', '5/8', '3/4', '7/8', 'Full'];
 
 jobsRouter.get('/', requireAdminAuth, (req, res) => {
   const isM = req.admin.is_mechanic;
@@ -502,7 +502,9 @@ jobsRouter.post('/:id/test-drives', requireAdminAuth, (req, res) => {
   const odo = Number(odometer);
   if (!Number.isFinite(odo) || odo < 0) return res.status(400).json({ error: 'Valid odometer (km) on return to workshop is required' });
   if (!fuel || !TEST_DRIVE_FUEL_LEVELS.includes(fuel)) {
-    return res.status(400).json({ error: 'Fuel level is required (Empty, 1/4, 1/2, 3/4, or Full)' });
+    return res.status(400).json({
+      error: 'Fuel level is required (Empty, 1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8, or Full)',
+    });
   }
   const lastTd = db
     .prepare('SELECT odometer FROM job_test_drives WHERE job_id = ? ORDER BY id DESC LIMIT 1')
