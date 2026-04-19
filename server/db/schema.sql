@@ -142,6 +142,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   labour_rate_frozen REAL,
   labour_cost_frozen REAL,
   quote_prepared_at TEXT,
+  is_repeat_job INTEGER NOT NULL DEFAULT 0,
+  related_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

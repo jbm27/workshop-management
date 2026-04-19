@@ -211,6 +211,12 @@ function migrate(db) {
     if (!jobCols.includes('vehicle_released_at')) {
       db.run('ALTER TABLE jobs ADD COLUMN vehicle_released_at TEXT');
     }
+    if (!jobCols.includes('is_repeat_job')) {
+      db.run('ALTER TABLE jobs ADD COLUMN is_repeat_job INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!jobCols.includes('related_job_id')) {
+      db.run('ALTER TABLE jobs ADD COLUMN related_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }

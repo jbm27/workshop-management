@@ -35,10 +35,12 @@ function nextJobNumber() {
 
 const jobDetailSql = `
   SELECT j.*, v.registration, v.make, v.model, v.vin,
-    c.name as customer_name, c.phone as customer_phone, c.email as customer_email
+    c.name as customer_name, c.phone as customer_phone, c.email as customer_email,
+    rj.job_number as related_job_number
   FROM jobs j
   JOIN vehicles v ON j.vehicle_id = v.id
   LEFT JOIN customers c ON j.customer_id = c.id
+  LEFT JOIN jobs rj ON rj.id = j.related_job_id
   WHERE j.id = ?
 `;
 
@@ -98,6 +100,28 @@ function fullJob(jobId) {
 }
 
 const TEST_DRIVE_FUEL_LEVELS = ['Empty', '1/8', '1/4', '3/8', '1/2', '5/8', '3/4', '7/8', 'Full'];
+
+/** For repeat-job setup: searchable list of workshop jobs (any status). */
+jobsRouter.get('/for-repeat-link', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
+  const q = (req.query.q || '').trim();
+  const like = q ? `%${q}%` : '%';
+  const rows = db
+    .prepare(
+      `
+    SELECT j.id, j.job_number, j.status, j.created_at,
+      v.registration, v.make, v.model
+    FROM jobs j
+    JOIN vehicles v ON v.id = j.vehicle_id
+    WHERE (j.job_number LIKE ? OR IFNULL(v.registration,'') LIKE ? OR IFNULL(v.make,'') LIKE ?
+      OR IFNULL(v.model,'') LIKE ? OR CAST(j.id AS TEXT) LIKE ?)
+    ORDER BY j.created_at DESC, j.id DESC
+    LIMIT 80
+  `,
+    )
+    .all(like, like, like, like, like);
+  res.json(rows);
+});
 
 jobsRouter.get('/', requireAdminAuth, (req, res) => {
   const isM = req.admin.is_mechanic;
@@ -599,10 +623,20 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
   const { vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
   if (!vehicle_id) return res.status(400).json({ error: 'vehicle_id is required' });
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required (bill-to for this job)' });
+  const is_repeat_job = req.body?.is_repeat_job === true || Number(req.body?.is_repeat_job) === 1;
+  let related_job_id = null;
+  if (is_repeat_job) {
+    related_job_id = Number(req.body?.related_job_id);
+    if (!Number.isFinite(related_job_id) || related_job_id <= 0) {
+      return res.status(400).json({ error: 'related_job_id is required when creating a repeat job' });
+    }
+    const rel = db.prepare('SELECT id FROM jobs WHERE id = ?').get(related_job_id);
+    if (!rel) return res.status(400).json({ error: 'Related job not found' });
+  }
   const job_number = nextJobNumber();
   const result = db.prepare(`
-    INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
+    INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status, is_repeat_job, related_job_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)
   `).run(
     job_number,
     vehicle_id,
@@ -614,8 +648,13 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
     fuel_out || null,
     valuables_in_vehicle || null,
     due_date || null,
+    is_repeat_job ? 1 : 0,
+    is_repeat_job ? related_job_id : null,
   );
   const jobId = result.lastInsertRowid;
+  if (is_repeat_job) {
+    ensureRepeatJobCostInvoice(jobId, customer_id, vehicle_id);
+  }
   if (Array.isArray(tasks) && tasks.length) {
     const ins = db.prepare('INSERT INTO job_tasks (job_id, description, sort_order, completed) VALUES (?, ?, ?, ?)');
     tasks.forEach((t, i) => {
@@ -700,10 +739,34 @@ function nextInvoiceNumber() {
   return `INV-${next}`;
 }
 
+/** Internal zero-revenue invoice so LPO/IPR and labour cost sync can attach to repeat jobs. */
+function ensureRepeatJobCostInvoice(jobId, customerId, vehicleId) {
+  const jid = Number(jobId);
+  if (!Number.isFinite(jid) || jid <= 0) return;
+  const existing = db.prepare(`SELECT id FROM invoices WHERE job_id = ? AND type = 'invoice'`).get(jid);
+  if (existing) return;
+  const invoice_number = nextInvoiceNumber();
+  const taxRate = 0.16;
+  const result = db
+    .prepare(
+      `
+    INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, tax_rate, status)
+    VALUES (?, ?, ?, ?, 'invoice', ?, 'draft')
+  `,
+    )
+    .run(invoice_number, jid, customerId, vehicleId, taxRate);
+  const invId = result.lastInsertRowid;
+  db.prepare(`UPDATE invoices SET subtotal = 0, tax_amount = 0, total = 0 WHERE id = ?`).run(invId);
+  syncLabourLinesForJob(jid);
+}
+
 jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
-  const job = db.prepare('SELECT id, customer_id, vehicle_id FROM jobs WHERE id = ?').get(req.params.id);
+  const job = db.prepare('SELECT id, customer_id, vehicle_id, is_repeat_job FROM jobs WHERE id = ?').get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (Number(job.is_repeat_job) === 1) {
+    return res.status(400).json({ error: 'Repeat jobs do not use customer quotes' });
+  }
   const existing = db.prepare('SELECT id FROM invoices WHERE job_id = ? AND type = ?').get(req.params.id, 'quote');
   if (existing) return res.status(400).json({ error: 'This job already has a quote' });
   const quote_number = nextQuoteNumber();
@@ -726,8 +789,11 @@ jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
 
 jobsRouter.post('/:id/invoice', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
-  const job = db.prepare('SELECT id, customer_id, vehicle_id FROM jobs WHERE id = ?').get(req.params.id);
+  const job = db.prepare('SELECT id, customer_id, vehicle_id, is_repeat_job FROM jobs WHERE id = ?').get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (Number(job.is_repeat_job) === 1) {
+    return res.status(400).json({ error: 'Repeat jobs use the internal cost document created with the job' });
+  }
   const existing = db.prepare('SELECT id FROM invoices WHERE job_id = ? AND type = ?').get(req.params.id, 'invoice');
   if (existing) return res.status(400).json({ error: 'This job already has an invoice' });
   const invoice_number = nextInvoiceNumber();

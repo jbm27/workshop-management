@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminPermission } from '../auth.js';
+import { computeInvoiceFinancials, pct } from '../invoiceFinancials.js';
 
 export const reportsRouter = Router();
 
@@ -153,55 +154,6 @@ function revenuePerJobHourKes(inv, finRevenue, createdAt, vehicleReleasedAt, com
   return Math.round((amt / hours) * 100) / 100;
 }
 
-function pct(numerator, denominator) {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
-  return (numerator / denominator) * 100;
-}
-
-function computeInvoiceFinancials(inv, items) {
-  if (!inv) {
-    return {
-      revenue: 0,
-      total_cost: 0,
-      profit: 0,
-      profit_margin_pct: null,
-      labour_margin_pct: null,
-      spares_margin_pct: null,
-    };
-  }
-  const list = items || [];
-  let labourRevenue = 0;
-  let labourCost = 0;
-  let sparesRevenue = 0;
-  let sparesCost = 0;
-  for (const it of list) {
-    const rev = (Number(it.quantity) || 0) * (Number(it.unit_price) || 0);
-    const lpo = Number(it.lpo_allocated_cost) || 0;
-    const ipr = Number(it.ipr_allocated_cost) || 0;
-    const cost = lpo > 0 || ipr > 0 ? lpo + ipr : (Number(it.quantity) || 0) * (Number(it.purchase_price) || 0);
-    const lab = String(it.type || '').toLowerCase() === 'labour';
-    if (lab) {
-      labourRevenue += rev;
-      labourCost += cost;
-    } else {
-      sparesRevenue += rev;
-      sparesCost += cost;
-    }
-  }
-  const sumLineRevenue = list.reduce((s, it) => s + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0);
-  const revenue = Number.isFinite(Number(inv.subtotal)) ? Number(inv.subtotal) : sumLineRevenue;
-  const totalCost = labourCost + sparesCost;
-  const profit = revenue - totalCost;
-  return {
-    revenue,
-    total_cost: totalCost,
-    profit,
-    profit_margin_pct: pct(profit, revenue),
-    labour_margin_pct: pct(labourRevenue - labourCost, labourRevenue),
-    spares_margin_pct: pct(sparesRevenue - sparesCost, sparesRevenue),
-  };
-}
-
 /** Jobs in a date window with invoice P&L (same basis as the job card Job Report). */
 reportsRouter.get('/jobs-financial', (req, res) => {
   const basis = String(req.query.date_basis || 'created').toLowerCase() === 'completed' ? 'completed' : 'created';
@@ -231,6 +183,9 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       j.vehicle_released_at,
       j.quote_prepared_at,
       j.customer_rating,
+      j.is_repeat_job,
+      j.related_job_id,
+      rj.job_number AS related_job_number,
       c.name AS customer_name,
       v.registration,
       v.make,
@@ -238,6 +193,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     FROM jobs j
     LEFT JOIN customers c ON c.id = j.customer_id
     LEFT JOIN vehicles v ON v.id = j.vehicle_id
+    LEFT JOIN jobs rj ON rj.id = j.related_job_id
     ${where}
     ORDER BY j.created_at DESC, j.id DESC
   `,
@@ -265,6 +221,9 @@ reportsRouter.get('/jobs-financial', (req, res) => {
         sum_revenue: 0,
         sum_profit: 0,
         aggregate_profit_margin_pct: null,
+        sum_repeat_job_costs: 0,
+        sum_profit_after_repeat: 0,
+        aggregate_profit_margin_after_repeat_pct: null,
       },
     });
   }
@@ -309,6 +268,18 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     }
   }
 
+  const linkedRepeatCostsByParent = new Map();
+  for (const j of jobs) {
+    if (Number(j.is_repeat_job) !== 1 || !j.related_job_id) continue;
+    const pid = Number(j.related_job_id);
+    if (!Number.isFinite(pid) || pid <= 0) continue;
+    const inv = invByJob.get(j.id);
+    const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
+    const finChild = computeInvoiceFinancials(inv || null, items);
+    const c = Number(finChild.total_cost) || 0;
+    linkedRepeatCostsByParent.set(pid, (linkedRepeatCostsByParent.get(pid) || 0) + c);
+  }
+
   const rows = jobs.map((j) => {
     const inv = invByJob.get(j.id);
     const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
@@ -316,6 +287,11 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     const timeToQuote = timeToQuoteHours(j.created_at, j.quote_prepared_at);
     const jobBayH = jobBayHours(j.created_at, j.vehicle_released_at, j.completed_at);
     const revPerHour = revenuePerJobHourKes(inv || null, fin.revenue, j.created_at, j.vehicle_released_at, j.completed_at);
+    const isRepeat = Number(j.is_repeat_job) === 1;
+    const linkedFromChildren = !isRepeat ? Number(linkedRepeatCostsByParent.get(j.id)) || 0 : 0;
+    const repeatJobCosts = isRepeat ? Number(fin.total_cost) || 0 : linkedFromChildren;
+    const profitAfterRepeat = (Number(fin.profit) || 0) - linkedFromChildren;
+    const profitMarginAfterRepeatPct = pct(profitAfterRepeat, fin.revenue);
     return {
       job_id: j.id,
       job_number: j.job_number,
@@ -332,6 +308,13 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       customer_rating: j.customer_rating != null ? Number(j.customer_rating) : null,
       has_invoice: Boolean(inv),
       invoice_number: inv?.invoice_number ?? null,
+      is_repeat_job: isRepeat,
+      related_job_id: j.related_job_id != null ? Number(j.related_job_id) : null,
+      related_job_number: j.related_job_number ?? null,
+      repeat_job_costs: Math.round(repeatJobCosts * 100) / 100,
+      linked_repeat_costs_from_children: Math.round(linkedFromChildren * 100) / 100,
+      profit_after_repeat: Math.round(profitAfterRepeat * 100) / 100,
+      profit_margin_after_repeat_pct: profitMarginAfterRepeatPct,
       ...fin,
     };
   });
@@ -339,6 +322,8 @@ reportsRouter.get('/jobs-financial', (req, res) => {
   const withInv = rows.filter((r) => r.has_invoice);
   const sumRevenue = rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
   const sumProfit = rows.reduce((s, r) => s + (Number(r.profit) || 0), 0);
+  const sumRepeatJobCosts = rows.reduce((s, r) => s + (Number(r.repeat_job_costs) || 0), 0);
+  const sumProfitAfterRepeat = rows.reduce((s, r) => s + (Number(r.profit_after_repeat) || 0), 0);
   const summary = {
     job_count: rows.length,
     jobs_with_invoice: withInv.length,
@@ -354,6 +339,10 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     sum_revenue: Math.round(sumRevenue * 100) / 100,
     sum_profit: Math.round(sumProfit * 100) / 100,
     aggregate_profit_margin_pct: sumRevenue > 0 ? (sumProfit / sumRevenue) * 100 : null,
+    sum_repeat_job_costs: Math.round(sumRepeatJobCosts * 100) / 100,
+    sum_profit_after_repeat: Math.round(sumProfitAfterRepeat * 100) / 100,
+    aggregate_profit_margin_after_repeat_pct:
+      sumRevenue > 0 ? (sumProfitAfterRepeat / sumRevenue) * 100 : null,
   };
 
   res.json({

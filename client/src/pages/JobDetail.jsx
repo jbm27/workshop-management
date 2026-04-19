@@ -667,6 +667,9 @@ export default function JobDetail() {
   if (loading) return <div className="page-title">Loading…</div>;
   if (!job) return <div className="page-title">Job not found. <Link to="/jobs">Back to jobs</Link></div>;
 
+  const isRepeatJob = Number(job.is_repeat_job) === 1;
+  const relatedJobId = job.related_job_id != null ? Number(job.related_job_id) : null;
+
   const testDrivesList = job.test_drives || [];
   const mileageInLocked = job.odometer_in != null;
   const fuelInLocked = job.fuel_in != null && String(job.fuel_in).trim() !== '';
@@ -843,50 +846,70 @@ export default function JobDetail() {
               }}
             >
               <h4 style={{ margin: '0 0 0.65rem', fontSize: '0.95rem' }}>Financial summary</h4>
-              <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Quoted amount</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                    {quoteLoading ? '…' : quote ? formatKes(quote.total) : '—'}
-                  </dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Invoiced amount</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                    {invoiceLoading ? '…' : invoice ? formatKes(invoice.total) : '—'}
-                  </dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Amount paid</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                    {invoiceLoading ? '…' : invoice ? formatKes(invoicePaidTotal) : '—'}
-                  </dd>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-                  <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Balance</dt>
-                  <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                    {invoiceLoading ? '…' : invoice ? formatKes(invoiceBalance) : '—'}
-                  </dd>
-                </div>
-              </dl>
-              {(quote || invoice) && (
-                <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem' }}>
-                  {quote && (
+              {isRepeatJob ? (
+                <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                  This repeat job is not billed on a customer quote or invoice. Internal spend is tracked under{' '}
+                  <strong>LPO & IPR</strong> and <strong>Team time logs</strong>.{' '}
+                  {relatedJobId ? (
                     <>
-                      <Link to={`/invoices/${quote.id}`}>Open quote</Link>
-                      {invoice ? ' · ' : ''}
+                      Linked job:{' '}
+                      <Link to={`/jobs/${relatedJobId}`}>
+                        <strong>{job.related_job_number || `Job #${relatedJobId}`}</strong>
+                      </Link>
+                      .
                     </>
-                  )}
-                  {invoice && <Link to={`/invoices/${invoice.id}`}>Open invoice</Link>}
+                  ) : null}
                 </p>
+              ) : (
+                <>
+                  <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                      <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Quoted amount</dt>
+                      <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                        {quoteLoading ? '…' : quote ? formatKes(quote.total) : '—'}
+                      </dd>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                      <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Invoiced amount</dt>
+                      <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                        {invoiceLoading ? '…' : invoice ? formatKes(invoice.total) : '—'}
+                      </dd>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                      <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Amount paid</dt>
+                      <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                        {invoiceLoading ? '…' : invoice ? formatKes(invoicePaidTotal) : '—'}
+                      </dd>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+                      <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Balance</dt>
+                      <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
+                        {invoiceLoading ? '…' : invoice ? formatKes(invoiceBalance) : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                  {(quote || invoice) && (
+                    <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem' }}>
+                      {quote && (
+                        <>
+                          <Link to={`/invoices/${quote.id}`}>Open quote</Link>
+                          {invoice ? ' · ' : ''}
+                        </>
+                      )}
+                      {invoice && <Link to={`/invoices/${invoice.id}`}>Open invoice</Link>}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Job Report</h3>
+            <h3 style={{ marginTop: 0 }}>{isRepeatJob ? 'Internal cost summary' : 'Job Report'}</h3>
             {!invoice && !invoiceLoading && (
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                Create a job invoice to see revenue, costs, and margins (ex-VAT subtotal vs internal costs).
+                {isRepeatJob
+                  ? 'Internal cost document should load automatically for repeat jobs. If this stays empty, refresh the page.'
+                  : 'Create a job invoice to see revenue, costs, and margins (ex-VAT subtotal vs internal costs).'}
               </p>
             )}
             {invoiceLoading && <p style={{ margin: 0, color: 'var(--text-muted)' }}>Loading…</p>}
@@ -1157,6 +1180,26 @@ export default function JobDetail() {
       </div>
 
       {!isMechanic && (
+      <>
+      {isRepeatJob && (
+        <div className="card" style={{ borderLeft: '4px solid var(--accent)' }}>
+          <h3 style={{ marginTop: 0 }}>Repeat job</h3>
+          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+            Goodwill rework — not sold on a customer quote or invoice. Use <strong>LPO & IPR</strong> and <strong>time logs</strong>{' '}
+            to record real costs.{' '}
+            {relatedJobId ? (
+              <>
+                Relates to{' '}
+                <Link to={`/jobs/${relatedJobId}`}>
+                  <strong>{job.related_job_number || `Job #${relatedJobId}`}</strong>
+                </Link>{' '}
+                for job reports (margin impact on that job).
+              </>
+            ) : null}
+          </p>
+        </div>
+      )}
+      {!isRepeatJob && (
       <>
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -1645,13 +1688,20 @@ export default function JobDetail() {
         )}
       </div>
 
+      </>
+      )}
+
       <div className="card">
         <h3 style={{ marginTop: 0 }}>LPO & IPR</h3>
         {!invoiceLoading && invoice && (
           <JobInvoiceLpoIprPanel invoice={invoice} onInvoiceUpdated={setInvoice} />
         )}
         {!invoiceLoading && !invoice && (
-          <p style={{ color: 'var(--text-muted)', margin: 0 }}>Create an invoice on this job to record LPOs and IPRs.</p>
+          <p style={{ color: 'var(--text-muted)', margin: 0 }}>
+            {isRepeatJob
+              ? 'Internal cost document is missing for this repeat job. Refresh the page or contact support.'
+              : 'Create an invoice on this job to record LPOs and IPRs.'}
+          </p>
         )}
         {invoiceLoading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
       </div>

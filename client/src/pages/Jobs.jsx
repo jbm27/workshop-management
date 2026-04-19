@@ -75,6 +75,8 @@ export default function Jobs() {
   const [modal, setModal] = useState(null);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [vehicleOpen, setVehicleOpen] = useState(false);
+  const [relatedJobOpen, setRelatedJobOpen] = useState(false);
+  const [relatedJobOptions, setRelatedJobOptions] = useState([]);
   const [form, setForm] = useState({
     customerId: '',
     vehicleId: '',
@@ -88,6 +90,10 @@ export default function Jobs() {
     valuables_in_vehicle: '',
     valuables_checks: {},
     valuables_notes: '',
+    is_repeat_job: false,
+    related_job_id: '',
+    related_job_search: '',
+    related_job_summary: '',
     newCustomer: { ...EMPTY_CUSTOMER },
     newVehicle: { ...EMPTY_VEHICLE },
   });
@@ -125,6 +131,26 @@ export default function Jobs() {
     api.customers.list().then(setCustomers).catch(console.error);
   }, [isMechanic]);
 
+  useEffect(() => {
+    if (modal !== 'create') return;
+    api.jobs
+      .forRepeatLink()
+      .then(setRelatedJobOptions)
+      .catch(() => setRelatedJobOptions([]));
+  }, [modal]);
+
+  useEffect(() => {
+    if (modal !== 'create' || !form.is_repeat_job) return;
+    const q = (form.related_job_search || '').trim();
+    const t = setTimeout(() => {
+      api.jobs
+        .forRepeatLink(q || undefined)
+        .then(setRelatedJobOptions)
+        .catch(() => setRelatedJobOptions([]));
+    }, 280);
+    return () => clearTimeout(t);
+  }, [modal, form.is_repeat_job, form.related_job_search]);
+
   const openCreate = () => {
     setForm({
       customerId: '',
@@ -139,6 +165,10 @@ export default function Jobs() {
       valuables_in_vehicle: '',
       valuables_checks: {},
       valuables_notes: '',
+      is_repeat_job: false,
+      related_job_id: '',
+      related_job_search: '',
+      related_job_summary: '',
       newCustomer: { ...EMPTY_CUSTOMER },
       newVehicle: { ...EMPTY_VEHICLE },
     });
@@ -191,6 +221,11 @@ export default function Jobs() {
       }
       if (!vehicleId) return alert('Select or add a vehicle.');
 
+      if (form.is_repeat_job) {
+        const rid = Number(form.related_job_id);
+        if (!Number.isFinite(rid) || rid <= 0) return alert('Select the workshop job this repeat job relates to.');
+      }
+
       const valuablesPayload = buildValuablesPayload(form.valuables_checks, form.valuables_notes);
       await api.jobs.create({
         vehicle_id: vehicleId,
@@ -201,6 +236,8 @@ export default function Jobs() {
         odometer_in: form.odometer_in ? Number(form.odometer_in) : null,
         fuel_in: form.fuel_in || null,
         valuables_in_vehicle: valuablesPayload || null,
+        is_repeat_job: form.is_repeat_job || undefined,
+        related_job_id: form.is_repeat_job ? Number(form.related_job_id) : undefined,
       });
       setModal(null);
       load();
@@ -230,6 +267,8 @@ export default function Jobs() {
 
   const customerInputValue = selectedCustomerName || form.customerSearch;
   const vehicleInputValue = selectedVehicleLabel || form.vehicleSearch;
+
+  const relatedJobInputValue = form.related_job_summary || form.related_job_search;
 
   return (
     <>
@@ -290,7 +329,14 @@ export default function Jobs() {
               {!loading && !loadError && list.length === 0 && <tr><td colSpan={6} className="empty">No jobs</td></tr>}
               {!loading && list.map((j) => (
                 <tr key={j.id}>
-                  <td><strong>{j.job_number}</strong></td>
+                  <td>
+                    <strong>{j.job_number}</strong>
+                    {Number(j.is_repeat_job) === 1 ? (
+                      <span className="badge" style={{ marginLeft: '0.35rem', fontSize: '0.7rem', verticalAlign: 'middle' }}>
+                        Repeat
+                      </span>
+                    ) : null}
+                  </td>
                   <td>{[j.registration, j.make, j.model].filter(Boolean).join(' ') || '—'}</td>
                   <td>{j.customer_name}</td>
                   <td>{j.task_count ? `${j.task_count} task(s)` : '—'}</td>
@@ -482,6 +528,104 @@ export default function Jobs() {
                   </div>
                 )}
               </div>
+
+              <div className="form-group" style={{ marginTop: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!form.is_repeat_job}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        is_repeat_job: e.target.checked,
+                        related_job_id: e.target.checked ? f.related_job_id : '',
+                        related_job_search: e.target.checked ? f.related_job_search : '',
+                        related_job_summary: e.target.checked ? f.related_job_summary : '',
+                      }))
+                    }
+                    style={{ marginTop: '0.2rem' }}
+                  />
+                  <span>
+                    <strong>Repeat job</strong> (goodwill rework — not billed to the customer)
+                    <span style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '0.35rem' }}>
+                      No quote or customer invoice on this card. Time logs and LPO/IPR still apply. Choose the original or
+                      related workshop job for reporting (repeat costs reduce that job&apos;s margin in job reports).
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              {form.is_repeat_job && (
+                <div className="form-group" style={{ position: 'relative' }}>
+                  <label>Related job *</label>
+                  <input
+                    type="text"
+                    placeholder="Search job number, plate, make…"
+                    value={relatedJobInputValue}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        related_job_search: e.target.value,
+                        related_job_id: '',
+                        related_job_summary: '',
+                      })
+                    }
+                    onFocus={() => setRelatedJobOpen(true)}
+                    onBlur={() => setTimeout(() => setRelatedJobOpen(false), 200)}
+                    autoComplete="off"
+                    required
+                  />
+                  {relatedJobOpen && (
+                    <ul
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        margin: 0,
+                        padding: 0,
+                        listStyle: 'none',
+                        maxHeight: '220px',
+                        overflowY: 'auto',
+                        background: 'var(--surface)',
+                        border: '1px solid var(--border)',
+                        borderTop: 'none',
+                        borderRadius: '0 0 var(--radius) var(--radius)',
+                        zIndex: 10,
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                      }}
+                    >
+                      {relatedJobOptions.length === 0 && (
+                        <li style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)' }}>No jobs match.</li>
+                      )}
+                      {relatedJobOptions.map((j) => {
+                        const v = [j.registration, j.make, j.model].filter(Boolean).join(' ');
+                        return (
+                          <li
+                            key={j.id}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setForm({
+                                ...form,
+                                related_job_id: String(j.id),
+                                related_job_search: '',
+                                related_job_summary: `${j.job_number}${v ? ` · ${v}` : ''}`,
+                              });
+                              setRelatedJobOpen(false);
+                            }}
+                            style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                          >
+                            <strong>{j.job_number}</strong>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginLeft: '0.35rem' }}>
+                              {v || '—'} · {j.status?.replace(/_/g, ' ') || '—'}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1rem 0' }} />
               <strong style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Job details</strong>

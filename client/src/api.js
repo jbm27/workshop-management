@@ -95,6 +95,10 @@ export const api = {
       return api.get('/jobs' + (sp.toString() ? '?' + sp : ''));
     },
     get: (id) => api.get(`/jobs/${id}`),
+    forRepeatLink: (q) => {
+      const qs = q != null && String(q).trim() !== '' ? `?q=${encodeURIComponent(String(q).trim())}` : '';
+      return api.get(`/jobs/for-repeat-link${qs}`);
+    },
     create: (data) => api.post('/jobs', data),
     createFromQuote: (body) => api.post('/jobs/from-quote', body),
     update: (id, data) => api.patch(`/jobs/${id}`, data),

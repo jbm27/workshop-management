@@ -75,8 +75,10 @@ export default function JobReports() {
       <h1 className="page-title">Job reports</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: '-0.5rem', marginBottom: '1rem', maxWidth: '52rem' }}>
         Financial figures match each job&apos;s invoice (ex-VAT subtotal vs internal costs: LPO/IPR allocations where set,
-        otherwise line purchase estimates; labour from time logs × rate). Margins are undefined when the relevant
-        revenue is zero.
+        otherwise line purchase estimates; labour from time logs × rate).{' '}
+        <strong>Repeat job costs</strong> shows internal spend on repeat jobs linked to that row: on a normal job it is the
+        sum of costs from repeat jobs that point to it (reducing <strong>Profit after repeat</strong>); on a repeat job row
+        it is that job&apos;s own internal cost lump. Margins are undefined when the relevant revenue is zero.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -140,6 +142,9 @@ export default function JobReports() {
                   <th style={{ textAlign: 'right' }}>Σ revenue</th>
                   <th style={{ textAlign: 'right' }}>Σ profit</th>
                   <th style={{ textAlign: 'right' }}>Aggregate profit margin</th>
+                  <th style={{ textAlign: 'right' }}>Σ repeat costs</th>
+                  <th style={{ textAlign: 'right' }}>Σ profit after repeat</th>
+                  <th style={{ textAlign: 'right' }}>Agg. margin after repeat</th>
                 </tr>
               </thead>
               <tbody>
@@ -161,12 +166,17 @@ export default function JobReports() {
                   <td style={{ textAlign: 'right' }}>{kes(s.sum_revenue)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(s.sum_profit)}</td>
                   <td style={{ textAlign: 'right' }}>{pct(s.aggregate_profit_margin_pct)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_repeat_job_costs ?? 0)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_profit_after_repeat ?? 0)}</td>
+                  <td style={{ textAlign: 'right' }}>{pct(s.aggregate_profit_margin_after_repeat_pct)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 0 }}>
-            <strong>Aggregate profit margin</strong> is total profit ÷ total revenue for the period (not the same as the average of per-job margins).
+            <strong>Aggregate profit margin</strong> is total profit ÷ total revenue for the period (not the same as the average of per-job margins).{' '}
+            <strong>Aggregate profit margin (after repeat)</strong> uses total profit after repeat ÷ total revenue — repeat
+            costs linked to billed jobs reduce profit without changing revenue.
           </p>
         </div>
       )}
@@ -189,6 +199,9 @@ export default function JobReports() {
                   <th style={{ textAlign: 'right' }}>Total cost</th>
                   <th style={{ textAlign: 'right' }}>Profit</th>
                   <th style={{ textAlign: 'right' }}>Profit margin</th>
+                  <th style={{ textAlign: 'right' }}>Repeat job costs</th>
+                  <th style={{ textAlign: 'right' }}>Profit after repeat</th>
+                  <th style={{ textAlign: 'right' }}>Margin after repeat</th>
                   <th style={{ textAlign: 'right' }}>Labour margin</th>
                   <th style={{ textAlign: 'right' }}>Spares margin</th>
                   <th>Rating</th>
@@ -199,6 +212,9 @@ export default function JobReports() {
                   <tr key={r.job_id}>
                     <td>
                       <Link to={`/jobs/${r.job_id}`}>{r.job_number}</Link>
+                      {r.is_repeat_job ? (
+                        <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Repeat</span>
+                      ) : null}
                       {!r.has_invoice && (
                         <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No invoice</span>
                       )}
@@ -229,6 +245,11 @@ export default function JobReports() {
                     <td style={{ textAlign: 'right' }}>{kes(r.total_cost)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.profit)}</td>
                     <td style={{ textAlign: 'right' }}>{pct(r.profit_margin_pct)}</td>
+                    <td style={{ textAlign: 'right' }} title={r.is_repeat_job ? 'This job’s own LPO/IPR + labour cost lump' : 'Sum of repeat jobs linked to this job'}>
+                      {kes(r.repeat_job_costs)}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{kes(r.profit_after_repeat)}</td>
+                    <td style={{ textAlign: 'right' }}>{pct(r.profit_margin_after_repeat_pct)}</td>
                     <td style={{ textAlign: 'right' }}>{pct(r.labour_margin_pct)}</td>
                     <td style={{ textAlign: 'right' }}>{pct(r.spares_margin_pct)}</td>
                     <td style={{ whiteSpace: 'nowrap' }} title={r.customer_rating != null ? `${r.customer_rating} / 5` : ''}>
