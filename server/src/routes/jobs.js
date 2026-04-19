@@ -363,13 +363,22 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
     const lpoLineStmt = db.prepare(
       `
       SELECT ll.description, ll.quantity, ll.unit_cost,
-        (COALESCE(ll.quantity, 0) * COALESCE(ll.unit_cost, 0)) AS line_net
+        (COALESCE(ll.quantity, 0) * COALESCE(ll.unit_cost, 0)) AS line_net,
+        ll.received_confirmed, ll.received_confirmed_at,
+        rbu.display_name AS received_by_display_name,
+        abu.display_name AS assigned_display_name
       FROM lpo_lines ll
+      LEFT JOIN admin_users rbu ON rbu.id = ll.received_confirmed_by_admin_user_id
+      LEFT JOIN admin_users abu ON abu.id = ll.assigned_admin_user_id
       WHERE ll.lpo_id = ?
       ORDER BY ll.id
     `,
     );
-    const lpoDetails = lpoHeaders.map((l) => ({ ...l, lines: lpoLineStmt.all(l.id) }));
+    const lpoDetails = lpoHeaders.map((l) => {
+      const lines = lpoLineStmt.all(l.id);
+      const total_ex_vat = Math.round(lines.reduce((s, x) => s + (Number(x.line_net) || 0), 0) * 100) / 100;
+      return { ...l, lines, total_ex_vat };
+    });
 
     const iprHeaders = invoice
       ? db.prepare(`SELECT id, ref, finalized, approved FROM iprs WHERE invoice_id = ? ORDER BY id`).all(invoice.id)
@@ -378,13 +387,22 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
     const iprLineStmt = db.prepare(
       `
       SELECT il.description, il.quantity, il.unit_cost,
-        (COALESCE(il.quantity, 0) * COALESCE(il.unit_cost, 0)) AS line_net
+        (COALESCE(il.quantity, 0) * COALESCE(il.unit_cost, 0)) AS line_net,
+        il.received_confirmed, il.received_confirmed_at,
+        rbu.display_name AS received_by_display_name,
+        abu.display_name AS assigned_display_name
       FROM ipr_lines il
+      LEFT JOIN admin_users rbu ON rbu.id = il.received_confirmed_by_admin_user_id
+      LEFT JOIN admin_users abu ON abu.id = il.assigned_admin_user_id
       WHERE il.ipr_id = ?
       ORDER BY il.id
     `,
     );
-    const iprDetails = iprHeaders.map((ip) => ({ ...ip, lines: iprLineStmt.all(ip.id) }));
+    const iprDetails = iprHeaders.map((ip) => {
+      const lines = iprLineStmt.all(ip.id);
+      const total_ex_vat = Math.round(lines.reduce((s, x) => s + (Number(x.line_net) || 0), 0) * 100) / 100;
+      return { ...ip, lines, total_ex_vat };
+    });
 
     streamJobSummaryPdf(res, {
       job: jobForPdf,

@@ -113,6 +113,18 @@ function tableColumnWidths(contentWidth) {
   return { wDesc, wQty, wUnit, wAmt, gap };
 }
 
+/** LPO/IPR line receipt attribution (DB: received_confirmed + receiver admin user). */
+function formatReceivedLine(ln) {
+  if (Number(ln.received_confirmed) === 1) {
+    const who = String(ln.received_by_display_name || '').trim() || '—';
+    const when = ln.received_confirmed_at ? fmtDateTimeShort(ln.received_confirmed_at) : '';
+    return when ? `Received by: ${who} · ${when}` : `Received by: ${who}`;
+  }
+  const assign = String(ln.assigned_display_name || '').trim();
+  if (assign) return `Not received · assigned: ${assign}`;
+  return 'Not received';
+}
+
 /**
  * @param {import('express').Response} res
  * @param {object} payload
@@ -340,7 +352,8 @@ export function streamJobSummaryPdf(res, payload) {
     }
   };
 
-  const drawCostLineTable = (lines, unitHeading, amountHeading) => {
+  const drawCostLineTable = (lines, unitHeading, amountHeading, options = {}) => {
+    const { showReceived = false } = options;
     const { wDesc, wQty, wUnit, wAmt, gap } = tableColumnWidths(contentWidth);
     const xQty = margin + wDesc + gap;
     const xUnit = xQty + wQty + gap;
@@ -366,17 +379,33 @@ export function streamJobSummaryPdf(res, payload) {
       const qty = Number(ln.quantity) || 0;
       const uc = Number(ln.unit_cost) || 0;
       const net = Number(ln.line_net) != null && Number.isFinite(Number(ln.line_net)) ? Number(ln.line_net) : qty * uc;
+      doc.fontSize(6.8).font('Helvetica');
+      const hDesc = doc.heightOfString(desc, { width: wDesc, lineGap: 0.3 });
+      let hRecv = 0;
+      let recvText = '';
+      if (showReceived) {
+        recvText = formatReceivedLine(ln);
+        doc.fontSize(5.9).fillColor('#444444');
+        hRecv = recvText ? doc.heightOfString(recvText, { width: wDesc, lineGap: 0.2 }) + 1.2 : 0;
+        doc.fillColor('#000000').fontSize(6.8).font('Helvetica');
+      }
       const h = Math.max(
-        doc.heightOfString(desc, { width: wDesc, lineGap: 0.3 }),
+        hDesc + hRecv,
         doc.heightOfString(qty.toFixed(2), { width: wQty, align: 'right' }),
         doc.heightOfString(kshFormat(uc), { width: wUnit, align: 'right' }),
         doc.heightOfString(kshFormat(net), { width: wAmt, align: 'right' }),
       );
       y = ensureSpace(doc, y, h + 4, margin, contentWidth, jn);
-      doc.text(desc, margin, y, { width: wDesc, lineGap: 0.3 });
-      doc.text(qty.toFixed(2), xQty, y, { width: wQty, align: 'right' });
-      doc.text(kshFormat(uc), xUnit, y, { width: wUnit, align: 'right' });
-      doc.text(kshFormat(net), xAmt, y, { width: wAmt, align: 'right' });
+      const rowTop = y;
+      doc.text(desc, margin, rowTop, { width: wDesc, lineGap: 0.3 });
+      if (showReceived && recvText) {
+        doc.fontSize(5.9).fillColor('#444444').font('Helvetica');
+        doc.text(recvText, margin, rowTop + hDesc + 1, { width: wDesc, lineGap: 0.2 });
+        doc.fillColor('#000000').fontSize(6.8).font('Helvetica');
+      }
+      doc.text(qty.toFixed(2), xQty, rowTop, { width: wQty, align: 'right' });
+      doc.text(kshFormat(uc), xUnit, rowTop, { width: wUnit, align: 'right' });
+      doc.text(kshFormat(net), xAmt, rowTop, { width: wAmt, align: 'right' });
       y += h + 1;
     }
     y += 2;
@@ -402,10 +431,17 @@ export function streamJobSummaryPdf(res, payload) {
       });
       y = doc.y + 3;
       doc.font('Helvetica');
-      doc.fontSize(6.5).fillColor('#333333').text('Line totals are ex-VAT (qty × unit cost).', margin, y, { width: contentWidth });
+      doc.fontSize(6.5).fillColor('#333333').text('Line totals are ex-VAT (qty × unit cost). Receipt shows who confirmed goods received.', margin, y, {
+        width: contentWidth,
+        lineGap: 0.3,
+      });
       doc.fillColor('#000000');
       y = doc.y + 3;
-      drawCostLineTable(l.lines, 'Unit (ex)', 'Line (ex)');
+      drawCostLineTable(l.lines, 'Unit (ex)', 'Line (ex)', { showReceived: true });
+      y = ensureSpace(doc, y, 14, margin, contentWidth, jn);
+      doc.fontSize(7).font('Helvetica-Bold');
+      doc.text(`Document total (ex-VAT): ${kshFormat(Number(l.total_ex_vat) || 0)}`, margin, y, { width: contentWidth, align: 'right' });
+      y = doc.y + 6;
     }
     y += 2;
   }
@@ -423,10 +459,17 @@ export function streamJobSummaryPdf(res, payload) {
       doc.font('Helvetica-Bold').text(`${ip.ref || '—'} · ${fin} · ${appr}`, margin, y, { width: contentWidth, lineGap: 0.5 });
       y = doc.y + 3;
       doc.font('Helvetica');
-      doc.fontSize(6.5).fillColor('#333333').text('Line totals are ex-VAT (qty × unit cost).', margin, y, { width: contentWidth });
+      doc.fontSize(6.5).fillColor('#333333').text('Line totals are ex-VAT (qty × unit cost). Receipt shows who confirmed stock issued.', margin, y, {
+        width: contentWidth,
+        lineGap: 0.3,
+      });
       doc.fillColor('#000000');
       y = doc.y + 3;
-      drawCostLineTable(ip.lines, 'Unit (ex)', 'Line (ex)');
+      drawCostLineTable(ip.lines, 'Unit (ex)', 'Line (ex)', { showReceived: true });
+      y = ensureSpace(doc, y, 14, margin, contentWidth, jn);
+      doc.fontSize(7).font('Helvetica-Bold');
+      doc.text(`Document total (ex-VAT): ${kshFormat(Number(ip.total_ex_vat) || 0)}`, margin, y, { width: contentWidth, align: 'right' });
+      y = doc.y + 6;
     }
     y += 2;
   }
