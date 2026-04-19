@@ -14,12 +14,17 @@ const PERMISSION_FIELDS = [
   { key: 'can_view_statistics_reports', label: 'View statistics and reports' },
   { key: 'can_view_lpo_ipr', label: 'View LPO / IPR page' },
   { key: 'can_view_stores', label: 'View Stores page' },
+  { key: 'can_log_test_drives', label: 'Log test drives on jobs' },
 ];
 
 function defaultPermissions() {
   const p = {};
   for (const f of PERMISSION_FIELDS) {
-    p[f.key] = f.key === 'can_view_lpo_ipr' || f.key === 'can_view_stores' || f.key === 'can_view_statistics_reports';
+    p[f.key] =
+      f.key === 'can_view_lpo_ipr' ||
+      f.key === 'can_view_stores' ||
+      f.key === 'can_view_statistics_reports' ||
+      f.key === 'can_log_test_drives';
   }
   return p;
 }
@@ -28,6 +33,10 @@ function allPermissionsFalse() {
   const p = {};
   for (const f of PERMISSION_FIELDS) p[f.key] = false;
   return p;
+}
+
+function mechanicPermissionsPayload(canLogTestDrives) {
+  return { ...allPermissionsFalse(), can_log_test_drives: !!canLogTestDrives };
 }
 
 export default function AdminUsers() {
@@ -102,13 +111,16 @@ export default function AdminUsers() {
       password: '',
       active: u.active,
       is_mechanic: !!u.is_mechanic,
-      permissions: { ...u.permissions },
+      permissions: { ...defaultPermissions(), ...u.permissions },
     });
     setModal({ mode: 'edit', user: u });
   };
 
   const permSummary = (u) => {
-    if (u.is_mechanic) return 'Mechanic';
+    if (u.is_mechanic) {
+      const td = u.permissions?.can_log_test_drives ? ' · Test drives' : '';
+      return `Mechanic${td}`;
+    }
     const parts = [];
     if (u.permissions.can_create_lpos) parts.push('LPO');
     if (u.permissions.can_create_iprs) parts.push('IPR');
@@ -135,7 +147,7 @@ export default function AdminUsers() {
         display_name: form.display_name.trim(),
         active: !!form.active,
         is_mechanic: !!form.is_mechanic,
-        permissions: form.is_mechanic ? allPermissionsFalse() : form.permissions,
+        permissions: form.is_mechanic ? mechanicPermissionsPayload(form.permissions.can_log_test_drives) : form.permissions,
       };
       if (modal?.mode === 'create') {
         payload.password = form.password;
@@ -354,7 +366,11 @@ export default function AdminUsers() {
                       const checked = e.target.checked;
                       setForm((prev) => {
                         if (checked) {
-                          return { ...prev, is_mechanic: true, permissions: allPermissionsFalse() };
+                          return {
+                            ...prev,
+                            is_mechanic: true,
+                            permissions: mechanicPermissionsPayload(false),
+                          };
                         }
                         const restored =
                           modal?.mode === 'edit' && modal?.user && !modal.user.is_mechanic
@@ -367,9 +383,35 @@ export default function AdminUsers() {
                   Mechanic (Time logs &amp; Assigned parts only)
                 </label>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-                  Mechanics cannot access the rest of the workshop app. All other permissions are turned off.
+                  Mechanics cannot access the rest of the workshop app. All other permissions are turned off except
+                  test drives (below), if you allow it.
                 </div>
               </div>
+
+              {form.is_mechanic && (
+                <div className="form-group" style={{ marginTop: '0.75rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!form.permissions.can_log_test_drives}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          permissions: { ...form.permissions, can_log_test_drives: e.target.checked },
+                        })
+                      }
+                      style={{ marginTop: '0.15rem' }}
+                    />
+                    <span>
+                      <strong>Can log test drives</strong>
+                      <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '0.25rem' }}>
+                        Lets this person open <strong>Jobs</strong>, view mileage on a workshop job, and record test drive
+                        returns (odometer and fuel).
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
 
               <div className="card" style={{ padding: '0.75rem', marginTop: '0.75rem', opacity: form.is_mechanic ? 0.45 : 1 }}>
                 <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Permissions</div>

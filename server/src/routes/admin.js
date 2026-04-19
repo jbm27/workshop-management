@@ -26,6 +26,7 @@ function adminUserRowToPayload(row) {
       can_view_statistics_reports: Number(row.can_view_statistics_reports) === 1,
       can_view_lpo_ipr: Number(row.can_view_lpo_ipr) === 1,
       can_view_stores: Number(row.can_view_stores) === 1,
+      can_log_test_drives: Number(row.can_log_test_drives) === 1,
     },
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -136,6 +137,13 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
   const z9 = mechanic ? 0 : Number(p.can_view_statistics_reports) === 1 ? 1 : Number(p.can_view_statistics_reports) ? 1 : 0;
   const z10 = mechanic ? 0 : Number(p.can_view_lpo_ipr) === 1 ? 1 : Number(p.can_view_lpo_ipr) ? 1 : 0;
   const z11 = mechanic ? 0 : Number(p.can_view_stores) === 1 ? 1 : Number(p.can_view_stores) ? 1 : 0;
+  const canLogTd = mechanic
+    ? Number(p.can_log_test_drives) === 1
+      ? 1
+      : 0
+    : p.can_log_test_drives === false || Number(p.can_log_test_drives) === 0
+      ? 0
+      : 1;
 
   const row = db.prepare(
     `
@@ -144,11 +152,13 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
          can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
          can_approve_lpo_ipr,
          can_record_invoice_payments, can_record_supplier_payments,
-         can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores)
+         can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
+         can_log_test_drives)
       VALUES (?, ?, ?, ?, 1, ?,
         ?, ?, ?, ?,
         ?, ?, ?,
-        ?, ?, ?, ?)
+        ?, ?, ?, ?,
+        ?)
     `,
   ).run(
     usernameClean,
@@ -167,6 +177,7 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
     z9,
     z10,
     z11,
+    canLogTd,
   );
   const id = row.lastInsertRowid;
   const inserted = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(id);
@@ -212,6 +223,10 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
           can_view_statistics_reports: 0,
           can_view_lpo_ipr: 0,
           can_view_stores: 0,
+          can_log_test_drives:
+            p.can_log_test_drives !== undefined ? (p.can_log_test_drives ? 1 : 0) : Number(current.can_log_test_drives) === 1
+              ? 1
+              : 0,
         }
       : {
           can_create_lpos: p.can_create_lpos !== undefined ? (p.can_create_lpos ? 1 : 0) : current.can_create_lpos,
@@ -230,6 +245,10 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
             p.can_view_statistics_reports !== undefined ? (p.can_view_statistics_reports ? 1 : 0) : current.can_view_statistics_reports,
           can_view_lpo_ipr: p.can_view_lpo_ipr !== undefined ? (p.can_view_lpo_ipr ? 1 : 0) : current.can_view_lpo_ipr,
           can_view_stores: p.can_view_stores !== undefined ? (p.can_view_stores ? 1 : 0) : current.can_view_stores,
+          can_log_test_drives:
+            p.can_log_test_drives !== undefined ? (p.can_log_test_drives ? 1 : 0) : Number(current.can_log_test_drives) === 1
+              ? 1
+              : 0,
         };
 
   let newSalt = null;
@@ -261,6 +280,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
       can_view_statistics_reports = ?,
       can_view_lpo_ipr = ?,
       can_view_stores = ?,
+      can_log_test_drives = ?,
       updated_at = datetime('now')
     WHERE id = ?
   `;
@@ -283,6 +303,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
     next.can_view_statistics_reports,
     next.can_view_lpo_ipr,
     next.can_view_stores,
+    next.can_log_test_drives,
     adminId,
   );
 

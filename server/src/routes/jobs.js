@@ -488,6 +488,9 @@ jobsRouter.get('/:id', requireAdminAuth, (req, res) => {
 });
 
 jobsRouter.post('/:id/test-drives', requireAdminAuth, (req, res) => {
+  if (!req.admin.permissions?.can_log_test_drives) {
+    return res.status(403).json({ error: 'You do not have permission to log test drives' });
+  }
   const jobId = Number(req.params.id);
   if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
   const row = db.prepare('SELECT id, odometer_in, status FROM jobs WHERE id = ?').get(jobId);
@@ -541,8 +544,13 @@ jobsRouter.delete('/:id/test-drives/:tdId', requireAdminAuth, (req, res) => {
   }
   const td = db.prepare('SELECT * FROM job_test_drives WHERE id = ? AND job_id = ?').get(tdId, jobId);
   if (!td) return res.status(404).json({ error: 'Test drive not found' });
+  const canTd = req.admin.permissions?.can_log_test_drives;
+  const isMgr = req.admin.permissions?.can_manage_team_members;
+  if (!canTd && !isMgr) {
+    return res.status(403).json({ error: 'You do not have permission to remove test drives' });
+  }
   const isOwner = Number(td.admin_user_id) === Number(req.admin.id);
-  if (!isOwner && !req.admin.permissions?.can_manage_team_members) {
+  if (!isMgr && !(canTd && isOwner)) {
     return res.status(403).json({ error: 'You can only remove test drives you logged' });
   }
   db.prepare('DELETE FROM job_test_drives WHERE id = ?').run(tdId);

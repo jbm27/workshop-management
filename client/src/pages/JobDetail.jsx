@@ -206,6 +206,7 @@ export default function JobDetail() {
 
   const { admin } = useAdmin();
   const isMechanic = Boolean(admin?.is_mechanic);
+  const canLogTestDrives = Boolean(admin?.permissions?.can_log_test_drives);
   const canRecordInvoicePayments = admin?.permissions?.can_record_invoice_payments;
 
   useEffect(() => {
@@ -936,7 +937,10 @@ export default function JobDetail() {
           <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
           {job.notes && <p style={{ marginTop: '0.5rem' }}><em>{job.notes}</em></p>}
           <p style={{ marginTop: '0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
-            Mileage in / fuel in and valuables are maintained by office staff. You can log test drives once mileage in is set.
+            Mileage in / fuel in and valuables are maintained by office staff.
+            {canLogTestDrives
+              ? ' You can log test drives once mileage in is set.'
+              : ' Test drives can only be logged if a manager enables that permission for your account and mileage in is set.'}
           </p>
         </div>
       )}
@@ -1022,7 +1026,7 @@ export default function JobDetail() {
               </div>
             );
           })}
-          {canAddTestDrive && job.status !== 'completed' && (
+          {canAddTestDrive && job.status !== 'completed' && canLogTestDrives && (
             <div style={rowStyle}>
               <strong>Add test drive:</strong>
               Mileage in
@@ -1049,6 +1053,12 @@ export default function JobDetail() {
                 {testDriveBusy ? '…' : 'Add'}
               </button>
             </div>
+          )}
+          {canAddTestDrive && job.status !== 'completed' && !canLogTestDrives && (
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+              You do not have permission to log test drives. A team manager can enable &quot;Log test drives on jobs&quot; (office)
+              or &quot;Can log test drives&quot; (mechanic) on your account in Team members.
+            </p>
           )}
           <div style={rowStyle}>
             <strong>Mileage out</strong>

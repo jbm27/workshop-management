@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
   can_manage_team_members INTEGER NOT NULL DEFAULT 0,
   can_view_lpo_ipr INTEGER NOT NULL DEFAULT 1,
   can_view_stores INTEGER NOT NULL DEFAULT 1,
+  can_log_test_drives INTEGER NOT NULL DEFAULT 1,
 
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

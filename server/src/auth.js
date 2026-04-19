@@ -58,6 +58,7 @@ function toAdminPayload(row) {
       can_view_statistics_reports: Number(row.can_view_statistics_reports) === 1,
       can_view_lpo_ipr: Number(row.can_view_lpo_ipr) === 1,
       can_view_stores: Number(row.can_view_stores) === 1,
+      can_log_test_drives: Number(row.can_log_test_drives) === 1,
     },
   };
 }
