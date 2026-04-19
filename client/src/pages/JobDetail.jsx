@@ -269,29 +269,6 @@ export default function JobDetail() {
 
   const updateStatus = async (newStatus) => {
     if (newStatus === 'completed') {
-      const skipFinalReadings =
-        job &&
-        Number(job.is_repeat_job) === 1 &&
-        !(job.repeat_parent_completed ?? String(job.related_job_status) === 'completed');
-      if (skipFinalReadings) {
-        try {
-          await api.jobs.update(id, {
-            status: 'completed',
-            completed_at: new Date().toISOString(),
-          });
-          const j = await api.jobs.get(id);
-          setJob(j);
-          setReadings((r) => ({
-            ...r,
-            odometer_out: j.odometer_out ?? '',
-            fuel_out: j.fuel_out ?? '',
-          }));
-          setStatusMenuKey((k) => k + 1);
-        } catch (err) {
-          alert(err.message);
-        }
-        return;
-      }
       setCloseReadings({ odometer_out: job.odometer_out ?? '', fuel_out: job.fuel_out ?? '' });
       setCloseJobModal(true);
       return;
@@ -746,7 +723,18 @@ export default function JobDetail() {
           </button>
         ) : null}
         <span className={`badge ${job.status}`}>{jobStatusLabel(job.status)}</span>
-        {!isMechanic && (
+        {!isMechanic && isRepeatJob && !showRepeatVisitHandover && (
+          <span style={{ fontSize: '0.88rem', color: 'var(--text-muted)', maxWidth: '22rem' }}>
+            Status matches{' '}
+            {relatedJobId ? (
+              <Link to={`/jobs/${relatedJobId}`}>{job.related_job_number || `Job #${relatedJobId}`}</Link>
+            ) : (
+              'the linked job'
+            )}
+            {' '}until that job is completed.
+          </span>
+        )}
+        {!isMechanic && (!isRepeatJob || showRepeatVisitHandover) && (
           <select
             key={`${job.id}-${job.status}-${statusMenuKey}`}
             aria-label="Change job status"

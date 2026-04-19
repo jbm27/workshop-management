@@ -55,6 +55,63 @@ function repeatVisitHandoverSuppressed(jobRow) {
   return String(jobRow?.related_job_status) !== 'completed';
 }
 
+/** Repeat whose linked mother is not completed: job status is driven by the mother. */
+function repeatStatusMirrorsMother(relatedJobStatus) {
+  return relatedJobStatus != null && String(relatedJobStatus) !== 'completed';
+}
+
+function applyLabourCostFreezeSideEffects(jobId) {
+  const fresh = db.prepare('SELECT status, labour_cost_frozen FROM jobs WHERE id = ?').get(jobId);
+  if (!fresh) return;
+  const nowCompleted = fresh?.status === 'completed';
+  if (!nowCompleted) {
+    db.prepare(
+      `UPDATE jobs SET labour_hours_frozen = NULL, labour_rate_frozen = NULL, labour_cost_frozen = NULL WHERE id = ?`,
+    ).run(jobId);
+  } else if (fresh.labour_cost_frozen == null) {
+    const sumRow = db.prepare('SELECT COALESCE(SUM(hours), 0) AS h FROM job_time_logs WHERE job_id = ?').get(jobId);
+    const totalH = Number(sumRow?.h) || 0;
+    const rate = getAverageLabourCostPerHour();
+    const cost = Math.round(totalH * rate * 100) / 100;
+    db.prepare(
+      `UPDATE jobs SET labour_hours_frozen = ?, labour_rate_frozen = ?, labour_cost_frozen = ? WHERE id = ?`,
+    ).run(totalH, rate, cost, jobId);
+  }
+}
+
+function applyMotherStatusSnapshotToRepeatJob(childId, motherRow) {
+  const m = motherRow;
+  db.prepare(
+    `
+    UPDATE jobs SET
+      status = ?,
+      completed_at = ?,
+      vehicle_released_at = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `,
+  ).run(m.status, m.completed_at ?? null, m.vehicle_released_at ?? null, childId);
+}
+
+/**
+ * Push mother status (and matching lifecycle timestamps) to repeat visits.
+ * Once the mother is already completed, further edits to the mother do not change repeat statuses.
+ */
+function syncMirroredRepeatJobsToMother(motherId, motherBeforeStatus, motherAfterRow) {
+  const children = db
+    .prepare(`SELECT id FROM jobs WHERE related_job_id = ? AND is_repeat_job = 1`)
+    .all(motherId);
+  if (!children.length) return;
+  const mst = String(motherAfterRow.status);
+  const prev = String(motherBeforeStatus ?? '');
+  if (mst === 'completed' && prev === 'completed') return;
+  for (const { id: cid } of children) {
+    applyMotherStatusSnapshotToRepeatJob(cid, motherAfterRow);
+    applyLabourCostFreezeSideEffects(cid);
+    syncLabourLinesForJob(cid);
+  }
+}
+
 function fullJob(jobId) {
   const job = db.prepare(jobDetailSql).get(jobId);
   if (!job) return null;
@@ -740,6 +797,10 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
   const jobId = result.lastInsertRowid;
   if (is_repeat_job) {
     ensureRepeatJobCostInvoice(jobId, customer_id, vehicle_id);
+    const motherFull = db.prepare('SELECT * FROM jobs WHERE id = ?').get(related_job_id);
+    if (motherFull) {
+      syncMirroredRepeatJobsToMother(related_job_id, motherFull.status, motherFull);
+    }
   }
   if (Array.isArray(tasks) && tasks.length) {
     const ins = db.prepare('INSERT INTO job_tasks (job_id, description, sort_order, completed) VALUES (?, ?, ?, ?)');
@@ -766,6 +827,18 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
 
   let { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  if (
+    status !== undefined &&
+    Number(row.is_repeat_job) === 1 &&
+    row.related_job_id &&
+    repeatStatusMirrorsMother(relatedJobStatus) &&
+    String(status) !== String(row.status)
+  ) {
+    return res.status(400).json({
+      error:
+        'This repeat visit\'s status follows the linked job until that job is completed. Change status on the original job instead.',
+    });
+  }
   if (suppressRepeatVisitHandover) {
     odometer_in = undefined;
     odometer_out = undefined;
@@ -795,21 +868,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
       `UPDATE jobs SET vehicle_released_at = COALESCE(vehicle_released_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`,
     ).run(req.params.id);
   }
-  const fresh = db.prepare('SELECT status, labour_cost_frozen FROM jobs WHERE id = ?').get(req.params.id);
-  const nowCompleted = fresh?.status === 'completed';
-  if (!nowCompleted) {
-    db.prepare(
-      `UPDATE jobs SET labour_hours_frozen = NULL, labour_rate_frozen = NULL, labour_cost_frozen = NULL WHERE id = ?`,
-    ).run(req.params.id);
-  } else if (fresh.labour_cost_frozen == null) {
-    const sumRow = db.prepare('SELECT COALESCE(SUM(hours), 0) AS h FROM job_time_logs WHERE job_id = ?').get(req.params.id);
-    const totalH = Number(sumRow?.h) || 0;
-    const rate = getAverageLabourCostPerHour();
-    const cost = Math.round(totalH * rate * 100) / 100;
-    db.prepare(
-      `UPDATE jobs SET labour_hours_frozen = ?, labour_rate_frozen = ?, labour_cost_frozen = ? WHERE id = ?`,
-    ).run(totalH, rate, cost, req.params.id);
-  }
+  applyLabourCostFreezeSideEffects(req.params.id);
   if (Array.isArray(tasks)) {
     db.prepare('DELETE FROM job_tasks WHERE job_id = ?').run(req.params.id);
     if (tasks.length) {
@@ -822,6 +881,8 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     }
   }
   syncLabourLinesForJob(req.params.id);
+  const motherFresh = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
+  syncMirroredRepeatJobsToMother(req.params.id, row.status, motherFresh);
   const updated = fullJob(req.params.id);
   res.json(updated);
 });
