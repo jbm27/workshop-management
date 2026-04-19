@@ -631,8 +631,29 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
     if (!Number.isFinite(related_job_id) || related_job_id <= 0) {
       return res.status(400).json({ error: 'related_job_id is required when creating a repeat job' });
     }
-    const rel = db.prepare('SELECT id FROM jobs WHERE id = ?').get(related_job_id);
+    const rel = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(related_job_id);
     if (!rel) return res.status(400).json({ error: 'Related job not found' });
+    if (String(rel.status) === 'vehicle_released') {
+      return res.status(400).json({
+        error:
+          'Cannot link a repeat job to a job with status Vehicle released. Set that job to In progress while the vehicle is in the workshop.',
+      });
+    }
+    if (String(rel.status) === 'completed') {
+      const oi = odometer_in != null && odometer_in !== '' ? Number(odometer_in) : NaN;
+      if (!Number.isFinite(oi) || oi < 0) {
+        return res.status(400).json({ error: 'Mileage in (km) is required when the related job is completed.' });
+      }
+      if (!fuel_in || !String(fuel_in).trim()) {
+        return res.status(400).json({ error: 'Fuel in is required when the related job is completed.' });
+      }
+      const valStr = valuables_in_vehicle != null ? String(valuables_in_vehicle).trim() : '';
+      if (!valStr) {
+        return res.status(400).json({
+          error: 'Valuables (checklist and/or notes) are required when the related job is completed.',
+        });
+      }
+    }
   }
   const job_number = nextJobNumber();
   const result = db.prepare(`

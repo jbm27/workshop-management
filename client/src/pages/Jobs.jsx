@@ -94,6 +94,7 @@ export default function Jobs() {
     related_job_id: '',
     related_job_search: '',
     related_job_summary: '',
+    related_job_status: '',
     newCustomer: { ...EMPTY_CUSTOMER },
     newVehicle: { ...EMPTY_VEHICLE },
   });
@@ -166,6 +167,7 @@ export default function Jobs() {
       related_job_id: '',
       related_job_search: '',
       related_job_summary: '',
+      related_job_status: '',
       newCustomer: { ...EMPTY_CUSTOMER },
       newVehicle: { ...EMPTY_VEHICLE },
     });
@@ -213,6 +215,20 @@ export default function Jobs() {
         vehicleId = Number(form.vehicleId) || null;
         if (!vehicleId) return alert('Select a previous job — vehicle could not be determined.');
         if (!customerId) return alert('That job has no bill-to customer on file. Open the original job and set a customer, or create this repeat job without the repeat option.');
+        if (form.related_job_status === 'completed') {
+          const oi = form.odometer_in !== '' && form.odometer_in != null ? Number(form.odometer_in) : NaN;
+          if (!Number.isFinite(oi) || oi < 0) {
+            return alert('Enter mileage in (km) for this visit — the related job is already completed.');
+          }
+          if (!String(form.fuel_in || '').trim()) {
+            return alert('Select fuel in for this visit — the related job is already completed.');
+          }
+          const hasVal =
+            VALUABLE_ITEMS.some((item) => !!form.valuables_checks?.[item]) || String(form.valuables_notes || '').trim();
+          if (!hasVal) {
+            return alert('Record valuables for this visit (checklist and/or notes) — the related job is already completed.');
+          }
+        }
       } else {
         customerId = form.customerId === ADD_NEW ? null : Number(form.customerId) || null;
         if (isNewCustomer) {
@@ -230,16 +246,19 @@ export default function Jobs() {
         if (!vehicleId) return alert('Select or add a vehicle.');
       }
 
-      const valuablesPayload = buildValuablesPayload(form.valuables_checks, form.valuables_notes);
+      const repeatSkipVehicleHandover = form.is_repeat_job && form.related_job_status === 'in_progress';
+      const valuablesPayload = repeatSkipVehicleHandover
+        ? ''
+        : buildValuablesPayload(form.valuables_checks, form.valuables_notes);
       await api.jobs.create({
         vehicle_id: vehicleId,
         customer_id: customerId,
         tasks: form.tasks.filter((t) => t && String(t).trim()),
         notes: form.notes,
         due_date: form.due_date || undefined,
-        odometer_in: form.odometer_in ? Number(form.odometer_in) : null,
-        fuel_in: form.fuel_in || null,
-        valuables_in_vehicle: valuablesPayload || null,
+        odometer_in: repeatSkipVehicleHandover ? null : form.odometer_in ? Number(form.odometer_in) : null,
+        fuel_in: repeatSkipVehicleHandover ? null : form.fuel_in || null,
+        valuables_in_vehicle: repeatSkipVehicleHandover ? null : valuablesPayload || null,
         is_repeat_job: form.is_repeat_job || undefined,
         related_job_id: form.is_repeat_job ? Number(form.related_job_id) : undefined,
       });
@@ -275,6 +294,10 @@ export default function Jobs() {
   const vehicleInputValue = selectedVehicleLabel || form.vehicleSearch;
 
   const relatedJobInputValue = form.related_job_summary || form.related_job_search;
+
+  const showRepeatVehicleHandover =
+    !form.is_repeat_job || (Boolean(form.related_job_id) && form.related_job_status !== 'in_progress');
+  const repeatParentCompleted = form.is_repeat_job && form.related_job_status === 'completed';
 
   return (
     <>
@@ -380,6 +403,7 @@ export default function Jobs() {
                               related_job_id: '',
                               related_job_search: '',
                               related_job_summary: '',
+                              related_job_status: '',
                               newCustomer: { ...EMPTY_CUSTOMER },
                               newVehicle: { ...EMPTY_VEHICLE },
                             }
@@ -389,6 +413,7 @@ export default function Jobs() {
                               related_job_id: '',
                               related_job_search: '',
                               related_job_summary: '',
+                              related_job_status: '',
                               customerId: '',
                               vehicleId: '',
                               customerSearch: '',
@@ -415,7 +440,9 @@ export default function Jobs() {
                 <div className="form-group" style={{ position: 'relative' }}>
                   <label>Previous workshop job *</label>
                   <p style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    Search by job number, plate, or vehicle. This sets bill-to customer and vehicle for the new repeat job.
+                    Search by job number, plate, or vehicle. This sets bill-to customer and vehicle for the new repeat job. Jobs
+                    with <strong>Vehicle released</strong> cannot be chosen — the car must be in the workshop (set the original
+                    job to <strong>In progress</strong> first).
                   </p>
                   <input
                     type="text"
@@ -427,6 +454,7 @@ export default function Jobs() {
                         related_job_search: e.target.value,
                         related_job_id: '',
                         related_job_summary: '',
+                        related_job_status: '',
                         customerId: '',
                         vehicleId: '',
                       })
@@ -462,34 +490,59 @@ export default function Jobs() {
                       {relatedJobOptions.map((jrow) => {
                         const v = [jrow.registration, jrow.make, jrow.model].filter(Boolean).join(' ');
                         const cust = (jrow.customer_name || '').trim();
+                        const blocked = String(jrow.status || '') === 'vehicle_released';
                         return (
                           <li
                             key={jrow.id}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
+                              if (blocked) {
+                                window.alert(
+                                  'This job has status Vehicle released — the vehicle is not in the workshop. Open that job, set status to In progress, then select it here again.',
+                                );
+                                return;
+                              }
                               const cid = jrow.customer_id != null && jrow.customer_id !== '' ? String(jrow.customer_id) : '';
                               const vid = jrow.vehicle_id != null && jrow.vehicle_id !== '' ? String(jrow.vehicle_id) : '';
+                              const st = String(jrow.status || '');
                               setForm({
                                 ...form,
                                 related_job_id: String(jrow.id),
+                                related_job_status: st,
                                 related_job_search: '',
                                 related_job_summary: `${jrow.job_number}${v ? ` · ${v}` : ''}${cust ? ` · ${cust}` : ''}`,
                                 customerId: cid,
                                 vehicleId: vid,
+                                odometer_in: '',
+                                fuel_in: '',
+                                valuables_checks: {},
+                                valuables_notes: '',
                               });
                               setRelatedJobOpen(false);
                             }}
-                            style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                            style={{
+                              padding: '0.5rem 0.75rem',
+                              cursor: blocked ? 'not-allowed' : 'pointer',
+                              borderBottom: '1px solid var(--border)',
+                              opacity: blocked ? 0.5 : 1,
+                            }}
                           >
                             <strong>{jrow.job_number}</strong>
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginLeft: '0.35rem' }}>
                               {v || '—'}
                               {cust ? ` · ${cust}` : ''} · {jrow.status?.replace(/_/g, ' ') || '—'}
+                              {blocked ? ' · not selectable' : ''}
                             </span>
                           </li>
                         );
                       })}
                     </ul>
+                  )}
+                  {form.related_job_id && form.related_job_status === 'in_progress' && (
+                    <p style={{ margin: '0.65rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                      Mileage in, fuel in, valuables, and test drives stay on the <strong>original in-progress job</strong>. You
+                      do not re-enter them here.
+                    </p>
                   )}
                 </div>
               ) : (
@@ -672,63 +725,74 @@ export default function Jobs() {
 
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1rem 0' }} />
               <strong style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Job details</strong>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Mileage in (km)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={form.odometer_in}
-                    onChange={(e) => setForm({ ...form, odometer_in: e.target.value })}
-                    placeholder="At drop-off"
-                  />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label>Fuel in</label>
-                  <select value={form.fuel_in} onChange={(e) => setForm({ ...form, fuel_in: e.target.value })}>
-                    {FUEL_OPTIONS.map((opt) => (
-                      <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Valuables left in vehicle</label>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-                    gap: '0.5rem 0.75rem',
-                    marginBottom: '0.75rem',
-                  }}
-                >
-                  {VALUABLE_ITEMS.map((item) => (
-                    <label key={item} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+              {showRepeatVehicleHandover && repeatParentCompleted && (
+                <p style={{ margin: '0.65rem 0 0.75rem', fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                  The related job is <strong>complete</strong> — record this visit&apos;s mileage, fuel, and valuables below.
+                  After you create this job, <strong>test drives</strong> are logged on the job page once mileage in is saved.
+                </p>
+              )}
+              {showRepeatVehicleHandover && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>Mileage in (km){repeatParentCompleted ? ' *' : ''}</label>
                       <input
-                        type="checkbox"
-                        checked={!!form.valuables_checks?.[item]}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            valuables_checks: { ...(f.valuables_checks || {}), [item]: e.target.checked },
-                          }))
-                        }
+                        type="number"
+                        min="0"
+                        value={form.odometer_in}
+                        onChange={(e) => setForm({ ...form, odometer_in: e.target.value })}
+                        placeholder="At drop-off"
+                        required={repeatParentCompleted}
                       />
-                      {item}
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label>Fuel in{repeatParentCompleted ? ' *' : ''}</label>
+                      <select value={form.fuel_in} onChange={(e) => setForm({ ...form, fuel_in: e.target.value })} required={repeatParentCompleted}>
+                        {FUEL_OPTIONS.map((opt) => (
+                          <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label>Valuables left in vehicle{repeatParentCompleted ? ' *' : ''}</label>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                        gap: '0.5rem 0.75rem',
+                        marginBottom: '0.75rem',
+                      }}
+                    >
+                      {VALUABLE_ITEMS.map((item) => (
+                        <label key={item} style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!form.valuables_checks?.[item]}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                valuables_checks: { ...(f.valuables_checks || {}), [item]: e.target.checked },
+                              }))
+                            }
+                          />
+                          {item}
+                        </label>
+                      ))}
+                    </div>
+                    <label style={{ display: 'block', marginBottom: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                      Notes (custom items)
                     </label>
-                  ))}
-                </div>
-                <label style={{ display: 'block', marginBottom: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                  Notes (custom items)
-                </label>
-                <textarea
-                  value={form.valuables_notes}
-                  onChange={(e) => setForm({ ...form, valuables_notes: e.target.value })}
-                  placeholder="Optional — any other items worth noting"
-                  rows={3}
-                  style={{ width: '100%', resize: 'vertical' }}
-                />
-              </div>
+                    <textarea
+                      value={form.valuables_notes}
+                      onChange={(e) => setForm({ ...form, valuables_notes: e.target.value })}
+                      placeholder="Optional — any other items worth noting"
+                      rows={3}
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </div>
+                </>
+              )}
               <div className="form-group">
                 <label>Tasks</label>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>What needs to be done (e.g. Check brakes, Respray car)</p>
