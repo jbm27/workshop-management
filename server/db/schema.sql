@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   valuables_in_vehicle TEXT,
   due_date TEXT,
   completed_at TEXT,
+  vehicle_released_at TEXT,
   customer_rating INTEGER,
   customer_feedback TEXT,
   labour_hours_frozen REAL,

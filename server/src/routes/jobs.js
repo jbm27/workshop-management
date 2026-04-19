@@ -552,11 +552,12 @@ jobsRouter.patch('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Job not found' });
   const { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  const nextStatus = status ?? row.status;
   db.prepare(`
     UPDATE jobs SET status = ?, customer_id = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
-    status ?? row.status,
+    nextStatus,
     customer_id !== undefined ? customer_id : row.customer_id,
     notes ?? row.notes,
     odometer_in !== undefined ? odometer_in : row.odometer_in,
@@ -568,6 +569,11 @@ jobsRouter.patch('/:id', (req, res) => {
     completed_at ?? row.completed_at,
     req.params.id
   );
+  if (nextStatus === 'vehicle_released' && row.status !== 'vehicle_released') {
+    db.prepare(
+      `UPDATE jobs SET vehicle_released_at = COALESCE(vehicle_released_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`,
+    ).run(req.params.id);
+  }
   const fresh = db.prepare('SELECT status, labour_cost_frozen FROM jobs WHERE id = ?').get(req.params.id);
   const nowCompleted = fresh?.status === 'completed';
   if (!nowCompleted) {

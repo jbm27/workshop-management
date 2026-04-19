@@ -120,7 +120,8 @@ export default function JobReports() {
           <h3 style={{ marginTop: 0 }}>Period averages ({payload.date_basis === 'completed' ? 'completed date' : 'created date'})</h3>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: 0 }}>
             {s.job_count} job{s.job_count === 1 ? '' : 's'} · {s.jobs_with_invoice} with an invoice · Averages are simple means across all jobs in the table (margins exclude rows where the value is not applicable).{' '}
-            <strong>Time to quote</strong> is from job creation to the first successful <em>Send quote</em> (portal link ready); jobs without that action show &quot;—&quot; and are omitted from the average.
+            <strong>Time to quote</strong> is from job creation to the first successful <em>Send quote</em> (portal link ready); jobs without that action show &quot;—&quot; and are omitted from the average.{' '}
+            <strong>KES / job hour</strong> is the same ex-VAT <strong>Revenue</strong> figure divided by hours from job creation until the earlier of vehicle release or job completion; jobs missing an invoice, a stop time, or with zero duration show &quot;—&quot; and are omitted from that average.
           </p>
           <div className="table-wrap">
             <table>
@@ -135,6 +136,7 @@ export default function JobReports() {
                   <th style={{ textAlign: 'right' }}>Avg spares margin</th>
                   <th style={{ textAlign: 'right' }}>Avg rating</th>
                   <th style={{ textAlign: 'right' }}>Avg time to quote</th>
+                  <th style={{ textAlign: 'right' }}>Avg KES / job hour</th>
                   <th style={{ textAlign: 'right' }}>Σ revenue</th>
                   <th style={{ textAlign: 'right' }}>Σ profit</th>
                   <th style={{ textAlign: 'right' }}>Aggregate profit margin</th>
@@ -155,6 +157,7 @@ export default function JobReports() {
                   <td style={{ textAlign: 'right' }} title={s.avg_time_to_quote_hours != null ? `${s.avg_time_to_quote_hours} h` : ''}>
                     {formatTimeToQuote(s.avg_time_to_quote_hours)}
                   </td>
+                  <td style={{ textAlign: 'right' }}>{s.avg_revenue_per_job_hour != null ? kes(s.avg_revenue_per_job_hour) : '—'}</td>
                   <td style={{ textAlign: 'right' }}>{kes(s.sum_revenue)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(s.sum_profit)}</td>
                   <td style={{ textAlign: 'right' }}>{pct(s.aggregate_profit_margin_pct)}</td>
@@ -181,6 +184,7 @@ export default function JobReports() {
                   <th>Customer</th>
                   <th>Vehicle</th>
                   <th style={{ textAlign: 'right' }}>Time to quote</th>
+                  <th style={{ textAlign: 'right' }}>KES / job hour</th>
                   <th style={{ textAlign: 'right' }}>Revenue</th>
                   <th style={{ textAlign: 'right' }}>Total cost</th>
                   <th style={{ textAlign: 'right' }}>Profit</th>
@@ -206,6 +210,20 @@ export default function JobReports() {
                       title={r.quote_prepared_at ? `Quote sent: ${r.quote_prepared_at}` : ''}
                     >
                       {formatTimeToQuote(r.time_to_quote_hours)}
+                    </td>
+                    <td
+                      style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
+                      title={
+                        r.revenue_per_job_hour != null && r.job_bay_hours != null
+                          ? `Revenue (ex-VAT) ÷ ${r.job_bay_hours} h on job (creation → earlier of vehicle release or completion).`
+                          : r.job_bay_hours == null
+                            ? 'Set vehicle released or complete the job to record stop time.'
+                            : !r.has_invoice
+                              ? 'No invoice on this job.'
+                              : ''
+                      }
+                    >
+                      {r.revenue_per_job_hour != null ? kes(r.revenue_per_job_hour) : '—'}
                     </td>
                     <td style={{ textAlign: 'right' }}>{kes(r.revenue)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.total_cost)}</td>

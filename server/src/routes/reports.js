@@ -100,15 +100,57 @@ function meanFinite(values) {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
+function parseSqlDateTime(s) {
+  if (s == null || s === '') return null;
+  const t = Date.parse(String(s).replace(' ', 'T'));
+  return Number.isFinite(t) ? t : null;
+}
+
 /** Hours from job creation to first “Send quote” (quote_prepared_at); null if not recorded. */
 function timeToQuoteHours(createdAt, quotePreparedAt) {
-  if (!createdAt || !quotePreparedAt) return null;
-  const t0 = Date.parse(String(createdAt).replace(' ', 'T'));
-  const t1 = Date.parse(String(quotePreparedAt).replace(' ', 'T'));
-  if (!Number.isFinite(t0) || !Number.isFinite(t1)) return null;
+  const t0 = parseSqlDateTime(createdAt);
+  const t1 = parseSqlDateTime(quotePreparedAt);
+  if (t0 == null || t1 == null) return null;
   const ms = t1 - t0;
   if (ms < 0) return null;
   return Math.round((ms / 3600000) * 100) / 100;
+}
+
+/** Earliest instant of vehicle release or job completion (whichever happened first). */
+function workStoppedInstantMs(vehicleReleasedAt, completedAt) {
+  const v = parseSqlDateTime(vehicleReleasedAt);
+  const c = parseSqlDateTime(completedAt);
+  const parts = [];
+  if (v != null) parts.push(v);
+  if (c != null) parts.push(c);
+  if (!parts.length) return null;
+  return Math.min(...parts);
+}
+
+/** Hours from job creation until work stopped (first of vehicle release or completion). */
+function jobBayHours(createdAt, vehicleReleasedAt, completedAt) {
+  const t0 = parseSqlDateTime(createdAt);
+  const t1 = workStoppedInstantMs(vehicleReleasedAt, completedAt);
+  if (t0 == null || t1 == null) return null;
+  const ms = t1 - t0;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return ms / 3600000;
+}
+
+/** Invoiced amount for rate: same ex-VAT subtotal as the job report Revenue column (from invoice lines / subtotal). */
+function invoicedAmountForRateKes(inv, finRevenue) {
+  if (!inv) return null;
+  const r = Number(finRevenue);
+  if (Number.isFinite(r) && r > 0) return r;
+  return null;
+}
+
+/** Invoiced KES ÷ job bay hours (creation → first release or completion). */
+function revenuePerJobHourKes(inv, finRevenue, createdAt, vehicleReleasedAt, completedAt) {
+  const amt = invoicedAmountForRateKes(inv, finRevenue);
+  const hours = jobBayHours(createdAt, vehicleReleasedAt, completedAt);
+  if (amt == null || hours == null || hours <= 0) return null;
+  return Math.round((amt / hours) * 100) / 100;
 }
 
 function pct(numerator, denominator) {
@@ -186,6 +228,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       j.status,
       j.created_at,
       j.completed_at,
+      j.vehicle_released_at,
       j.quote_prepared_at,
       j.customer_rating,
       c.name AS customer_name,
@@ -218,6 +261,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
         avg_spares_margin_pct: null,
         avg_customer_rating: null,
         avg_time_to_quote_hours: null,
+        avg_revenue_per_job_hour: null,
         sum_revenue: 0,
         sum_profit: 0,
         aggregate_profit_margin_pct: null,
@@ -270,14 +314,19 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
     const fin = computeInvoiceFinancials(inv || null, items);
     const timeToQuote = timeToQuoteHours(j.created_at, j.quote_prepared_at);
+    const jobBayH = jobBayHours(j.created_at, j.vehicle_released_at, j.completed_at);
+    const revPerHour = revenuePerJobHourKes(inv || null, fin.revenue, j.created_at, j.vehicle_released_at, j.completed_at);
     return {
       job_id: j.id,
       job_number: j.job_number,
       status: j.status,
       created_at: j.created_at,
       completed_at: j.completed_at,
+      vehicle_released_at: j.vehicle_released_at ?? null,
       quote_prepared_at: j.quote_prepared_at ?? null,
       time_to_quote_hours: timeToQuote,
+      job_bay_hours: jobBayH != null ? Math.round(jobBayH * 100) / 100 : null,
+      revenue_per_job_hour: revPerHour,
       customer_name: j.customer_name,
       vehicle_label: [j.registration, j.make, j.model].filter(Boolean).join(' '),
       customer_rating: j.customer_rating != null ? Number(j.customer_rating) : null,
@@ -301,6 +350,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     avg_spares_margin_pct: meanFinite(rows.map((r) => r.spares_margin_pct)),
     avg_customer_rating: meanFinite(rows.map((r) => r.customer_rating)),
     avg_time_to_quote_hours: meanFinite(rows.map((r) => r.time_to_quote_hours)),
+    avg_revenue_per_job_hour: meanFinite(rows.map((r) => r.revenue_per_job_hour)),
     sum_revenue: Math.round(sumRevenue * 100) / 100,
     sum_profit: Math.round(sumProfit * 100) / 100,
     aggregate_profit_margin_pct: sumRevenue > 0 ? (sumProfit / sumRevenue) * 100 : null,

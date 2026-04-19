@@ -198,6 +198,9 @@ function migrate(db) {
     if (!jobCols.includes('quote_prepared_at')) {
       db.run('ALTER TABLE jobs ADD COLUMN quote_prepared_at TEXT');
     }
+    if (!jobCols.includes('vehicle_released_at')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_released_at TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
