@@ -107,8 +107,28 @@ export const api = {
     deleteTimeLog: (jobId, logId) => api.delete(`/jobs/${jobId}/time-logs/${logId}`),
     deleteIdleTimeLog: (logId) => api.delete(`/jobs/time-logs/idle/${logId}`),
     myTimeLogs: (date) => api.get('/jobs/time-logs/mine' + (date ? `?date=${encodeURIComponent(date)}` : '')),
-    downloadJobSummaryPdf: (jobId) => {
-      window.open(API + `/jobs/${encodeURIComponent(jobId)}/summary-pdf`, '_blank');
+    /** Fetches PDF with Bearer token (plain window.open would not send auth). */
+    downloadJobSummaryPdf: async (jobId) => {
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('admin_token') : null;
+      const headers = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(API + `/jobs/${encodeURIComponent(jobId)}/summary-pdf`, { method: 'GET', headers });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) window.localStorage.removeItem('admin_token');
+        throw new Error(data.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `JobSummary_${jobId}.pdf`;
+        a.rel = 'noopener';
+        a.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
     },
   },
   invoices: {

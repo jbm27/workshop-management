@@ -616,7 +616,13 @@ export default function JobDetail() {
         <h1 className="page-title" style={{ margin: 0 }}>{job.job_number}</h1>
         <Link to="/jobs" className="btn">← Jobs</Link>
         {job.status === 'completed' ? (
-          <button type="button" className="btn" onClick={() => api.jobs.downloadJobSummaryPdf(job.id)}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() =>
+              api.jobs.downloadJobSummaryPdf(job.id).catch((e) => alert(String(e?.message || 'Could not open PDF.')))
+            }
+          >
             Job summary PDF
           </button>
         ) : null}
