@@ -9,6 +9,125 @@ function kes(n) {
   return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+function rowKey(r) {
+  return `${r.doc_type}-${r.doc_id}-${r.line_id}`;
+}
+
+function isRowReceived(r) {
+  return Number(r.received_confirmed) === 1;
+}
+
+function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle }) {
+  return rows.map((r) => {
+    const isDone = isRowReceived(r);
+    const key = rowKey(r);
+    const locked = Number(r.doc_finalized || 0) === 1;
+    return (
+      <tr key={key}>
+        <td>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={isDone}
+              disabled={locked || busyRow === key}
+              onChange={(e) => onToggle(r, e.target.checked)}
+            />
+            <span style={{ color: isDone ? 'var(--success)' : 'var(--danger)' }}>
+              {isDone ? 'Received' : 'Pending'}
+            </span>
+          </label>
+        </td>
+        <td>
+          <strong>
+            {String(r.doc_type || '').toUpperCase()} {r.doc_ref}
+          </strong>
+        </td>
+        <td>
+          {r.line_description || '—'}
+          {r.invoice_line_description ? (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              Invoice line: {r.invoice_line_description}
+            </div>
+          ) : null}
+        </td>
+        <td>{r.vehicle_registration || '—'}</td>
+        <td>{(r.vehicle_type || '').trim() || '—'}</td>
+        <td>{Number(r.quantity || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+        {!isMechanic && <td>{kes(r.unit_cost)}</td>}
+        <td>
+          {r.job_id
+            ? isMechanic
+              ? r.job_number || `Job #${r.job_id}`
+              : <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
+            : '—'}
+        </td>
+      </tr>
+    );
+  });
+}
+
+function AssignedMobileCards({ rows, isMechanic, busyRow, onToggle }) {
+  return rows.map((r) => {
+    const isDone = isRowReceived(r);
+    const key = rowKey(r);
+    const locked = Number(r.doc_finalized || 0) === 1;
+    const jobLabel = r.job_id ? (isMechanic ? r.job_number || `Job #${r.job_id}` : null) : null;
+    return (
+      <div key={key} className="assigned-card">
+        <div className="assigned-card-top">
+          <div className="assigned-card-doc">
+            {String(r.doc_type || '').toUpperCase()} {r.doc_ref}
+          </div>
+          <div className="assigned-card-recv">
+            <label>
+              <input
+                type="checkbox"
+                checked={isDone}
+                disabled={locked || busyRow === key}
+                onChange={(e) => onToggle(r, e.target.checked)}
+              />
+              <span style={{ color: isDone ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
+                {isDone ? 'Received' : 'Pending'}
+              </span>
+            </label>
+          </div>
+        </div>
+        <dl className="assigned-card-dl">
+          <dt>Line</dt>
+          <dd>
+            {r.line_description || '—'}
+            {r.invoice_line_description ? (
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                Invoice: {r.invoice_line_description}
+              </div>
+            ) : null}
+          </dd>
+          <dt>Plate</dt>
+          <dd>{r.vehicle_registration || '—'}</dd>
+          <dt>Vehicle</dt>
+          <dd>{(r.vehicle_type || '').trim() || '—'}</dd>
+          <dt>Qty</dt>
+          <dd>{Number(r.quantity || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</dd>
+          {!isMechanic && (
+            <>
+              <dt>Unit</dt>
+              <dd>{kes(r.unit_cost)}</dd>
+            </>
+          )}
+          <dt>Job</dt>
+          <dd>
+            {r.job_id
+              ? isMechanic
+                ? jobLabel
+                : <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
+              : '—'}
+          </dd>
+        </dl>
+      </div>
+    );
+  });
+}
+
 export default function AssignedReceipts() {
   const { admin } = useAdmin();
   const isMechanic = Boolean(admin?.is_mechanic);
@@ -39,7 +158,7 @@ export default function AssignedReceipts() {
   }, []);
 
   const toggleReceived = async (row, checked) => {
-    const key = `${row.doc_type}-${row.doc_id}-${row.line_id}`;
+    const key = rowKey(row);
     setBusyRow(key);
     setError('');
     try {
@@ -53,11 +172,7 @@ export default function AssignedReceipts() {
         });
       }
       setRows((prev) =>
-        prev.map((r) =>
-          `${r.doc_type}-${r.doc_id}-${r.line_id}` === key
-            ? { ...r, received_confirmed: checked ? 1 : 0 }
-            : r,
-        ),
+        prev.map((r) => (rowKey(r) === key ? { ...r, received_confirmed: checked ? 1 : 0 } : r)),
       );
     } catch (e) {
       setError(String(e?.message || 'Could not update received status.'));
@@ -66,16 +181,31 @@ export default function AssignedReceipts() {
     }
   };
 
-  const pendingCount = useMemo(
-    () => (rows || []).filter((r) => Number(r.received_confirmed) !== 1).length,
-    [rows],
-  );
+  const { pendingRows, receivedRows } = useMemo(() => {
+    const list = rows || [];
+    return {
+      pendingRows: list.filter((r) => !isRowReceived(r)),
+      receivedRows: list.filter((r) => isRowReceived(r)),
+    };
+  }, [rows]);
+
+  const pendingCount = pendingRows.length;
+  const receivedCount = receivedRows.length;
+  const colSpan = isMechanic ? 7 : 8;
 
   return (
     <>
       <h1 className="page-title">Assigned parts to receive</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: 0 }}>
-        Parts/lines assigned to you across LPOs and IPRs. Pending: <strong>{pendingCount}</strong>
+        Parts/lines assigned to you across LPOs and IPRs. Showing <strong>pending</strong> below (
+        <strong>{pendingCount}</strong>).
+        {receivedCount > 0 ? (
+          <>
+            {' '}
+            <strong>{receivedCount}</strong> marked received — expand <strong>Received parts</strong> to review or
+            undo.
+          </>
+        ) : null}
       </p>
       {error ? (
         <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}>
@@ -101,59 +231,32 @@ export default function AssignedReceipts() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={isMechanic ? 7 : 8}>Loading…</td>
+                  <td colSpan={colSpan}>Loading…</td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={isMechanic ? 7 : 8} className="empty">No assigned parts yet.</td>
+                  <td colSpan={colSpan} className="empty">
+                    No assigned parts yet.
+                  </td>
                 </tr>
               )}
-              {!loading &&
-                rows.map((r) => {
-                  const isDone = Number(r.received_confirmed) === 1;
-                  const key = `${r.doc_type}-${r.doc_id}-${r.line_id}`;
-                  const locked = Number(r.doc_finalized || 0) === 1;
-                  return (
-                    <tr key={key}>
-                      <td>
-                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <input
-                            type="checkbox"
-                            checked={isDone}
-                            disabled={locked || busyRow === key}
-                            onChange={(e) => toggleReceived(r, e.target.checked)}
-                          />
-                          <span style={{ color: isDone ? 'var(--success)' : 'var(--danger)' }}>
-                            {isDone ? 'Received' : 'Pending'}
-                          </span>
-                        </label>
-                      </td>
-                      <td>
-                        <strong>{String(r.doc_type || '').toUpperCase()} {r.doc_ref}</strong>
-                      </td>
-                      <td>
-                        {r.line_description || '—'}
-                        {r.invoice_line_description ? (
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            Invoice line: {r.invoice_line_description}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td>{r.vehicle_registration || '—'}</td>
-                      <td>{(r.vehicle_type || '').trim() || '—'}</td>
-                      <td>{Number(r.quantity || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                      {!isMechanic && <td>{kes(r.unit_cost)}</td>}
-                      <td>
-                        {r.job_id
-                          ? isMechanic
-                            ? r.job_number || `Job #${r.job_id}`
-                            : <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
-                          : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
+              {!loading && rows.length > 0 && pendingRows.length === 0 && (
+                <tr>
+                  <td colSpan={colSpan} className="empty">
+                    No pending parts — everything assigned to you is marked received. Expand{' '}
+                    <strong>Received parts</strong> below if you need to change a line.
+                  </td>
+                </tr>
+              )}
+              {!loading && pendingRows.length > 0 && (
+                <AssignedDesktopRows
+                  rows={pendingRows}
+                  isMechanic={isMechanic}
+                  busyRow={busyRow}
+                  onToggle={toggleReceived}
+                />
+              )}
             </tbody>
           </table>
         </div>
@@ -162,74 +265,83 @@ export default function AssignedReceipts() {
       <div className="card assigned-cards-only-mobile" style={{ padding: '0 1.25rem' }}>
         {loading && <p className="empty" style={{ padding: '1.25rem 0' }}>Loading…</p>}
         {!loading && rows.length === 0 && (
-          <p className="empty" style={{ padding: '1.25rem 0' }}>No assigned parts yet.</p>
+          <p className="empty" style={{ padding: '1.25rem 0' }}>
+            No assigned parts yet.
+          </p>
         )}
-        {!loading &&
-          rows.map((r) => {
-            const isDone = Number(r.received_confirmed) === 1;
-            const key = `${r.doc_type}-${r.doc_id}-${r.line_id}`;
-            const locked = Number(r.doc_finalized || 0) === 1;
-            const jobLabel = r.job_id
-              ? isMechanic
-                ? r.job_number || `Job #${r.job_id}`
-                : null
-              : null;
-            return (
-              <div key={key} className="assigned-card">
-                <div className="assigned-card-top">
-                  <div className="assigned-card-doc">
-                    {String(r.doc_type || '').toUpperCase()} {r.doc_ref}
-                  </div>
-                  <div className="assigned-card-recv">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={isDone}
-                        disabled={locked || busyRow === key}
-                        onChange={(e) => toggleReceived(r, e.target.checked)}
-                      />
-                      <span style={{ color: isDone ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                        {isDone ? 'Received' : 'Pending'}
-                      </span>
-                    </label>
-                  </div>
-                </div>
-                <dl className="assigned-card-dl">
-                  <dt>Line</dt>
-                  <dd>
-                    {r.line_description || '—'}
-                    {r.invoice_line_description ? (
-                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                        Invoice: {r.invoice_line_description}
-                      </div>
-                    ) : null}
-                  </dd>
-                  <dt>Plate</dt>
-                  <dd>{r.vehicle_registration || '—'}</dd>
-                  <dt>Vehicle</dt>
-                  <dd>{(r.vehicle_type || '').trim() || '—'}</dd>
-                  <dt>Qty</dt>
-                  <dd>{Number(r.quantity || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</dd>
-                  {!isMechanic && (
-                    <>
-                      <dt>Unit</dt>
-                      <dd>{kes(r.unit_cost)}</dd>
-                    </>
-                  )}
-                  <dt>Job</dt>
-                  <dd>
-                    {r.job_id
-                      ? isMechanic
-                        ? jobLabel
-                        : <Link to={`/jobs/${r.job_id}`}>{r.job_number || `Job #${r.job_id}`}</Link>
-                      : '—'}
-                  </dd>
-                </dl>
-              </div>
-            );
-          })}
+        {!loading && rows.length > 0 && pendingRows.length === 0 && (
+          <p className="empty" style={{ padding: '1.25rem 0' }}>
+            No pending parts — all assigned lines are marked received. Open <strong>Received parts</strong> below to
+            review.
+          </p>
+        )}
+        {!loading && pendingRows.length > 0 && (
+          <AssignedMobileCards
+            rows={pendingRows}
+            isMechanic={isMechanic}
+            busyRow={busyRow}
+            onToggle={toggleReceived}
+          />
+        )}
       </div>
+
+      {!loading && receivedRows.length > 0 && (
+        <details
+          className="card"
+          style={{ marginTop: '1rem', padding: 0, overflow: 'hidden' }}
+        >
+          <summary
+            style={{
+              cursor: 'pointer',
+              fontWeight: 600,
+              padding: '0.85rem 1.25rem',
+              listStylePosition: 'outside',
+              userSelect: 'none',
+            }}
+          >
+            Received parts ({receivedCount})
+          </summary>
+          <div style={{ borderTop: '1px solid var(--border)' }}>
+            <div className="assigned-table-desktop" style={{ borderRadius: 0, border: 'none', boxShadow: 'none' }}>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Received</th>
+                      <th>Document</th>
+                      <th>Line</th>
+                      <th>Plate</th>
+                      <th>Vehicle type</th>
+                      <th>Qty</th>
+                      {!isMechanic && <th>Unit cost</th>}
+                      <th>Job</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <AssignedDesktopRows
+                      rows={receivedRows}
+                      isMechanic={isMechanic}
+                      busyRow={busyRow}
+                      onToggle={toggleReceived}
+                    />
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div
+              className="assigned-cards-only-mobile"
+              style={{ padding: '0 1.25rem 1rem', borderRadius: 0, border: 'none', boxShadow: 'none' }}
+            >
+              <AssignedMobileCards
+                rows={receivedRows}
+                isMechanic={isMechanic}
+                busyRow={busyRow}
+                onToggle={toggleReceived}
+              />
+            </div>
+          </div>
+        </details>
+      )}
     </>
   );
 }
-
