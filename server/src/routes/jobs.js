@@ -37,13 +37,20 @@ function nextJobNumber() {
 const jobDetailSql = `
   SELECT j.*, v.registration, v.make, v.model, v.vin,
     c.name as customer_name, c.phone as customer_phone, c.email as customer_email,
-    rj.job_number as related_job_number
+    rj.job_number as related_job_number,
+    rj.status as related_job_status
   FROM jobs j
   JOIN vehicles v ON j.vehicle_id = v.id
   LEFT JOIN customers c ON j.customer_id = c.id
   LEFT JOIN jobs rj ON rj.id = j.related_job_id
   WHERE j.id = ?
 `;
+
+/** Repeat visit only owns mileage-in / fuel-in / valuables / test drives when the linked mother job is completed. */
+function repeatVisitHandoverSuppressed(jobRow) {
+  if (Number(jobRow?.is_repeat_job) !== 1) return false;
+  return String(jobRow?.related_job_status) !== 'completed';
+}
 
 function fullJob(jobId) {
   const job = db.prepare(jobDetailSql).get(jobId);
@@ -88,7 +95,7 @@ function fullJob(jobId) {
     total_labour_hours = time_logs.reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
     total_labour_cost = Math.round(total_labour_hours * average_labour_cost_per_hour * 100) / 100;
   }
-  return {
+  let out = {
     ...job,
     tasks,
     test_drives,
@@ -98,6 +105,22 @@ function fullJob(jobId) {
     total_labour_cost,
     labour_cost_locked: hasFrozen,
   };
+  if (repeatVisitHandoverSuppressed(out)) {
+    out = {
+      ...out,
+      odometer_in: null,
+      fuel_in: null,
+      valuables_in_vehicle: null,
+      test_drives: [],
+      repeat_parent_completed: false,
+    };
+  } else {
+    out = {
+      ...out,
+      repeat_parent_completed: Number(out.is_repeat_job) === 1 ? String(out.related_job_status) === 'completed' : null,
+    };
+  }
+  return out;
 }
 
 const TEST_DRIVE_FUEL_LEVELS = ['Empty', '1/8', '1/4', '3/8', '1/2', '5/8', '3/4', '7/8', 'Full'];
@@ -519,8 +542,17 @@ jobsRouter.post('/:id/test-drives', requireAdminAuth, (req, res) => {
   }
   const jobId = Number(req.params.id);
   if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
-  const row = db.prepare('SELECT id, odometer_in, status FROM jobs WHERE id = ?').get(jobId);
+  const row = db.prepare('SELECT id, odometer_in, status, is_repeat_job, related_job_id FROM jobs WHERE id = ?').get(jobId);
   if (!row) return res.status(404).json({ error: 'Job not found' });
+  if (Number(row.is_repeat_job) === 1 && row.related_job_id) {
+    const rel = db.prepare('SELECT status FROM jobs WHERE id = ?').get(row.related_job_id);
+    if (rel && String(rel.status) !== 'completed') {
+      return res.status(400).json({
+        error:
+          'This repeat visit shares vehicle handover with the original job. Log test drives on the linked in-progress job instead.',
+      });
+    }
+  }
   if (row.status === 'completed') {
     return res.status(400).json({ error: 'Cannot add test drives to a completed job' });
   }
@@ -563,8 +595,17 @@ jobsRouter.delete('/:id/test-drives/:tdId', requireAdminAuth, (req, res) => {
   if (!Number.isFinite(jobId) || jobId <= 0 || !Number.isFinite(tdId) || tdId <= 0) {
     return res.status(400).json({ error: 'Invalid id' });
   }
-  const jobRow = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(jobId);
+  const jobRow = db.prepare('SELECT id, status, is_repeat_job, related_job_id FROM jobs WHERE id = ?').get(jobId);
   if (!jobRow) return res.status(404).json({ error: 'Job not found' });
+  if (Number(jobRow.is_repeat_job) === 1 && jobRow.related_job_id) {
+    const rel = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobRow.related_job_id);
+    if (rel && String(rel.status) !== 'completed') {
+      return res.status(400).json({
+        error:
+          'This repeat visit shares vehicle handover with the original job. Change test drives on the linked in-progress job instead.',
+      });
+    }
+  }
   if (jobRow.status === 'completed') {
     return res.status(400).json({ error: 'Cannot change test drives on a completed job' });
   }
@@ -711,7 +752,20 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
   const row = db.prepare('SELECT * FROM jobs WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Job not found' });
-  const { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  let relatedJobStatus = null;
+  if (Number(row.is_repeat_job) === 1 && row.related_job_id) {
+    const rel = db.prepare('SELECT status FROM jobs WHERE id = ?').get(row.related_job_id);
+    relatedJobStatus = rel?.status != null ? String(rel.status) : null;
+  }
+  const suppressRepeatVisitHandover =
+    Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
+
+  let { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  if (suppressRepeatVisitHandover) {
+    odometer_in = undefined;
+    fuel_in = undefined;
+    valuables_in_vehicle = undefined;
+  }
   const nextStatus = status ?? row.status;
   db.prepare(`
     UPDATE jobs SET status = ?, customer_id = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')

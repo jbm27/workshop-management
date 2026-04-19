@@ -351,18 +351,27 @@ export default function JobDetail() {
   const saveReadings = async () => {
     const mileageInLocked = job.odometer_in != null;
     const fuelInLocked = job.fuel_in != null && String(job.fuel_in).trim() !== '';
+    const showVH =
+      !Number(job.is_repeat_job) ||
+      (job.repeat_parent_completed ?? String(job.related_job_status) === 'completed');
     try {
-      const updated = await api.jobs.update(id, {
-        odometer_in: mileageInLocked
-          ? job.odometer_in
-          : readings.odometer_in
-            ? Number(readings.odometer_in)
-            : null,
-        odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
-        fuel_in: fuelInLocked ? job.fuel_in : readings.fuel_in || null,
-        fuel_out: readings.fuel_out || null,
-        valuables_in_vehicle: buildValuablesPayload(valuablesChecks, valuablesNotes) || null,
-      });
+      const payload = showVH
+        ? {
+            odometer_in: mileageInLocked
+              ? job.odometer_in
+              : readings.odometer_in
+                ? Number(readings.odometer_in)
+                : null,
+            odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
+            fuel_in: fuelInLocked ? job.fuel_in : readings.fuel_in || null,
+            fuel_out: readings.fuel_out || null,
+            valuables_in_vehicle: buildValuablesPayload(valuablesChecks, valuablesNotes) || null,
+          }
+        : {
+            odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
+            fuel_out: readings.fuel_out || null,
+          };
+      const updated = await api.jobs.update(id, payload);
       const parsedValuables = parseValuables(updated.valuables_in_vehicle);
       const nextChecks = {};
       VALUABLE_ITEMS.forEach((item) => {
@@ -669,11 +678,13 @@ export default function JobDetail() {
 
   const isRepeatJob = Number(job.is_repeat_job) === 1;
   const relatedJobId = job.related_job_id != null ? Number(job.related_job_id) : null;
+  const showRepeatVisitHandover =
+    !isRepeatJob || (job.repeat_parent_completed ?? String(job.related_job_status) === 'completed');
 
-  const testDrivesList = job.test_drives || [];
-  const mileageInLocked = job.odometer_in != null;
-  const fuelInLocked = job.fuel_in != null && String(job.fuel_in).trim() !== '';
-  const canAddTestDrive = mileageInLocked;
+  const testDrivesList = showRepeatVisitHandover ? job.test_drives || [] : [];
+  const mileageInLocked = showRepeatVisitHandover && job.odometer_in != null;
+  const fuelInLocked = showRepeatVisitHandover && job.fuel_in != null && String(job.fuel_in).trim() !== '';
+  const canAddTestDrive = showRepeatVisitHandover && mileageInLocked;
   const tdComputed = testDriveComputedRows(testDrivesList, job.odometer_in, job.fuel_in);
   const ho = handoverComputed(
     testDrivesList,
@@ -960,10 +971,24 @@ export default function JobDetail() {
           <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
           {job.notes && <p style={{ marginTop: '0.5rem' }}><em>{job.notes}</em></p>}
           <p style={{ marginTop: '0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
-            Mileage in / fuel in and valuables are maintained by office staff.
-            {canLogTestDrives
-              ? ' You can log test drives once mileage in is set.'
-              : ' Test drives can only be logged if a manager enables that permission for your account and mileage in is set.'}
+            {isRepeatJob && !showRepeatVisitHandover ? (
+              <>
+                This repeat visit is tied to an open mother job — mileage in, fuel in, valuables, and test drives stay on{' '}
+                {relatedJobId ? (
+                  <Link to={`/jobs/${relatedJobId}`}>that job</Link>
+                ) : (
+                  'that job'
+                )}
+                . Only visit exit readings are tracked here.
+              </>
+            ) : (
+              <>
+                Mileage in / fuel in and valuables are maintained by office staff.
+                {canLogTestDrives
+                  ? ' You can log test drives once mileage in is set.'
+                  : ' Test drives can only be logged if a manager enables that permission for your account and mileage in is set.'}
+              </>
+            )}
           </p>
         </div>
       )}
@@ -1000,89 +1025,109 @@ export default function JobDetail() {
       )}
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Mileage & fuel</h3>
-        <div style={{ marginBottom: '0.75rem' }}>
-          <div style={rowStyle}>
-            <strong>Mileage in</strong>
-            {mileageInLocked ? (
-              <span>{Number(job.odometer_in).toLocaleString()} km</span>
-            ) : isMechanic ? (
-              <span style={{ color: 'var(--text-muted)' }}>Not set — office staff must save mileage in before test drives.</span>
-            ) : (
+        <h3 style={{ marginTop: 0 }}>
+          {isRepeatJob && !showRepeatVisitHandover ? 'Mileage & fuel (this visit)' : 'Mileage & fuel'}
+        </h3>
+        {isRepeatJob && !showRepeatVisitHandover && (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Mileage in, fuel in, valuables, and test drives belong to the original job while it is still in progress.{' '}
+            {relatedJobId ? (
               <>
-                <input
-                  type="number"
-                  min="0"
-                  value={readings.odometer_in}
-                  onChange={(e) => { setReadings((r) => ({ ...r, odometer_in: e.target.value })); setReadingsDirty(true); }}
-                  style={inlineInp}
-                />
-                km
+                Open{' '}
+                <Link to={`/jobs/${relatedJobId}`}>
+                  <strong>{job.related_job_number || `Job #${relatedJobId}`}</strong>
+                </Link>{' '}
+                for that information.
               </>
-            )}
-            ,
-            <strong>Fuel in</strong>
-            {fuelInLocked ? (
-              <span>{job.fuel_in}</span>
-            ) : isMechanic ? (
-              <span style={{ color: 'var(--text-muted)' }}>Not set</span>
-            ) : (
-              <select
-                value={readings.fuel_in}
-                onChange={(e) => { setReadings((r) => ({ ...r, fuel_in: e.target.value })); setReadingsDirty(true); }}
-                style={inlineSel}
-              >
-                {fuelOptions.map((opt) => (
-                  <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          {tdComputed.map((row) => {
-            const tdRow = testDrivesList[row.index];
-            const who = tdRow?.logged_by_display_name || tdRow?.logged_by_username || '—';
-            return (
-              <div key={row.id} style={rowStyle}>
-                <strong>Test drive {row.index + 1}:</strong>
-                Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
-                <span style={{ color: 'var(--text-muted)' }}> · Logged by {who}</span>
+            ) : null}
+          </p>
+        )}
+        <div style={{ marginBottom: '0.75rem' }}>
+          {showRepeatVisitHandover ? (
+            <>
+              <div style={rowStyle}>
+                <strong>Mileage in</strong>
+                {mileageInLocked ? (
+                  <span>{Number(job.odometer_in).toLocaleString()} km</span>
+                ) : isMechanic ? (
+                  <span style={{ color: 'var(--text-muted)' }}>Not set — office staff must save mileage in before test drives.</span>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      min="0"
+                      value={readings.odometer_in}
+                      onChange={(e) => { setReadings((r) => ({ ...r, odometer_in: e.target.value })); setReadingsDirty(true); }}
+                      style={inlineInp}
+                    />
+                    km
+                  </>
+                )}
+                ,
+                <strong>Fuel in</strong>
+                {fuelInLocked ? (
+                  <span>{job.fuel_in}</span>
+                ) : isMechanic ? (
+                  <span style={{ color: 'var(--text-muted)' }}>Not set</span>
+                ) : (
+                  <select
+                    value={readings.fuel_in}
+                    onChange={(e) => { setReadings((r) => ({ ...r, fuel_in: e.target.value })); setReadingsDirty(true); }}
+                    style={inlineSel}
+                  >
+                    {fuelOptions.map((opt) => (
+                      <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-            );
-          })}
-          {canAddTestDrive && job.status !== 'completed' && canLogTestDrives && (
-            <div style={rowStyle}>
-              <strong>Add test drive:</strong>
-              Mileage in
-              <input
-                type="number"
-                min="0"
-                value={testDriveOdo}
-                onChange={(e) => setTestDriveOdo(e.target.value)}
-                style={inlineInp}
-              />
-              km,
-              Fuel in
-              <select
-                value={testDriveFuel}
-                onChange={(e) => setTestDriveFuel(e.target.value)}
-                style={inlineSel}
-              >
-                <option value="">—</option>
-                {fuelOptions.filter(Boolean).map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-              <button type="button" className="btn primary" onClick={submitTestDrive} disabled={testDriveBusy} style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem' }}>
-                {testDriveBusy ? '…' : 'Add'}
-              </button>
-            </div>
-          )}
-          {canAddTestDrive && job.status !== 'completed' && !canLogTestDrives && (
-            <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-              You do not have permission to log test drives. A team manager can enable &quot;Log test drives on jobs&quot; (office)
-              or &quot;Can log test drives&quot; (mechanic) on your account in Team members.
-            </p>
-          )}
+              {tdComputed.map((row) => {
+                const tdRow = testDrivesList[row.index];
+                const who = tdRow?.logged_by_display_name || tdRow?.logged_by_username || '—';
+                return (
+                  <div key={row.id} style={rowStyle}>
+                    <strong>Test drive {row.index + 1}:</strong>
+                    Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
+                    <span style={{ color: 'var(--text-muted)' }}> · Logged by {who}</span>
+                  </div>
+                );
+              })}
+              {canAddTestDrive && job.status !== 'completed' && canLogTestDrives && (
+                <div style={rowStyle}>
+                  <strong>Add test drive:</strong>
+                  Mileage in
+                  <input
+                    type="number"
+                    min="0"
+                    value={testDriveOdo}
+                    onChange={(e) => setTestDriveOdo(e.target.value)}
+                    style={inlineInp}
+                  />
+                  km,
+                  Fuel in
+                  <select
+                    value={testDriveFuel}
+                    onChange={(e) => setTestDriveFuel(e.target.value)}
+                    style={inlineSel}
+                  >
+                    <option value="">—</option>
+                    {fuelOptions.filter(Boolean).map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn primary" onClick={submitTestDrive} disabled={testDriveBusy} style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem' }}>
+                    {testDriveBusy ? '…' : 'Add'}
+                  </button>
+                </div>
+              )}
+              {canAddTestDrive && job.status !== 'completed' && !canLogTestDrives && (
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  You do not have permission to log test drives. A team manager can enable &quot;Log test drives on jobs&quot; (office)
+                  or &quot;Can log test drives&quot; (mechanic) on your account in Team members.
+                </p>
+              )}
+            </>
+          ) : null}
           <div style={rowStyle}>
             <strong>Mileage out</strong>
             {isMechanic ? (
@@ -1117,7 +1162,7 @@ export default function JobDetail() {
             , Fuel used {ho.fuelUsed}
           </div>
         </div>
-        {!isMechanic && (
+        {!isMechanic && showRepeatVisitHandover && (
         <div
           className="form-group"
           style={{
@@ -1194,6 +1239,9 @@ export default function JobDetail() {
                   <strong>{job.related_job_number || `Job #${relatedJobId}`}</strong>
                 </Link>{' '}
                 for job reports (margin impact on that job).
+                {!showRepeatVisitHandover ? (
+                  <> Vehicle intake (mileage in, fuel, valuables, test drives) is recorded on that job until it is completed.</>
+                ) : null}
               </>
             ) : null}
           </p>
