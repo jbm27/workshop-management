@@ -107,6 +107,9 @@ export const api = {
     deleteTimeLog: (jobId, logId) => api.delete(`/jobs/${jobId}/time-logs/${logId}`),
     deleteIdleTimeLog: (logId) => api.delete(`/jobs/time-logs/idle/${logId}`),
     myTimeLogs: (date) => api.get('/jobs/time-logs/mine' + (date ? `?date=${encodeURIComponent(date)}` : '')),
+    downloadJobSummaryPdf: (jobId) => {
+      window.open(API + `/jobs/${encodeURIComponent(jobId)}/summary-pdf`, '_blank');
+    },
   },
   invoices: {
     list: (params) => {

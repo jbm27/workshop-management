@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { requireAdminAuth } from '../auth.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
+import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
 
 export const jobsRouter = Router();
 
@@ -297,6 +298,89 @@ jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
     .get(inv.id);
   const invItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(inv.id);
   res.status(201).json({ job, invoice: { ...invoiceRow, items: invItems } });
+});
+
+jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
+
+    const job = fullJob(jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.status !== 'completed') {
+      return res.status(400).json({ error: 'Job summary PDF is only available when the job is complete' });
+    }
+
+    const addrRow = db
+      .prepare(`SELECT c.address AS customer_address FROM jobs j LEFT JOIN customers c ON c.id = j.customer_id WHERE j.id = ?`)
+      .get(jobId);
+    const vehRow = db.prepare(`SELECT v.year, v.odometer FROM jobs j JOIN vehicles v ON v.id = j.vehicle_id WHERE j.id = ?`).get(jobId);
+    const jobForPdf = {
+      ...job,
+      customer_address: addrRow?.customer_address || '',
+      year: vehRow?.year ?? job.year,
+      odometer: vehRow?.odometer ?? job.odometer,
+    };
+
+    const quote = db.prepare(`SELECT * FROM invoices WHERE job_id = ? AND type = 'quote' ORDER BY id DESC LIMIT 1`).get(jobId);
+    const invoice = db.prepare(`SELECT * FROM invoices WHERE job_id = ? AND type = 'invoice' ORDER BY id DESC LIMIT 1`).get(jobId);
+
+    const quoteItems = quote ? db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(quote.id) : [];
+
+    const invoiceItems = invoice
+      ? db
+          .prepare(
+            `
+        SELECT ii.*,
+          (SELECT COALESCE(SUM(ll.quantity * ll.unit_cost), 0) FROM lpo_lines ll WHERE ll.invoice_item_id = ii.id) AS lpo_allocated_cost,
+          (SELECT COALESCE(SUM(il.quantity * il.unit_cost), 0) FROM ipr_lines il WHERE il.invoice_item_id = ii.id) AS ipr_allocated_cost
+        FROM invoice_items ii
+        WHERE ii.invoice_id = ?
+        ORDER BY ii.id
+      `,
+          )
+          .all(invoice.id)
+      : [];
+
+    const payments = invoice
+      ? db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at ASC, id ASC').all(invoice.id)
+      : [];
+
+    const lpos = invoice
+      ? db
+          .prepare(
+            `
+        SELECT l.ref, l.finalized, l.approved, s.name AS supplier_name
+        FROM lpos l
+        JOIN suppliers s ON s.id = l.supplier_id
+        WHERE l.invoice_id = ?
+        ORDER BY l.id
+      `,
+          )
+          .all(invoice.id)
+      : [];
+
+    const iprs = invoice
+      ? db.prepare(`SELECT ref, finalized, approved FROM iprs WHERE invoice_id = ? ORDER BY id`).all(invoice.id)
+      : [];
+
+    streamJobSummaryPdf(res, {
+      job: jobForPdf,
+      tasks: job.tasks,
+      test_drives: job.test_drives,
+      time_logs: job.time_logs,
+      quote,
+      quoteItems,
+      invoice,
+      invoiceItems,
+      payments,
+      lpos,
+      iprs,
+    });
+  } catch (e) {
+    console.error('[job summary pdf]', e);
+    if (!res.headersSent) res.status(500).json({ error: e.message || 'PDF failed' });
+  }
 });
 
 jobsRouter.get('/:id', (req, res) => {

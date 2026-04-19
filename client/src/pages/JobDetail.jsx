@@ -615,6 +615,11 @@ export default function JobDetail() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
         <h1 className="page-title" style={{ margin: 0 }}>{job.job_number}</h1>
         <Link to="/jobs" className="btn">← Jobs</Link>
+        {job.status === 'completed' ? (
+          <button type="button" className="btn" onClick={() => api.jobs.downloadJobSummaryPdf(job.id)}>
+            Job summary PDF
+          </button>
+        ) : null}
         <span className={`badge ${job.status}`}>{jobStatusLabel(job.status)}</span>
         <select
           key={`${job.id}-${job.status}-${statusMenuKey}`}

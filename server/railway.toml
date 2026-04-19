@@ -1,0 +1,9 @@
+# Railway: set this service’s Root Directory to `server` in the project settings,
+# or deploy from the server folder as the repo root.
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm start"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
