@@ -46,7 +46,10 @@ const jobDetailSql = `
   WHERE j.id = ?
 `;
 
-/** Repeat visit only owns mileage-in / fuel-in / valuables / test drives when the linked mother job is completed. */
+/**
+ * Repeat visit tied to a mother job that is not yet completed: no own vehicle handover
+ * (mileage/fuel in or out, valuables, test drives) — that is recorded on the mother job.
+ */
 function repeatVisitHandoverSuppressed(jobRow) {
   if (Number(jobRow?.is_repeat_job) !== 1) return false;
   return String(jobRow?.related_job_status) !== 'completed';
@@ -109,7 +112,9 @@ function fullJob(jobId) {
     out = {
       ...out,
       odometer_in: null,
+      odometer_out: null,
       fuel_in: null,
+      fuel_out: null,
       valuables_in_vehicle: null,
       test_drives: [],
       repeat_parent_completed: false,
@@ -763,7 +768,9 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   let { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
   if (suppressRepeatVisitHandover) {
     odometer_in = undefined;
+    odometer_out = undefined;
     fuel_in = undefined;
+    fuel_out = undefined;
     valuables_in_vehicle = undefined;
   }
   const nextStatus = status ?? row.status;

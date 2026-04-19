@@ -269,6 +269,29 @@ export default function JobDetail() {
 
   const updateStatus = async (newStatus) => {
     if (newStatus === 'completed') {
+      const skipFinalReadings =
+        job &&
+        Number(job.is_repeat_job) === 1 &&
+        !(job.repeat_parent_completed ?? String(job.related_job_status) === 'completed');
+      if (skipFinalReadings) {
+        try {
+          await api.jobs.update(id, {
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+          });
+          const j = await api.jobs.get(id);
+          setJob(j);
+          setReadings((r) => ({
+            ...r,
+            odometer_out: j.odometer_out ?? '',
+            fuel_out: j.fuel_out ?? '',
+          }));
+          setStatusMenuKey((k) => k + 1);
+        } catch (err) {
+          alert(err.message);
+        }
+        return;
+      }
       setCloseReadings({ odometer_out: job.odometer_out ?? '', fuel_out: job.fuel_out ?? '' });
       setCloseJobModal(true);
       return;
@@ -355,23 +378,21 @@ export default function JobDetail() {
       !Number(job.is_repeat_job) ||
       (job.repeat_parent_completed ?? String(job.related_job_status) === 'completed');
     try {
-      const payload = showVH
-        ? {
-            odometer_in: mileageInLocked
-              ? job.odometer_in
-              : readings.odometer_in
-                ? Number(readings.odometer_in)
-                : null,
-            odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
-            fuel_in: fuelInLocked ? job.fuel_in : readings.fuel_in || null,
-            fuel_out: readings.fuel_out || null,
-            valuables_in_vehicle: buildValuablesPayload(valuablesChecks, valuablesNotes) || null,
-          }
-        : {
-            odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
-            fuel_out: readings.fuel_out || null,
-          };
-      const updated = await api.jobs.update(id, payload);
+      if (!showVH) {
+        setReadingsDirty(false);
+        return;
+      }
+      const updated = await api.jobs.update(id, {
+        odometer_in: mileageInLocked
+          ? job.odometer_in
+          : readings.odometer_in
+            ? Number(readings.odometer_in)
+            : null,
+        odometer_out: readings.odometer_out ? Number(readings.odometer_out) : null,
+        fuel_in: fuelInLocked ? job.fuel_in : readings.fuel_in || null,
+        fuel_out: readings.fuel_out || null,
+        valuables_in_vehicle: buildValuablesPayload(valuablesChecks, valuablesNotes) || null,
+      });
       const parsedValuables = parseValuables(updated.valuables_in_vehicle);
       const nextChecks = {};
       VALUABLE_ITEMS.forEach((item) => {
@@ -686,13 +707,15 @@ export default function JobDetail() {
   const fuelInLocked = showRepeatVisitHandover && job.fuel_in != null && String(job.fuel_in).trim() !== '';
   const canAddTestDrive = showRepeatVisitHandover && mileageInLocked;
   const tdComputed = testDriveComputedRows(testDrivesList, job.odometer_in, job.fuel_in);
-  const ho = handoverComputed(
-    testDrivesList,
-    job.odometer_in,
-    job.fuel_in,
-    readings.odometer_out,
-    readings.fuel_out,
-  );
+  const ho = showRepeatVisitHandover
+    ? handoverComputed(
+        testDrivesList,
+        job.odometer_in,
+        job.fuel_in,
+        readings.odometer_out,
+        readings.fuel_out,
+      )
+    : null;
 
   const rowStyle = {
     display: 'flex',
@@ -973,13 +996,14 @@ export default function JobDetail() {
           <p style={{ marginTop: '0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
             {isRepeatJob && !showRepeatVisitHandover ? (
               <>
-                This repeat visit is tied to an open mother job — mileage in, fuel in, valuables, and test drives stay on{' '}
+                This repeat visit is tied to an open mother job — mileage, fuel, valuables, and test drives (including
+                final mileage and fuel when the vehicle leaves) are recorded on{' '}
                 {relatedJobId ? (
                   <Link to={`/jobs/${relatedJobId}`}>that job</Link>
                 ) : (
                   'that job'
                 )}
-                . Only visit exit readings are tracked here.
+                .
               </>
             ) : (
               <>
@@ -1026,25 +1050,25 @@ export default function JobDetail() {
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>
-          {isRepeatJob && !showRepeatVisitHandover ? 'Mileage & fuel (this visit)' : 'Mileage & fuel'}
+          {isRepeatJob && !showRepeatVisitHandover ? 'Vehicle readings' : 'Mileage & fuel'}
         </h3>
         {isRepeatJob && !showRepeatVisitHandover && (
-          <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-            Mileage in, fuel in, valuables, and test drives belong to the original job while it is still in progress.{' '}
+          <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            While the original job is still open, all vehicle readings (mileage and fuel in and out, valuables, and test
+            drives) are kept on that job and are completed when you close it.{' '}
             {relatedJobId ? (
               <>
                 Open{' '}
                 <Link to={`/jobs/${relatedJobId}`}>
                   <strong>{job.related_job_number || `Job #${relatedJobId}`}</strong>
                 </Link>{' '}
-                for that information.
+                to view or edit them.
               </>
             ) : null}
           </p>
         )}
+        {showRepeatVisitHandover ? (
         <div style={{ marginBottom: '0.75rem' }}>
-          {showRepeatVisitHandover ? (
-            <>
               <div style={rowStyle}>
                 <strong>Mileage in</strong>
                 {mileageInLocked ? (
@@ -1126,42 +1150,41 @@ export default function JobDetail() {
                   or &quot;Can log test drives&quot; (mechanic) on your account in Team members.
                 </p>
               )}
-            </>
-          ) : null}
-          <div style={rowStyle}>
-            <strong>Mileage out</strong>
-            {isMechanic ? (
-              <span>
-                {job.odometer_out != null ? `${Number(job.odometer_out).toLocaleString()} km` : '—'}
-              </span>
-            ) : (
-              <input
-                type="number"
-                min="0"
-                value={readings.odometer_out}
-                onChange={(e) => { setReadings((r) => ({ ...r, odometer_out: e.target.value })); setReadingsDirty(true); }}
-                style={inlineInp}
-              />
-            )}
-            {!isMechanic ? ' km, ' : ', '}
-            Mileage covered {formatKmDelta(ho.mileageCovered)},
-            <strong>Fuel out</strong>
-            {isMechanic ? (
-              <span>{job.fuel_out || '—'}</span>
-            ) : (
-              <select
-                value={readings.fuel_out}
-                onChange={(e) => { setReadings((r) => ({ ...r, fuel_out: e.target.value })); setReadingsDirty(true); }}
-                style={inlineSel}
-              >
-                {fuelOptions.map((opt) => (
-                  <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
-                ))}
-              </select>
-            )}
-            , Fuel used {ho.fuelUsed}
-          </div>
+              <div style={rowStyle}>
+                <strong>Mileage out</strong>
+                {isMechanic ? (
+                  <span>
+                    {job.odometer_out != null ? `${Number(job.odometer_out).toLocaleString()} km` : '—'}
+                  </span>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    value={readings.odometer_out}
+                    onChange={(e) => { setReadings((r) => ({ ...r, odometer_out: e.target.value })); setReadingsDirty(true); }}
+                    style={inlineInp}
+                  />
+                )}
+                {!isMechanic ? ' km, ' : ', '}
+                Mileage covered {formatKmDelta(ho.mileageCovered)},
+                <strong>Fuel out</strong>
+                {isMechanic ? (
+                  <span>{job.fuel_out || '—'}</span>
+                ) : (
+                  <select
+                    value={readings.fuel_out}
+                    onChange={(e) => { setReadings((r) => ({ ...r, fuel_out: e.target.value })); setReadingsDirty(true); }}
+                    style={inlineSel}
+                  >
+                    {fuelOptions.map((opt) => (
+                      <option key={opt || 'blank'} value={opt}>{opt || '—'}</option>
+                    ))}
+                  </select>
+                )}
+                , Fuel used {ho.fuelUsed}
+              </div>
         </div>
+        ) : null}
         {!isMechanic && showRepeatVisitHandover && (
         <div
           className="form-group"
@@ -1240,7 +1263,11 @@ export default function JobDetail() {
                 </Link>{' '}
                 for job reports (margin impact on that job).
                 {!showRepeatVisitHandover ? (
-                  <> Vehicle intake (mileage in, fuel, valuables, test drives) is recorded on that job until it is completed.</>
+                  <>
+                    {' '}
+                    Vehicle readings (mileage and fuel in and out, valuables, and test drives) stay on that job until it is
+                    completed.
+                  </>
                 ) : null}
               </>
             ) : null}
