@@ -109,17 +109,18 @@ jobsRouter.get('/for-repeat-link', requireAdminAuth, (req, res) => {
   const rows = db
     .prepare(
       `
-    SELECT j.id, j.job_number, j.status, j.created_at,
-      v.registration, v.make, v.model
+    SELECT j.id, j.job_number, j.status, j.created_at, j.customer_id, j.vehicle_id,
+      v.registration, v.make, v.model, c.name AS customer_name
     FROM jobs j
     JOIN vehicles v ON v.id = j.vehicle_id
+    LEFT JOIN customers c ON c.id = j.customer_id
     WHERE (j.job_number LIKE ? OR IFNULL(v.registration,'') LIKE ? OR IFNULL(v.make,'') LIKE ?
-      OR IFNULL(v.model,'') LIKE ? OR CAST(j.id AS TEXT) LIKE ?)
+      OR IFNULL(v.model,'') LIKE ? OR IFNULL(c.name,'') LIKE ? OR CAST(j.id AS TEXT) LIKE ?)
     ORDER BY j.created_at DESC, j.id DESC
     LIMIT 80
   `,
     )
-    .all(like, like, like, like, like);
+    .all(like, like, like, like, like, like);
   res.json(rows);
 });
 

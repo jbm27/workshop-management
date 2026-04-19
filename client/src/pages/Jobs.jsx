@@ -132,22 +132,19 @@ export default function Jobs() {
   }, [isMechanic]);
 
   useEffect(() => {
-    if (modal !== 'create') return;
-    api.jobs
-      .forRepeatLink()
-      .then(setRelatedJobOptions)
-      .catch(() => setRelatedJobOptions([]));
-  }, [modal]);
-
-  useEffect(() => {
     if (modal !== 'create' || !form.is_repeat_job) return;
     const q = (form.related_job_search || '').trim();
-    const t = setTimeout(() => {
+    const run = () => {
       api.jobs
         .forRepeatLink(q || undefined)
         .then(setRelatedJobOptions)
         .catch(() => setRelatedJobOptions([]));
-    }, 280);
+    };
+    if (!q) {
+      run();
+      return undefined;
+    }
+    const t = setTimeout(run, 280);
     return () => clearTimeout(t);
   }, [modal, form.is_repeat_job, form.related_job_search]);
 
@@ -206,24 +203,31 @@ export default function Jobs() {
   const submit = async (e) => {
     e.preventDefault();
     try {
-      let customerId = form.customerId === ADD_NEW ? null : Number(form.customerId) || null;
-      if (isNewCustomer) {
-        if (!form.newCustomer.name?.trim()) return alert('Customer name is required');
-        const created = await api.customers.create(form.newCustomer);
-        customerId = created.id;
-      }
-      if (!customerId) return alert('Select or add a customer (bill-to / who to invoice).');
-
-      let vehicleId = form.vehicleId === ADD_NEW ? null : Number(form.vehicleId) || null;
-      if (isNewVehicle) {
-        const created = await api.vehicles.create({ ...form.newVehicle, customer_id: null });
-        vehicleId = created.id;
-      }
-      if (!vehicleId) return alert('Select or add a vehicle.');
+      let customerId;
+      let vehicleId;
 
       if (form.is_repeat_job) {
         const rid = Number(form.related_job_id);
-        if (!Number.isFinite(rid) || rid <= 0) return alert('Select the workshop job this repeat job relates to.');
+        if (!Number.isFinite(rid) || rid <= 0) return alert('Select the previous workshop job this repeat job relates to.');
+        customerId = Number(form.customerId) || null;
+        vehicleId = Number(form.vehicleId) || null;
+        if (!vehicleId) return alert('Select a previous job — vehicle could not be determined.');
+        if (!customerId) return alert('That job has no bill-to customer on file. Open the original job and set a customer, or create this repeat job without the repeat option.');
+      } else {
+        customerId = form.customerId === ADD_NEW ? null : Number(form.customerId) || null;
+        if (isNewCustomer) {
+          if (!form.newCustomer.name?.trim()) return alert('Customer name is required');
+          const created = await api.customers.create(form.newCustomer);
+          customerId = created.id;
+        }
+        if (!customerId) return alert('Select or add a customer (bill-to / who to invoice).');
+
+        vehicleId = form.vehicleId === ADD_NEW ? null : Number(form.vehicleId) || null;
+        if (isNewVehicle) {
+          const created = await api.vehicles.create({ ...form.newVehicle, customer_id: null });
+          vehicleId = created.id;
+        }
+        if (!vehicleId) return alert('Select or add a vehicle.');
       }
 
       const valuablesPayload = buildValuablesPayload(form.valuables_checks, form.valuables_notes);
@@ -241,8 +245,10 @@ export default function Jobs() {
       });
       setModal(null);
       load();
-      setVehicles((prev) => (isNewVehicle ? [...prev, { id: vehicleId, ...form.newVehicle }] : prev));
-      setCustomers((prev) => (isNewCustomer ? [...prev, { id: customerId, ...form.newCustomer }] : prev));
+      if (!form.is_repeat_job) {
+        setVehicles((prev) => (isNewVehicle ? [...prev, { id: vehicleId, ...form.newVehicle }] : prev));
+        setCustomers((prev) => (isNewCustomer ? [...prev, { id: customerId, ...form.newCustomer }] : prev));
+      }
     } catch (err) {
       alert(err.message);
     }
@@ -355,212 +361,65 @@ export default function Jobs() {
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
             <header>New job</header>
             <form className="body" onSubmit={submit}>
-              <div className="form-group" style={{ position: 'relative' }}>
-                <label>Vehicle *</label>
-                <input
-                  type="text"
-                  placeholder="Search or select vehicle (number plate, make, model)…"
-                  value={vehicleInputValue}
-                  onChange={(e) => setForm({ ...form, vehicleSearch: e.target.value, vehicleId: '' })}
-                  onFocus={() => setVehicleOpen(true)}
-                  onBlur={() => setTimeout(() => setVehicleOpen(false), 200)}
-                  autoComplete="off"
-                  required={!isNewVehicle && !form.vehicleId}
-                />
-                {vehicleOpen && (
-                  <ul
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      margin: 0,
-                      padding: 0,
-                      listStyle: 'none',
-                      maxHeight: '220px',
-                      overflowY: 'auto',
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderTop: 'none',
-                      borderRadius: '0 0 var(--radius) var(--radius)',
-                      zIndex: 10,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                    }}
-                  >
-                    {filteredVehicles.map((v) => (
-                      <li
-                        key={v.id}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          setForm({ ...form, vehicleId: String(v.id), vehicleSearch: '' });
-                          setVehicleOpen(false);
-                        }}
-                        style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                      >
-                        {[v.registration, v.make, v.model].filter(Boolean).join(' ') || `Vehicle #${v.id}`}
-                      </li>
-                    ))}
-                    <li
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setForm({ ...form, vehicleId: ADD_NEW, vehicleSearch: '' });
-                        setVehicleOpen(false);
-                      }}
-                      style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontWeight: 500 }}
-                    >
-                      ➕ Add new vehicle
-                    </li>
-                  </ul>
-                )}
-                {isNewVehicle && (
-                  <div style={{ borderLeft: '3px solid var(--accent)', paddingLeft: '1rem', marginTop: '0.75rem' }}>
-                    <div className="form-group">
-                      <label>Registration (number plate)</label>
-                      <input value={form.newVehicle.registration} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, registration: e.target.value } })} placeholder="e.g. KCA 123A" />
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                      <div className="form-group">
-                        <label>Make</label>
-                        <input value={form.newVehicle.make} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, make: e.target.value } })} placeholder="Make" />
-                      </div>
-                      <div className="form-group">
-                        <label>Model</label>
-                        <input value={form.newVehicle.model} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, model: e.target.value } })} placeholder="Model" />
-                      </div>
-                    </div>
-                    <div className="form-group">
-                      <label>Year</label>
-                      <input type="number" min="1900" max="2100" value={form.newVehicle.year || ''} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, year: e.target.value } })} placeholder="Year" />
-                    </div>
-                    <div className="form-group">
-                      <label>VIN</label>
-                      <input value={form.newVehicle.vin} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, vin: e.target.value } })} placeholder="VIN (optional)" />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="form-group" style={{ position: 'relative' }}>
-                <label>Customer (bill-to) *</label>
-                <input
-                  type="text"
-                  placeholder="Search or select customer…"
-                  value={customerInputValue}
-                  onChange={(e) => setForm({ ...form, customerSearch: e.target.value, customerId: '' })}
-                  onFocus={() => setCustomerOpen(true)}
-                  onBlur={() => setTimeout(() => setCustomerOpen(false), 200)}
-                  autoComplete="off"
-                  required={!isNewCustomer && !form.customerId}
-                />
-                {customerOpen && (
-                  <ul
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      margin: 0,
-                      padding: 0,
-                      listStyle: 'none',
-                      maxHeight: '220px',
-                      overflowY: 'auto',
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderTop: 'none',
-                      borderRadius: '0 0 var(--radius) var(--radius)',
-                      zIndex: 10,
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                    }}
-                  >
-                    {filteredCustomers.map((c) => (
-                      <li
-                        key={c.id}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => {
-                          setForm({ ...form, customerId: String(c.id), customerSearch: '' });
-                          setCustomerOpen(false);
-                        }}
-                        style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                      >
-                        {c.name}
-                        {(c.phone || c.email) && (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
-                            {[c.phone, c.email].filter(Boolean).join(' · ')}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                    <li
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setForm({ ...form, customerId: ADD_NEW, customerSearch: '' });
-                        setCustomerOpen(false);
-                      }}
-                      style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontWeight: 500 }}
-                    >
-                      ➕ Add new customer
-                    </li>
-                  </ul>
-                )}
-                {isNewCustomer && (
-                  <div style={{ borderLeft: '3px solid var(--accent)', paddingLeft: '1rem', marginTop: '0.75rem' }}>
-                    <div className="form-group">
-                      <label>Name *</label>
-                      <input
-                        value={form.newCustomer.name}
-                        onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, name: e.target.value } })}
-                        required
-                        placeholder="Customer name"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Phone</label>
-                      <input value={form.newCustomer.phone} onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, phone: e.target.value } })} placeholder="Phone" />
-                    </div>
-                    <div className="form-group">
-                      <label>Email</label>
-                      <input type="email" value={form.newCustomer.email} onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, email: e.target.value } })} placeholder="Email" />
-                    </div>
-                    <div className="form-group">
-                      <label>Address</label>
-                      <input value={form.newCustomer.address} onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, address: e.target.value } })} placeholder="Address" />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="form-group" style={{ marginTop: '1rem' }}>
+              <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                 <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={!!form.is_repeat_job}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        is_repeat_job: e.target.checked,
-                        related_job_id: e.target.checked ? f.related_job_id : '',
-                        related_job_search: e.target.checked ? f.related_job_search : '',
-                        related_job_summary: e.target.checked ? f.related_job_summary : '',
-                      }))
-                    }
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setForm((f) =>
+                        on
+                          ? {
+                              ...f,
+                              is_repeat_job: true,
+                              customerId: '',
+                              vehicleId: '',
+                              customerSearch: '',
+                              vehicleSearch: '',
+                              related_job_id: '',
+                              related_job_search: '',
+                              related_job_summary: '',
+                              newCustomer: { ...EMPTY_CUSTOMER },
+                              newVehicle: { ...EMPTY_VEHICLE },
+                            }
+                          : {
+                              ...f,
+                              is_repeat_job: false,
+                              related_job_id: '',
+                              related_job_search: '',
+                              related_job_summary: '',
+                              customerId: '',
+                              vehicleId: '',
+                              customerSearch: '',
+                              vehicleSearch: '',
+                              newCustomer: { ...EMPTY_CUSTOMER },
+                              newVehicle: { ...EMPTY_VEHICLE },
+                            },
+                      );
+                    }}
                     style={{ marginTop: '0.2rem' }}
                   />
                   <span>
                     <strong>Repeat job</strong> (goodwill rework — not billed to the customer)
                     <span style={{ display: 'block', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '0.35rem' }}>
-                      No quote or customer invoice on this card. Time logs and LPO/IPR still apply. Choose the original or
-                      related workshop job for reporting (repeat costs reduce that job&apos;s margin in job reports).
+                      When ticked, you only choose the <strong>previous workshop job</strong> — customer and vehicle are taken
+                      from that job. No separate customer/vehicle step. Time logs and LPO/IPR still apply; reporting links repeat
+                      costs to the job you pick.
                     </span>
                   </span>
                 </label>
               </div>
 
-              {form.is_repeat_job && (
+              {form.is_repeat_job ? (
                 <div className="form-group" style={{ position: 'relative' }}>
-                  <label>Related job *</label>
+                  <label>Previous workshop job *</label>
+                  <p style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    Search by job number, plate, or vehicle. This sets bill-to customer and vehicle for the new repeat job.
+                  </p>
                   <input
                     type="text"
-                    placeholder="Search job number, plate, make…"
+                    placeholder="e.g. J1042 or registration…"
                     value={relatedJobInputValue}
                     onChange={(e) =>
                       setForm({
@@ -568,6 +427,8 @@ export default function Jobs() {
                         related_job_search: e.target.value,
                         related_job_id: '',
                         related_job_summary: '',
+                        customerId: '',
+                        vehicleId: '',
                       })
                     }
                     onFocus={() => setRelatedJobOpen(true)}
@@ -598,26 +459,32 @@ export default function Jobs() {
                       {relatedJobOptions.length === 0 && (
                         <li style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)' }}>No jobs match.</li>
                       )}
-                      {relatedJobOptions.map((j) => {
-                        const v = [j.registration, j.make, j.model].filter(Boolean).join(' ');
+                      {relatedJobOptions.map((jrow) => {
+                        const v = [jrow.registration, jrow.make, jrow.model].filter(Boolean).join(' ');
+                        const cust = (jrow.customer_name || '').trim();
                         return (
                           <li
-                            key={j.id}
+                            key={jrow.id}
                             onMouseDown={(e) => e.preventDefault()}
                             onClick={() => {
+                              const cid = jrow.customer_id != null && jrow.customer_id !== '' ? String(jrow.customer_id) : '';
+                              const vid = jrow.vehicle_id != null && jrow.vehicle_id !== '' ? String(jrow.vehicle_id) : '';
                               setForm({
                                 ...form,
-                                related_job_id: String(j.id),
+                                related_job_id: String(jrow.id),
                                 related_job_search: '',
-                                related_job_summary: `${j.job_number}${v ? ` · ${v}` : ''}`,
+                                related_job_summary: `${jrow.job_number}${v ? ` · ${v}` : ''}${cust ? ` · ${cust}` : ''}`,
+                                customerId: cid,
+                                vehicleId: vid,
                               });
                               setRelatedJobOpen(false);
                             }}
                             style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
                           >
-                            <strong>{j.job_number}</strong>
+                            <strong>{jrow.job_number}</strong>
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginLeft: '0.35rem' }}>
-                              {v || '—'} · {j.status?.replace(/_/g, ' ') || '—'}
+                              {v || '—'}
+                              {cust ? ` · ${cust}` : ''} · {jrow.status?.replace(/_/g, ' ') || '—'}
                             </span>
                           </li>
                         );
@@ -625,6 +492,182 @@ export default function Jobs() {
                     </ul>
                   )}
                 </div>
+              ) : (
+                <>
+                  <div className="form-group" style={{ position: 'relative' }}>
+                    <label>Vehicle *</label>
+                    <input
+                      type="text"
+                      placeholder="Search or select vehicle (number plate, make, model)…"
+                      value={vehicleInputValue}
+                      onChange={(e) => setForm({ ...form, vehicleSearch: e.target.value, vehicleId: '' })}
+                      onFocus={() => setVehicleOpen(true)}
+                      onBlur={() => setTimeout(() => setVehicleOpen(false), 200)}
+                      autoComplete="off"
+                      required={!isNewVehicle && !form.vehicleId}
+                    />
+                    {vehicleOpen && (
+                      <ul
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          margin: 0,
+                          padding: 0,
+                          listStyle: 'none',
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                          background: 'var(--surface)',
+                          border: '1px solid var(--border)',
+                          borderTop: 'none',
+                          borderRadius: '0 0 var(--radius) var(--radius)',
+                          zIndex: 10,
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                        }}
+                      >
+                        {filteredVehicles.map((v) => (
+                          <li
+                            key={v.id}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setForm({ ...form, vehicleId: String(v.id), vehicleSearch: '' });
+                              setVehicleOpen(false);
+                            }}
+                            style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                          >
+                            {[v.registration, v.make, v.model].filter(Boolean).join(' ') || `Vehicle #${v.id}`}
+                          </li>
+                        ))}
+                        <li
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setForm({ ...form, vehicleId: ADD_NEW, vehicleSearch: '' });
+                            setVehicleOpen(false);
+                          }}
+                          style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontWeight: 500 }}
+                        >
+                          ➕ Add new vehicle
+                        </li>
+                      </ul>
+                    )}
+                    {isNewVehicle && (
+                      <div style={{ borderLeft: '3px solid var(--accent)', paddingLeft: '1rem', marginTop: '0.75rem' }}>
+                        <div className="form-group">
+                          <label>Registration (number plate)</label>
+                          <input value={form.newVehicle.registration} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, registration: e.target.value } })} placeholder="e.g. KCA 123A" />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                          <div className="form-group">
+                            <label>Make</label>
+                            <input value={form.newVehicle.make} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, make: e.target.value } })} placeholder="Make" />
+                          </div>
+                          <div className="form-group">
+                            <label>Model</label>
+                            <input value={form.newVehicle.model} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, model: e.target.value } })} placeholder="Model" />
+                          </div>
+                        </div>
+                        <div className="form-group">
+                          <label>Year</label>
+                          <input type="number" min="1900" max="2100" value={form.newVehicle.year || ''} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, year: e.target.value } })} placeholder="Year" />
+                        </div>
+                        <div className="form-group">
+                          <label>VIN</label>
+                          <input value={form.newVehicle.vin} onChange={(e) => setForm({ ...form, newVehicle: { ...form.newVehicle, vin: e.target.value } })} placeholder="VIN (optional)" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group" style={{ position: 'relative' }}>
+                    <label>Customer (bill-to) *</label>
+                    <input
+                      type="text"
+                      placeholder="Search or select customer…"
+                      value={customerInputValue}
+                      onChange={(e) => setForm({ ...form, customerSearch: e.target.value, customerId: '' })}
+                      onFocus={() => setCustomerOpen(true)}
+                      onBlur={() => setTimeout(() => setCustomerOpen(false), 200)}
+                      autoComplete="off"
+                      required={!isNewCustomer && !form.customerId}
+                    />
+                    {customerOpen && (
+                      <ul
+                        style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          margin: 0,
+                          padding: 0,
+                          listStyle: 'none',
+                          maxHeight: '220px',
+                          overflowY: 'auto',
+                          background: 'var(--surface)',
+                          border: '1px solid var(--border)',
+                          borderTop: 'none',
+                          borderRadius: '0 0 var(--radius) var(--radius)',
+                          zIndex: 10,
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                        }}
+                      >
+                        {filteredCustomers.map((c) => (
+                          <li
+                            key={c.id}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setForm({ ...form, customerId: String(c.id), customerSearch: '' });
+                              setCustomerOpen(false);
+                            }}
+                            style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                          >
+                            {c.name}
+                            {(c.phone || c.email) && (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+                                {[c.phone, c.email].filter(Boolean).join(' · ')}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                        <li
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setForm({ ...form, customerId: ADD_NEW, customerSearch: '' });
+                            setCustomerOpen(false);
+                          }}
+                          style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontWeight: 500 }}
+                        >
+                          ➕ Add new customer
+                        </li>
+                      </ul>
+                    )}
+                    {isNewCustomer && (
+                      <div style={{ borderLeft: '3px solid var(--accent)', paddingLeft: '1rem', marginTop: '0.75rem' }}>
+                        <div className="form-group">
+                          <label>Name *</label>
+                          <input
+                            value={form.newCustomer.name}
+                            onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, name: e.target.value } })}
+                            required
+                            placeholder="Customer name"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Phone</label>
+                          <input value={form.newCustomer.phone} onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, phone: e.target.value } })} placeholder="Phone" />
+                        </div>
+                        <div className="form-group">
+                          <label>Email</label>
+                          <input type="email" value={form.newCustomer.email} onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, email: e.target.value } })} placeholder="Email" />
+                        </div>
+                        <div className="form-group">
+                          <label>Address</label>
+                          <input value={form.newCustomer.address} onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, address: e.target.value } })} placeholder="Address" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
               )}
 
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1rem 0' }} />
