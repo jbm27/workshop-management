@@ -205,6 +205,7 @@ export default function JobDetail() {
   const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
   const [jobNotesDraft, setJobNotesDraft] = useState('');
   const [savingJobNotes, setSavingJobNotes] = useState(false);
+  const [editingJobNotes, setEditingJobNotes] = useState(false);
   const [editCvModalOpen, setEditCvModalOpen] = useState(false);
   const [editCvBusy, setEditCvBusy] = useState(false);
   const [customersList, setCustomersList] = useState([]);
@@ -690,6 +691,7 @@ export default function JobDetail() {
       const updated = await api.jobs.update(id, { notes: jobNotesDraft.trim() || null });
       setJob(updated);
       setJobNotesDraft(updated.notes || '');
+      setEditingJobNotes(false);
     } catch (err) {
       alert(String(err?.message || 'Could not save internal notes.'));
     } finally {
@@ -1054,6 +1056,22 @@ export default function JobDetail() {
               </p>
               {job.status === 'completed' ? (
                 <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</p>
+              ) : !editingJobNotes ? (
+                <>
+                  <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</p>
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        setJobNotesDraft(job.notes || '');
+                        setEditingJobNotes(true);
+                      }}
+                    >
+                      Edit notes
+                    </button>
+                  </div>
+                </>
               ) : (
                 <>
                   <textarea
@@ -1071,6 +1089,18 @@ export default function JobDetail() {
                       onClick={saveJobNotes}
                     >
                       {savingJobNotes ? 'Saving…' : 'Save notes'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={savingJobNotes}
+                      onClick={() => {
+                        setJobNotesDraft(job.notes || '');
+                        setEditingJobNotes(false);
+                      }}
+                      style={{ marginLeft: '0.5rem' }}
+                    >
+                      Cancel
                     </button>
                   </div>
                 </>
