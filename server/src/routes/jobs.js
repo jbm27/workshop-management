@@ -826,7 +826,27 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   const suppressRepeatVisitHandover =
     Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
 
-  let { status, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  let { status, customer_id, vehicle_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  if (
+    String(row.status) === 'completed' &&
+    (customer_id !== undefined || vehicle_id !== undefined)
+  ) {
+    return res.status(400).json({ error: 'Customer and vehicle cannot be changed once the job is completed' });
+  }
+  if (customer_id !== undefined) {
+    const cid = Number(customer_id);
+    if (!Number.isFinite(cid) || cid <= 0) return res.status(400).json({ error: 'Invalid customer_id' });
+    const c = db.prepare('SELECT id FROM customers WHERE id = ?').get(cid);
+    if (!c) return res.status(400).json({ error: 'Customer not found' });
+    customer_id = cid;
+  }
+  if (vehicle_id !== undefined) {
+    const vid = Number(vehicle_id);
+    if (!Number.isFinite(vid) || vid <= 0) return res.status(400).json({ error: 'Invalid vehicle_id' });
+    const v = db.prepare('SELECT id FROM vehicles WHERE id = ?').get(vid);
+    if (!v) return res.status(400).json({ error: 'Vehicle not found' });
+    vehicle_id = vid;
+  }
   if (
     status !== undefined &&
     Number(row.is_repeat_job) === 1 &&
@@ -848,11 +868,12 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   }
   const nextStatus = status ?? row.status;
   db.prepare(`
-    UPDATE jobs SET status = ?, customer_id = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
+    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     nextStatus,
     customer_id !== undefined ? customer_id : row.customer_id,
+    vehicle_id !== undefined ? vehicle_id : row.vehicle_id,
     notes ?? row.notes,
     odometer_in !== undefined ? odometer_in : row.odometer_in,
     odometer_out !== undefined ? odometer_out : row.odometer_out,
@@ -863,6 +884,14 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     completed_at ?? row.completed_at,
     req.params.id
   );
+  if (customer_id !== undefined || vehicle_id !== undefined) {
+    const latest = db.prepare('SELECT customer_id, vehicle_id FROM jobs WHERE id = ?').get(req.params.id);
+    db.prepare(
+      `UPDATE invoices
+       SET customer_id = ?, vehicle_id = ?, updated_at = datetime('now')
+       WHERE job_id = ?`,
+    ).run(latest.customer_id, latest.vehicle_id, req.params.id);
+  }
   if (nextStatus === 'vehicle_released' && row.status !== 'vehicle_released') {
     db.prepare(
       `UPDATE jobs SET vehicle_released_at = COALESCE(vehicle_released_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`,

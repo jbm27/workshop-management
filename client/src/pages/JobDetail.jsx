@@ -203,6 +203,17 @@ export default function JobDetail() {
   /** null | { phase: 'loading' } | { phase: 'ready', message: string } | { phase: 'error', error: string } */
   const [sendQuoteModal, setSendQuoteModal] = useState(null);
   const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
+  const [editCvModalOpen, setEditCvModalOpen] = useState(false);
+  const [editCvBusy, setEditCvBusy] = useState(false);
+  const [customersList, setCustomersList] = useState([]);
+  const [vehicleForm, setVehicleForm] = useState({
+    customer_id: '',
+    registration: '',
+    make: '',
+    model: '',
+    year: '',
+    vin: '',
+  });
 
   const { admin } = useAdmin();
   const isMechanic = Boolean(admin?.is_mechanic);
@@ -669,6 +680,77 @@ export default function JobDetail() {
     setSendQuoteCopied(false);
   };
 
+  const openEditCustomerVehicle = async () => {
+    if (!job || job.status === 'completed') return;
+    setEditCvBusy(true);
+    try {
+      const [customers, vehicle] = await Promise.all([
+        api.customers.list(),
+        api.vehicles.get(job.vehicle_id),
+      ]);
+      setCustomersList(customers || []);
+      setVehicleForm({
+        customer_id: job.customer_id != null ? String(job.customer_id) : '',
+        registration: vehicle?.registration || '',
+        make: vehicle?.make || '',
+        model: vehicle?.model || '',
+        year: vehicle?.year != null ? String(vehicle.year) : '',
+        vin: vehicle?.vin || '',
+      });
+      setEditCvModalOpen(true);
+    } catch (err) {
+      alert(String(err?.message || 'Could not load customer/vehicle details.'));
+    } finally {
+      setEditCvBusy(false);
+    }
+  };
+
+  const saveCustomerVehicle = async () => {
+    if (!job) return;
+    const cid = Number(vehicleForm.customer_id);
+    if (!Number.isFinite(cid) || cid <= 0) {
+      alert('Select the bill-to customer.');
+      return;
+    }
+    const reg = String(vehicleForm.registration || '').trim();
+    const yearRaw = String(vehicleForm.year || '').trim();
+    const parsedYear = yearRaw === '' ? null : Number(yearRaw);
+    if (parsedYear != null && (!Number.isFinite(parsedYear) || parsedYear < 1900 || parsedYear > 2100)) {
+      alert('Enter a valid vehicle year.');
+      return;
+    }
+    if (!reg) {
+      alert('Vehicle registration is required.');
+      return;
+    }
+    setEditCvBusy(true);
+    try {
+      await api.vehicles.update(job.vehicle_id, {
+        registration: reg,
+        make: String(vehicleForm.make || '').trim() || null,
+        model: String(vehicleForm.model || '').trim() || null,
+        year: parsedYear,
+        vin: String(vehicleForm.vin || '').trim() || null,
+      });
+      await api.jobs.update(id, { customer_id: cid });
+      const refreshed = await api.jobs.get(id);
+      setJob(refreshed);
+      if (quote?.id) {
+        const q = await api.invoices.get(quote.id);
+        setQuote(q);
+      }
+      if (invoice?.id) {
+        const inv = await api.invoices.get(invoice.id);
+        setInvoice(inv);
+      }
+      setEditCvModalOpen(false);
+    } catch (err) {
+      alert(String(err?.message || 'Could not save customer/vehicle details.'));
+    } finally {
+      setEditCvBusy(false);
+    }
+  };
+
   const jobReport = !invoiceLoading && invoice ? computeJobReport(invoice) : null;
 
   if (loading) return <div className="page-title">Loading…</div>;
@@ -847,10 +929,92 @@ export default function JobDetail() {
         </div>
       )}
 
+      {!isMechanic && editCvModalOpen && (
+        <div className="modal-overlay" onClick={() => !editCvBusy && setEditCvModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <header>Edit customer &amp; vehicle</header>
+            <div className="body">
+              <div className="form-group">
+                <label>Bill-to customer *</label>
+                <select
+                  value={vehicleForm.customer_id}
+                  onChange={(e) => setVehicleForm((s) => ({ ...s, customer_id: e.target.value }))}
+                >
+                  <option value="">— Choose customer —</option>
+                  {customersList.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid-2">
+                <div className="form-group">
+                  <label>Registration *</label>
+                  <input
+                    value={vehicleForm.registration}
+                    onChange={(e) => setVehicleForm((s) => ({ ...s, registration: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Year</label>
+                  <input
+                    type="number"
+                    min="1900"
+                    max="2100"
+                    value={vehicleForm.year}
+                    onChange={(e) => setVehicleForm((s) => ({ ...s, year: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Make</label>
+                  <input
+                    value={vehicleForm.make}
+                    onChange={(e) => setVehicleForm((s) => ({ ...s, make: e.target.value }))}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Model</label>
+                  <input
+                    value={vehicleForm.model}
+                    onChange={(e) => setVehicleForm((s) => ({ ...s, model: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>VIN</label>
+                <input
+                  value={vehicleForm.vin}
+                  onChange={(e) => setVehicleForm((s) => ({ ...s, vin: e.target.value }))}
+                />
+              </div>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                This updates the selected customer for this job and keeps linked quote/invoice bill-to details in sync.
+              </p>
+            </div>
+            <footer>
+              <button type="button" className="btn" disabled={editCvBusy} onClick={() => setEditCvModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn primary" disabled={editCvBusy} onClick={saveCustomerVehicle}>
+                {editCvBusy ? 'Saving…' : 'Save changes'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
       {!isMechanic ? (
         <div className="grid-2">
           <div className="card">
-            <h3 style={{ marginTop: 0 }}>Vehicle & customer</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <h3 style={{ marginTop: 0, marginBottom: 0 }}>Vehicle & customer</h3>
+              {job.status !== 'completed' && (
+                <button type="button" className="btn" onClick={() => void openEditCustomerVehicle()} disabled={editCvBusy}>
+                  {editCvBusy ? 'Loading…' : 'Edit'}
+                </button>
+              )}
+            </div>
             <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
             <p>{job.customer_name}</p>
             <p>{job.customer_phone || '—'}</p>
