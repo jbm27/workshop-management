@@ -83,6 +83,7 @@ export default function Jobs() {
     customerSearch: '',
     vehicleSearch: '',
     tasks: [],
+    description: '',
     notes: '',
     due_date: '',
     odometer_in: '',
@@ -156,6 +157,7 @@ export default function Jobs() {
       customerSearch: '',
       vehicleSearch: '',
       tasks: [],
+      description: '',
       notes: '',
       due_date: '',
       odometer_in: '',
@@ -253,6 +255,7 @@ export default function Jobs() {
       await api.jobs.create({
         vehicle_id: vehicleId,
         customer_id: customerId,
+        description: form.description?.trim() || undefined,
         tasks: form.tasks.filter((t) => t && String(t).trim()),
         notes: form.notes,
         due_date: form.due_date || undefined,
@@ -348,7 +351,7 @@ export default function Jobs() {
                 <th>Job #</th>
                 <th>Vehicle</th>
                 <th>Customer</th>
-                <th>Tasks</th>
+                <th>Description</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -368,7 +371,7 @@ export default function Jobs() {
                   </td>
                   <td>{[j.registration, j.make, j.model].filter(Boolean).join(' ') || '—'}</td>
                   <td>{j.customer_name}</td>
-                  <td>{j.task_count ? `${j.task_count} task(s)` : '—'}</td>
+                  <td>{j.description || '—'}</td>
                   <td><span className={`badge ${j.status}`}>{jobStatusLabel(j.status)}</span></td>
                   <td>
                     <Link to={`/jobs/${j.id}`} className="btn">View</Link>
@@ -793,6 +796,18 @@ export default function Jobs() {
                   </div>
                 </>
               )}
+              <div className="form-group">
+                <label>Job description</label>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                  Brief summary of the work required.
+                </p>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={2}
+                  placeholder="e.g. Investigate front suspension knocking and service brakes"
+                />
+              </div>
               <div className="form-group">
                 <label>Tasks</label>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>What needs to be done (e.g. Check brakes, Respray car)</p>

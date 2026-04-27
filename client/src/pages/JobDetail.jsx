@@ -1041,6 +1041,9 @@ export default function JobDetail() {
           </div>
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Job details</h3>
+            <p style={{ margin: '0 0 0.5rem' }}>
+              <strong>Description:</strong> {job.description || '—'}
+            </p>
             <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
             <div
               style={{

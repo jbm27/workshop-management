@@ -237,13 +237,13 @@ jobsRouter.get('/', requireAdminAuth, (req, res) => {
       JOIN vehicles v ON j.vehicle_id = v.id
       LEFT JOIN customers c ON j.customer_id = c.id
       LEFT JOIN job_tasks jtk ON jtk.job_id = j.id
-      WHERE (j.job_number LIKE ? OR jtk.description LIKE ? OR v.registration LIKE ? OR (c.name LIKE ?))
+      WHERE (j.job_number LIKE ? OR IFNULL(j.description, '') LIKE ? OR jtk.description LIKE ? OR v.registration LIKE ? OR (c.name LIKE ?))
         ${isM ? `AND j.status IN ('in_progress','vehicle_released')` : ''}
       GROUP BY j.id
       ORDER BY j.created_at DESC
     `);
     const like = `%${q}%`;
-    rows = stmt.all(like, like, like, like);
+    rows = stmt.all(like, like, like, like, like);
   } else {
     stmt = db.prepare(`
       SELECT j.*, v.registration, v.make, v.model, c.name as customer_name, ${taskCountSelect}
@@ -725,7 +725,7 @@ jobsRouter.delete('/:id/time-logs/:logId', requireAdminAuth, (req, res) => {
 
 jobsRouter.post('/', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
-  const { vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
+  const { vehicle_id, customer_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
   if (!vehicle_id) return res.status(400).json({ error: 'vehicle_id is required' });
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required (bill-to for this job)' });
   const is_repeat_job = req.body?.is_repeat_job === true || Number(req.body?.is_repeat_job) === 1;
@@ -761,8 +761,8 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
   }
   let job_number = is_repeat_job ? allocateRepeatJobNumber(related_job_id) : nextJobNumber();
   const insertJob = db.prepare(`
-    INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status, is_repeat_job, related_job_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)
+    INSERT INTO jobs (job_number, vehicle_id, customer_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status, is_repeat_job, related_job_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)
   `);
   let result;
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -771,6 +771,7 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
         job_number,
         vehicle_id,
         customer_id || null,
+        description ? String(description).trim() : null,
         notes || null,
         odometer_in || null,
         odometer_out || null,
@@ -826,7 +827,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   const suppressRepeatVisitHandover =
     Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
 
-  let { status, customer_id, vehicle_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  let { status, customer_id, vehicle_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
   if (
     String(row.status) === 'completed' &&
     (customer_id !== undefined || vehicle_id !== undefined)
@@ -868,12 +869,13 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   }
   const nextStatus = status ?? row.status;
   db.prepare(`
-    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
+    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, description = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     nextStatus,
     customer_id !== undefined ? customer_id : row.customer_id,
     vehicle_id !== undefined ? vehicle_id : row.vehicle_id,
+    description !== undefined ? (description ? String(description).trim() : null) : row.description,
     notes ?? row.notes,
     odometer_in !== undefined ? odometer_in : row.odometer_in,
     odometer_out !== undefined ? odometer_out : row.odometer_out,
