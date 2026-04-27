@@ -78,6 +78,7 @@ export default function Jobs() {
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const [relatedJobOpen, setRelatedJobOpen] = useState(false);
   const [relatedJobOptions, setRelatedJobOptions] = useState([]);
+  const [showCompletedJobs, setShowCompletedJobs] = useState(false);
   const [form, setForm] = useState({
     customerId: '',
     vehicleId: '',
@@ -305,6 +306,8 @@ export default function Jobs() {
   const showRepeatVehicleHandover =
     !form.is_repeat_job || (Boolean(form.related_job_id) && form.related_job_status !== 'in_progress');
   const repeatParentCompleted = form.is_repeat_job && form.related_job_status === 'completed';
+  const activeJobs = list.filter((j) => String(j.status) !== 'completed');
+  const completedJobs = list.filter((j) => String(j.status) === 'completed');
 
   return (
     <>
@@ -362,8 +365,11 @@ export default function Jobs() {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={6}>Loading…</td></tr>}
-              {!loading && !loadError && list.length === 0 && <tr><td colSpan={6} className="empty">No jobs</td></tr>}
-              {!loading && list.map((j) => (
+              {!loading && !loadError && activeJobs.length === 0 && completedJobs.length === 0 && <tr><td colSpan={6} className="empty">No jobs</td></tr>}
+              {!loading && activeJobs.length === 0 && completedJobs.length > 0 && (
+                <tr><td colSpan={6} className="empty">No active jobs.</td></tr>
+              )}
+              {!loading && activeJobs.map((j) => (
                 <tr key={j.id}>
                   <td>
                     <strong>{j.job_number}</strong>
@@ -386,6 +392,57 @@ export default function Jobs() {
           </table>
         </div>
       </div>
+      {!loading && completedJobs.length > 0 && (
+        <div className="card" style={{ marginTop: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <h3 style={{ margin: 0 }}>Completed jobs</h3>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setShowCompletedJobs((v) => !v)}
+            >
+              {showCompletedJobs ? 'Hide' : `Show (${completedJobs.length})`}
+            </button>
+          </div>
+          {showCompletedJobs && (
+            <div className="table-wrap" style={{ marginTop: '0.85rem' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Job #</th>
+                    <th>Vehicle</th>
+                    <th>Customer</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedJobs.map((j) => (
+                    <tr key={j.id}>
+                      <td>
+                        <strong>{j.job_number}</strong>
+                        {Number(j.is_repeat_job) === 1 ? (
+                          <span className="badge" style={{ marginLeft: '0.35rem', fontSize: '0.7rem', verticalAlign: 'middle' }}>
+                            Repeat
+                          </span>
+                        ) : null}
+                      </td>
+                      <td>{[j.registration, j.make, j.model].filter(Boolean).join(' ') || '—'}</td>
+                      <td>{j.customer_name}</td>
+                      <td>{j.description || '—'}</td>
+                      <td><span className={`badge ${j.status}`}>{jobStatusLabel(j.status)}</span></td>
+                      <td>
+                        <Link to={`/jobs/${j.id}`} className="btn">View</Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
       {modal === 'create' && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
