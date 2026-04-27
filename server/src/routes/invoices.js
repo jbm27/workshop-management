@@ -1408,7 +1408,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
       v.registration, v.make, v.model, v.vin, v.year, v.odometer, v.notes as vehicle_notes,
-      j.job_number, j.notes as job_notes, j.odometer_in, j.odometer_out
+      j.job_number, j.description as job_description, j.notes as job_notes, j.odometer_in, j.odometer_out
     FROM invoices i
     JOIN customers c ON i.customer_id = c.id
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
@@ -1536,6 +1536,12 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   }
   if (inv.customer_email) {
     doc.text(`Email: ${inv.customer_email}`, margin, leftY, { width: colWidth });
+    leftY = doc.y + 4;
+  }
+  if (inv.job_description) {
+    doc.font('Helvetica-Bold').text('Job Description:', margin, leftY, { width: colWidth });
+    leftY = doc.y + 2;
+    doc.font('Helvetica').text(String(inv.job_description), margin, leftY, { width: colWidth });
     leftY = doc.y + 4;
   }
 
