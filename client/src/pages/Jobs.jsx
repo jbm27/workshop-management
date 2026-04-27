@@ -21,6 +21,7 @@ const EMPTY_CUSTOMER = { name: '', email: '', phone: '', address: '', notes: '' 
 const EMPTY_VEHICLE = { registration: '', make: '', model: '', year: '', vin: '', notes: '' };
 const ADD_NEW = '__add_new__';
 const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
+const JOB_DESCRIPTION_MAX_LEN = 30;
 
 function parseValuables(value) {
   const raw = String(value || '').trim();
@@ -207,6 +208,9 @@ export default function Jobs() {
   const submit = async (e) => {
     e.preventDefault();
     try {
+      if ((form.description || '').trim().length > JOB_DESCRIPTION_MAX_LEN) {
+        return alert(`Job description must be ${JOB_DESCRIPTION_MAX_LEN} characters or fewer.`);
+      }
       let customerId;
       let vehicleId;
 
@@ -805,8 +809,12 @@ export default function Jobs() {
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   rows={2}
+                  maxLength={JOB_DESCRIPTION_MAX_LEN}
                   placeholder="e.g. Investigate front suspension knocking and service brakes"
                 />
+                <p style={{ marginTop: '0.35rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {(form.description || '').length}/{JOB_DESCRIPTION_MAX_LEN}
+                </p>
               </div>
               <div className="form-group">
                 <label>Tasks</label>

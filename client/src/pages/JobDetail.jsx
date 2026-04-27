@@ -24,6 +24,7 @@ const UNAPPROVED_QUOTE_WARNING =
 const INVOICE_EDIT_QUOTE_APPROVAL_WARNING =
   'Customer approval has not been sought for this item on the quote. Are you sure you want to continue?';
 const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
+const JOB_DESCRIPTION_MAX_LEN = 30;
 
 function parseValuables(value) {
   const raw = String(value || '').trim();
@@ -685,6 +686,10 @@ export default function JobDetail() {
 
   const saveJobDetails = async () => {
     if (!job || editDetailsBusy) return;
+    if ((editDetailsForm.description || '').trim().length > JOB_DESCRIPTION_MAX_LEN) {
+      alert(`Job description must be ${JOB_DESCRIPTION_MAX_LEN} characters or fewer.`);
+      return;
+    }
     setEditDetailsBusy(true);
     try {
       const updated = await api.jobs.update(id, {
@@ -960,9 +965,13 @@ export default function JobDetail() {
                   value={editDetailsForm.description}
                   onChange={(e) => setEditDetailsForm((s) => ({ ...s, description: e.target.value }))}
                   rows={3}
+                  maxLength={JOB_DESCRIPTION_MAX_LEN}
                   placeholder="Brief summary of the work required"
                   style={{ width: '100%', resize: 'vertical' }}
                 />
+                <p style={{ marginTop: '0.35rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  {(editDetailsForm.description || '').length}/{JOB_DESCRIPTION_MAX_LEN}
+                </p>
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Internal notes</label>

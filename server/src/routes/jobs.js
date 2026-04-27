@@ -10,6 +10,7 @@ export const jobsRouter = Router();
 
 /** Workshop jobs mechanics may open (test drives, etc.). */
 const MECHANIC_ALLOWED_JOB_STATUSES = ['in_progress', 'vehicle_released'];
+const JOB_DESCRIPTION_MAX_LEN = 30;
 
 function stripJobForMechanic(job) {
   if (!job) return job;
@@ -726,6 +727,10 @@ jobsRouter.delete('/:id/time-logs/:logId', requireAdminAuth, (req, res) => {
 jobsRouter.post('/', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
   const { vehicle_id, customer_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
+  const normalizedDescription = description != null ? String(description).trim() : '';
+  if (normalizedDescription.length > JOB_DESCRIPTION_MAX_LEN) {
+    return res.status(400).json({ error: `Job description must be ${JOB_DESCRIPTION_MAX_LEN} characters or fewer` });
+  }
   if (!vehicle_id) return res.status(400).json({ error: 'vehicle_id is required' });
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required (bill-to for this job)' });
   const is_repeat_job = req.body?.is_repeat_job === true || Number(req.body?.is_repeat_job) === 1;
@@ -771,7 +776,7 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
         job_number,
         vehicle_id,
         customer_id || null,
-        description ? String(description).trim() : null,
+        normalizedDescription || null,
         notes || null,
         odometer_in || null,
         odometer_out || null,
@@ -828,6 +833,13 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
 
   let { status, customer_id, vehicle_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  if (description !== undefined) {
+    const normalizedDescription = description != null ? String(description).trim() : '';
+    if (normalizedDescription.length > JOB_DESCRIPTION_MAX_LEN) {
+      return res.status(400).json({ error: `Job description must be ${JOB_DESCRIPTION_MAX_LEN} characters or fewer` });
+    }
+    description = normalizedDescription;
+  }
   if (
     String(row.status) === 'completed' &&
     (customer_id !== undefined || vehicle_id !== undefined)
@@ -875,7 +887,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     nextStatus,
     customer_id !== undefined ? customer_id : row.customer_id,
     vehicle_id !== undefined ? vehicle_id : row.vehicle_id,
-    description !== undefined ? (description ? String(description).trim() : null) : row.description,
+    description !== undefined ? (description || null) : row.description,
     notes ?? row.notes,
     odometer_in !== undefined ? odometer_in : row.odometer_in,
     odometer_out !== undefined ? odometer_out : row.odometer_out,
