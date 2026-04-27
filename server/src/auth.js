@@ -52,6 +52,7 @@ function toAdminPayload(row) {
       can_finalize_lpos: Number(row.can_finalize_lpos) === 1,
       can_finalize_iprs: Number(row.can_finalize_iprs) === 1,
       can_approve_lpo_ipr: Number(row.can_approve_lpo_ipr) === 1,
+      can_assign_lpo_ipr_receivers: Number(row.can_assign_lpo_ipr_receivers) === 1,
       can_record_invoice_payments: Number(row.can_record_invoice_payments) === 1,
       can_record_supplier_payments: Number(row.can_record_supplier_payments) === 1,
       can_manage_team_members: Number(row.can_manage_team_members) === 1,

@@ -609,6 +609,7 @@ function migrate(db) {
         can_finalize_lpos INTEGER NOT NULL DEFAULT 0,
         can_finalize_iprs INTEGER NOT NULL DEFAULT 0,
         can_approve_lpo_ipr INTEGER NOT NULL DEFAULT 0,
+        can_assign_lpo_ipr_receivers INTEGER NOT NULL DEFAULT 0,
         can_record_invoice_payments INTEGER NOT NULL DEFAULT 0,
         can_record_supplier_payments INTEGER NOT NULL DEFAULT 0,
 
@@ -705,6 +706,10 @@ function migrate(db) {
     ensureCol('can_finalize_iprs', 'ALTER TABLE admin_users ADD COLUMN can_finalize_iprs INTEGER NOT NULL DEFAULT 0');
     ensureCol('can_approve_lpo_ipr', 'ALTER TABLE admin_users ADD COLUMN can_approve_lpo_ipr INTEGER NOT NULL DEFAULT 0');
     ensureCol(
+      'can_assign_lpo_ipr_receivers',
+      'ALTER TABLE admin_users ADD COLUMN can_assign_lpo_ipr_receivers INTEGER NOT NULL DEFAULT 0',
+    );
+    ensureCol(
       'can_record_invoice_payments',
       'ALTER TABLE admin_users ADD COLUMN can_record_invoice_payments INTEGER NOT NULL DEFAULT 0',
     );
@@ -742,11 +747,11 @@ function migrate(db) {
         INSERT INTO admin_users
           (username, display_name, password_salt, password_hash, active,
            can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
-           can_approve_lpo_ipr,
+           can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
            can_record_invoice_payments, can_record_supplier_payments,
            can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
            can_log_test_drives)
-        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
       `,
         [username, displayName, salt, hash],
       );
@@ -882,11 +887,11 @@ export async function initDb() {
         INSERT INTO admin_users
           (username, display_name, password_salt, password_hash, active,
            can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
-           can_approve_lpo_ipr,
+           can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
            can_record_invoice_payments, can_record_supplier_payments,
            can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
            can_log_test_drives)
-        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
       `,
         [username, displayName, salt, hash],
       );

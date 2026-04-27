@@ -20,6 +20,7 @@ function adminUserRowToPayload(row) {
       can_finalize_lpos: Number(row.can_finalize_lpos) === 1,
       can_finalize_iprs: Number(row.can_finalize_iprs) === 1,
       can_approve_lpo_ipr: Number(row.can_approve_lpo_ipr) === 1,
+      can_assign_lpo_ipr_receivers: Number(row.can_assign_lpo_ipr_receivers) === 1,
       can_record_invoice_payments: Number(row.can_record_invoice_payments) === 1,
       can_record_supplier_payments: Number(row.can_record_supplier_payments) === 1,
       can_manage_team_members: Number(row.can_manage_team_members) === 1,
@@ -131,12 +132,19 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
   const z3 = mechanic ? 0 : Number(p.can_finalize_lpos) === 1 ? 1 : Number(p.can_finalize_lpos) ? 1 : 0;
   const z4 = mechanic ? 0 : Number(p.can_finalize_iprs) === 1 ? 1 : Number(p.can_finalize_iprs) ? 1 : 0;
   const z5 = mechanic ? 0 : Number(p.can_approve_lpo_ipr) === 1 ? 1 : Number(p.can_approve_lpo_ipr) ? 1 : 0;
-  const z6 = mechanic ? 0 : Number(p.can_record_invoice_payments) === 1 ? 1 : Number(p.can_record_invoice_payments) ? 1 : 0;
-  const z7 = mechanic ? 0 : Number(p.can_record_supplier_payments) === 1 ? 1 : Number(p.can_record_supplier_payments) ? 1 : 0;
-  const z8 = mechanic ? 0 : Number(p.can_manage_team_members) === 1 ? 1 : Number(p.can_manage_team_members) ? 1 : 0;
-  const z9 = mechanic ? 0 : Number(p.can_view_statistics_reports) === 1 ? 1 : Number(p.can_view_statistics_reports) ? 1 : 0;
-  const z10 = mechanic ? 0 : Number(p.can_view_lpo_ipr) === 1 ? 1 : Number(p.can_view_lpo_ipr) ? 1 : 0;
-  const z11 = mechanic ? 0 : Number(p.can_view_stores) === 1 ? 1 : Number(p.can_view_stores) ? 1 : 0;
+  const z6 = mechanic
+    ? 0
+    : Number(p.can_assign_lpo_ipr_receivers) === 1
+      ? 1
+      : Number(p.can_assign_lpo_ipr_receivers)
+        ? 1
+        : 0;
+  const z7 = mechanic ? 0 : Number(p.can_record_invoice_payments) === 1 ? 1 : Number(p.can_record_invoice_payments) ? 1 : 0;
+  const z8 = mechanic ? 0 : Number(p.can_record_supplier_payments) === 1 ? 1 : Number(p.can_record_supplier_payments) ? 1 : 0;
+  const z9 = mechanic ? 0 : Number(p.can_manage_team_members) === 1 ? 1 : Number(p.can_manage_team_members) ? 1 : 0;
+  const z10 = mechanic ? 0 : Number(p.can_view_statistics_reports) === 1 ? 1 : Number(p.can_view_statistics_reports) ? 1 : 0;
+  const z11 = mechanic ? 0 : Number(p.can_view_lpo_ipr) === 1 ? 1 : Number(p.can_view_lpo_ipr) ? 1 : 0;
+  const z12 = mechanic ? 0 : Number(p.can_view_stores) === 1 ? 1 : Number(p.can_view_stores) ? 1 : 0;
   const canLogTd = mechanic
     ? Number(p.can_log_test_drives) === 1
       ? 1
@@ -150,13 +158,13 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
       INSERT INTO admin_users
         (username, display_name, password_salt, password_hash, active, is_mechanic,
          can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
-         can_approve_lpo_ipr,
+         can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
          can_record_invoice_payments, can_record_supplier_payments,
          can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
          can_log_test_drives)
       VALUES (?, ?, ?, ?, 1, ?,
         ?, ?, ?, ?,
-        ?, ?, ?,
+        ?, ?, ?, 
         ?, ?, ?, ?,
         ?)
     `,
@@ -177,6 +185,7 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
     z9,
     z10,
     z11,
+    z12,
     canLogTd,
   );
   const id = row.lastInsertRowid;
@@ -217,6 +226,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
           can_finalize_lpos: 0,
           can_finalize_iprs: 0,
           can_approve_lpo_ipr: 0,
+          can_assign_lpo_ipr_receivers: 0,
           can_record_invoice_payments: 0,
           can_record_supplier_payments: 0,
           can_manage_team_members: 0,
@@ -235,6 +245,10 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
           can_finalize_iprs: p.can_finalize_iprs !== undefined ? (p.can_finalize_iprs ? 1 : 0) : current.can_finalize_iprs,
           can_approve_lpo_ipr:
             p.can_approve_lpo_ipr !== undefined ? (p.can_approve_lpo_ipr ? 1 : 0) : current.can_approve_lpo_ipr,
+          can_assign_lpo_ipr_receivers:
+            p.can_assign_lpo_ipr_receivers !== undefined
+              ? (p.can_assign_lpo_ipr_receivers ? 1 : 0)
+              : current.can_assign_lpo_ipr_receivers,
           can_record_invoice_payments:
             p.can_record_invoice_payments !== undefined ? (p.can_record_invoice_payments ? 1 : 0) : current.can_record_invoice_payments,
           can_record_supplier_payments:
@@ -274,6 +288,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
       can_finalize_lpos = ?,
       can_finalize_iprs = ?,
       can_approve_lpo_ipr = ?,
+      can_assign_lpo_ipr_receivers = ?,
       can_record_invoice_payments = ?,
       can_record_supplier_payments = ?,
       can_manage_team_members = ?,
@@ -297,6 +312,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
     next.can_finalize_lpos,
     next.can_finalize_iprs,
     next.can_approve_lpo_ipr,
+    next.can_assign_lpo_ipr_receivers,
     next.can_record_invoice_payments,
     next.can_record_supplier_payments,
     next.can_manage_team_members,

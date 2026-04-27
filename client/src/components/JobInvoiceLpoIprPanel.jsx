@@ -119,7 +119,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated, repea
   const canFinalizeIprs = admin?.permissions?.can_finalize_iprs;
   const canFinalizeLpos = admin?.permissions?.can_finalize_lpos;
   const canApproveLpoIpr = admin?.permissions?.can_approve_lpo_ipr;
-  const canAssignReceivers = Boolean(admin?.permissions?.can_approve_lpo_ipr || admin?.permissions?.can_manage_team_members);
+  const canAssignReceivers = Boolean(admin?.permissions?.can_assign_lpo_ipr_receivers);
 
   const loadLpos = useCallback(() => {
     if (!invoice?.id) return Promise.resolve();

@@ -214,7 +214,7 @@ export default function Stores() {
   const canCreateLpos = admin?.permissions?.can_create_lpos;
   const canFinalizeLpos = admin?.permissions?.can_finalize_lpos;
   const canApproveLpoIpr = admin?.permissions?.can_approve_lpo_ipr;
-  const canAssignReceivers = Boolean(admin?.permissions?.can_approve_lpo_ipr || admin?.permissions?.can_manage_team_members);
+  const canAssignReceivers = Boolean(admin?.permissions?.can_assign_lpo_ipr_receivers);
   const [form, setForm] = useState({ code: '', name: '', quantity: 0, sell_price: '' });
   const [receive, setReceive] = useState({
     editingLpoId: null,

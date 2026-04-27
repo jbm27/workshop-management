@@ -420,8 +420,8 @@ stockRouter.patch('/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth, (req, 
   const assigned = req.body?.assigned_admin_user_id != null ? Number(req.body.assigned_admin_user_id) : null;
   const received = req.body?.received_confirmed !== undefined ? (req.body.received_confirmed ? 1 : 0) : null;
   if (assigned !== null && (!Number.isFinite(assigned) || assigned <= 0)) return res.status(400).json({ error: 'Invalid assigned_admin_user_id' });
-  const canAssign = Boolean(req.admin.permissions?.can_approve_lpo_ipr || req.admin.permissions?.can_manage_team_members);
-  if (assigned !== null && !canAssign) return res.status(403).json({ error: 'Only approver/manager can assign line receivers' });
+  const canAssign = Boolean(req.admin.permissions?.can_assign_lpo_ipr_receivers);
+  if (assigned !== null && !canAssign) return res.status(403).json({ error: 'You do not have permission to assign line receivers' });
   if (assigned !== null) {
     const au = db.prepare('SELECT id FROM admin_users WHERE id = ? AND active = 1').get(assigned);
     if (!au) return res.status(400).json({ error: 'Assigned team member not found' });

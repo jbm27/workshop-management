@@ -6,6 +6,7 @@ const PERMISSION_FIELDS = [
   { key: 'can_create_lpos', label: 'Create LPOs' },
   { key: 'can_create_iprs', label: 'Create IPRs' },
   { key: 'can_approve_lpo_ipr', label: 'Approve LPO / IPR' },
+  { key: 'can_assign_lpo_ipr_receivers', label: 'Assign LPO / IPR receivers' },
   { key: 'can_record_invoice_payments', label: 'Record invoice payments' },
   { key: 'can_record_supplier_payments', label: 'Record supplier payments' },
   { key: 'can_finalize_lpos', label: 'Finalise LPOs (stock intake)' },
@@ -124,6 +125,7 @@ export default function AdminUsers() {
     const parts = [];
     if (u.permissions.can_create_lpos) parts.push('LPO');
     if (u.permissions.can_create_iprs) parts.push('IPR');
+    if (u.permissions.can_assign_lpo_ipr_receivers) parts.push('Assign receivers');
     if (u.permissions.can_record_invoice_payments) parts.push('Payments');
     if (u.permissions.can_finalize_lpos) parts.push('Finalise LPO');
     if (u.permissions.can_view_statistics_reports) parts.push('Reports');

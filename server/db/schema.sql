@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
   can_finalize_lpos INTEGER NOT NULL DEFAULT 0,
   can_finalize_iprs INTEGER NOT NULL DEFAULT 0,
   can_approve_lpo_ipr INTEGER NOT NULL DEFAULT 0,
+  can_assign_lpo_ipr_receivers INTEGER NOT NULL DEFAULT 0,
   can_record_invoice_payments INTEGER NOT NULL DEFAULT 0,
   can_record_supplier_payments INTEGER NOT NULL DEFAULT 0,
 
