@@ -203,9 +203,9 @@ export default function JobDetail() {
   /** null | { phase: 'loading' } | { phase: 'ready', message: string } | { phase: 'error', error: string } */
   const [sendQuoteModal, setSendQuoteModal] = useState(null);
   const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
-  const [jobNotesDraft, setJobNotesDraft] = useState('');
-  const [savingJobNotes, setSavingJobNotes] = useState(false);
-  const [editingJobNotes, setEditingJobNotes] = useState(false);
+  const [editDetailsModalOpen, setEditDetailsModalOpen] = useState(false);
+  const [editDetailsBusy, setEditDetailsBusy] = useState(false);
+  const [editDetailsForm, setEditDetailsForm] = useState({ description: '', notes: '' });
   const [editCvModalOpen, setEditCvModalOpen] = useState(false);
   const [editCvBusy, setEditCvBusy] = useState(false);
   const [customersList, setCustomersList] = useState([]);
@@ -244,7 +244,6 @@ export default function JobDetail() {
         description: t.description || (typeof t === 'string' ? t : ''),
         completed: !!t.completed,
       })));
-      setJobNotesDraft(j.notes || '');
     }).catch(() => setJob(null)).finally(() => setLoading(false));
   }, [id]);
 
@@ -684,18 +683,20 @@ export default function JobDetail() {
     setSendQuoteCopied(false);
   };
 
-  const saveJobNotes = async () => {
-    if (!job || savingJobNotes) return;
-    setSavingJobNotes(true);
+  const saveJobDetails = async () => {
+    if (!job || editDetailsBusy) return;
+    setEditDetailsBusy(true);
     try {
-      const updated = await api.jobs.update(id, { notes: jobNotesDraft.trim() || null });
+      const updated = await api.jobs.update(id, {
+        description: editDetailsForm.description.trim() || null,
+        notes: editDetailsForm.notes.trim() || null,
+      });
       setJob(updated);
-      setJobNotesDraft(updated.notes || '');
-      setEditingJobNotes(false);
+      setEditDetailsModalOpen(false);
     } catch (err) {
-      alert(String(err?.message || 'Could not save internal notes.'));
+      alert(String(err?.message || 'Could not save job details.'));
     } finally {
-      setSavingJobNotes(false);
+      setEditDetailsBusy(false);
     }
   };
 
@@ -948,6 +949,44 @@ export default function JobDetail() {
         </div>
       )}
 
+      {!isMechanic && editDetailsModalOpen && (
+        <div className="modal-overlay" onClick={() => !editDetailsBusy && setEditDetailsModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
+            <header>Edit details</header>
+            <div className="body">
+              <div className="form-group">
+                <label>Job description</label>
+                <textarea
+                  value={editDetailsForm.description}
+                  onChange={(e) => setEditDetailsForm((s) => ({ ...s, description: e.target.value }))}
+                  rows={3}
+                  placeholder="Brief summary of the work required"
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>Internal notes</label>
+                <textarea
+                  value={editDetailsForm.notes}
+                  onChange={(e) => setEditDetailsForm((s) => ({ ...s, notes: e.target.value }))}
+                  rows={5}
+                  placeholder="Internal workshop notes"
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </div>
+            </div>
+            <footer>
+              <button type="button" className="btn" disabled={editDetailsBusy} onClick={() => setEditDetailsModalOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn primary" disabled={editDetailsBusy} onClick={saveJobDetails}>
+                {editDetailsBusy ? 'Saving…' : 'Save'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
       {!isMechanic && editCvModalOpen && (
         <div className="modal-overlay" onClick={() => !editCvBusy && setEditCvModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '560px' }}>
@@ -1057,57 +1096,7 @@ export default function JobDetail() {
               <p style={{ margin: '0 0 0.4rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
                 Internal notes
               </p>
-              {job.status === 'completed' ? (
-                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</p>
-              ) : !editingJobNotes ? (
-                <>
-                  <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</p>
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={() => {
-                        setJobNotesDraft(job.notes || '');
-                        setEditingJobNotes(true);
-                      }}
-                    >
-                      Edit notes
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <textarea
-                    value={jobNotesDraft}
-                    onChange={(e) => setJobNotesDraft(e.target.value)}
-                    rows={4}
-                    placeholder="Internal workshop notes"
-                    style={{ width: '100%', resize: 'vertical', minHeight: '4.5rem' }}
-                  />
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={savingJobNotes || jobNotesDraft === (job.notes || '')}
-                      onClick={saveJobNotes}
-                    >
-                      {savingJobNotes ? 'Saving…' : 'Save notes'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={savingJobNotes}
-                      onClick={() => {
-                        setJobNotesDraft(job.notes || '');
-                        setEditingJobNotes(false);
-                      }}
-                      style={{ marginLeft: '0.5rem' }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              )}
+              <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</p>
             </div>
             <div
               style={{
@@ -1160,15 +1149,34 @@ export default function JobDetail() {
                     </div>
                   </dl>
                   {(quote || invoice) && (
-                    <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem' }}>
+                    <div style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                       {quote && (
                         <>
                           <Link to={`/invoices/${quote.id}`}>Open quote</Link>
-                          {invoice ? ' · ' : ''}
+                          {invoice ? <span style={{ color: 'var(--text-muted)' }}>·</span> : ''}
                         </>
                       )}
                       {invoice && <Link to={`/invoices/${invoice.id}`}>Open invoice</Link>}
-                    </p>
+                      {job.status !== 'completed' && (
+                        <>
+                          <span style={{ color: 'var(--text-muted)' }}>·</span>
+                          <button
+                            type="button"
+                            className="btn"
+                            style={{ padding: '0.2rem 0.55rem', fontSize: '0.8rem' }}
+                            onClick={() => {
+                              setEditDetailsForm({
+                                description: job.description || '',
+                                notes: job.notes || '',
+                              });
+                              setEditDetailsModalOpen(true);
+                            }}
+                          >
+                            Edit details
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </>
               )}
