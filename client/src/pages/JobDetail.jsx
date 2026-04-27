@@ -203,6 +203,8 @@ export default function JobDetail() {
   /** null | { phase: 'loading' } | { phase: 'ready', message: string } | { phase: 'error', error: string } */
   const [sendQuoteModal, setSendQuoteModal] = useState(null);
   const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
+  const [jobNotesDraft, setJobNotesDraft] = useState('');
+  const [savingJobNotes, setSavingJobNotes] = useState(false);
   const [editCvModalOpen, setEditCvModalOpen] = useState(false);
   const [editCvBusy, setEditCvBusy] = useState(false);
   const [customersList, setCustomersList] = useState([]);
@@ -241,6 +243,7 @@ export default function JobDetail() {
         description: t.description || (typeof t === 'string' ? t : ''),
         completed: !!t.completed,
       })));
+      setJobNotesDraft(j.notes || '');
     }).catch(() => setJob(null)).finally(() => setLoading(false));
   }, [id]);
 
@@ -680,6 +683,20 @@ export default function JobDetail() {
     setSendQuoteCopied(false);
   };
 
+  const saveJobNotes = async () => {
+    if (!job || savingJobNotes) return;
+    setSavingJobNotes(true);
+    try {
+      const updated = await api.jobs.update(id, { notes: jobNotesDraft.trim() || null });
+      setJob(updated);
+      setJobNotesDraft(updated.notes || '');
+    } catch (err) {
+      alert(String(err?.message || 'Could not save internal notes.'));
+    } finally {
+      setSavingJobNotes(false);
+    }
+  };
+
   const openEditCustomerVehicle = async () => {
     if (!job || job.status === 'completed') return;
     setEditCvBusy(true);
@@ -1023,7 +1040,42 @@ export default function JobDetail() {
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Job details</h3>
             <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
-            {job.notes && <p><em>{job.notes}</em></p>}
+            <div
+              style={{
+                marginTop: '0.75rem',
+                padding: '0.75rem',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                background: 'var(--bg)',
+              }}
+            >
+              <p style={{ margin: '0 0 0.4rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                Internal notes
+              </p>
+              {job.status === 'completed' ? (
+                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{job.notes || '—'}</p>
+              ) : (
+                <>
+                  <textarea
+                    value={jobNotesDraft}
+                    onChange={(e) => setJobNotesDraft(e.target.value)}
+                    rows={4}
+                    placeholder="Internal workshop notes"
+                    style={{ width: '100%', resize: 'vertical', minHeight: '4.5rem' }}
+                  />
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={savingJobNotes || jobNotesDraft === (job.notes || '')}
+                      onClick={saveJobNotes}
+                    >
+                      {savingJobNotes ? 'Saving…' : 'Save notes'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <div
               style={{
                 marginTop: '1rem',
