@@ -1610,7 +1610,7 @@ export default function Stores() {
                     fontSize: '0.8rem',
                     border: 'none',
                     borderBottom: '1px solid var(--border)',
-                    background: 'rgba(255,255,255,0.04)',
+                    background: 'rgba(31, 35, 40, 0.04)',
                     color: 'var(--text)',
                     cursor: 'pointer',
                   }}
