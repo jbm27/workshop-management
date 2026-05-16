@@ -164,7 +164,7 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
          can_log_test_drives)
       VALUES (?, ?, ?, ?, 1, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, 
+        ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?)
     `,
