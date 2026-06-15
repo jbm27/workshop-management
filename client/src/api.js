@@ -1,5 +1,13 @@
 const API_ENV = typeof import.meta !== 'undefined' ? String(import.meta.env?.VITE_API_URL || '').trim() : '';
-const API = API_ENV ? API_ENV.replace(/\/+$/, '') : '/api';
+
+/** Local dev uses `/api` (Vite proxy). Production VITE_API_URL is the Railway host, with or without `/api`. */
+function resolveApiBase() {
+  if (!API_ENV) return '/api';
+  const root = API_ENV.replace(/\/+$/, '');
+  return root.endsWith('/api') ? root : `${root}/api`;
+}
+
+const API = resolveApiBase();
 
 async function request(path, options = {}) {
   const token = typeof window !== 'undefined' ? window.localStorage.getItem('admin_token') : null;
