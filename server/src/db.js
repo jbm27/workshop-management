@@ -729,8 +729,32 @@ function migrate(db) {
       'can_log_test_drives',
       'ALTER TABLE admin_users ADD COLUMN can_log_test_drives INTEGER NOT NULL DEFAULT 1',
     );
+    ensureCol('biometric_pin', 'ALTER TABLE admin_users ADD COLUMN biometric_pin TEXT');
     db.run('UPDATE admin_users SET can_approve_lpo_ipr = 1 WHERE can_manage_team_members = 1');
   } catch (_) {}
+
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS attendance_events (
+        id TEXT PRIMARY KEY,
+        admin_user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        occurred_at TEXT NOT NULL,
+        device_id TEXT,
+        source_event_id TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_attendance_admin ON attendance_events(admin_user_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_attendance_occurred ON attendance_events(occurred_at DESC)');
+    db.run(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_biometric_pin ON admin_users(biometric_pin) WHERE biometric_pin IS NOT NULL AND biometric_pin != \'\'',
+    );
+  } catch (e) {
+    if (!e.message?.includes('already exists')) {
+      console.error('[workshop-db] attendance_events migration:', e?.message || e);
+    }
+  }
 
   // Seed a bootstrap admin user for first run / existing DB upgrades.
   try {

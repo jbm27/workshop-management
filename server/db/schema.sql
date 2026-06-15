@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
   active INTEGER NOT NULL DEFAULT 1,
   -- Workshop mechanic: Time logs, Assigned parts, and active Jobs (test drives); all other permissions forced off.
   is_mechanic INTEGER NOT NULL DEFAULT 0,
+  -- ZKTeco device User ID / PIN (e.g. 1001) mapped to this team member
+  biometric_pin TEXT,
 
   -- Action permissions (initial set)
   can_create_lpos INTEGER NOT NULL DEFAULT 0,
@@ -81,6 +83,20 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   expires_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_users_biometric_pin ON admin_users(biometric_pin) WHERE biometric_pin IS NOT NULL AND biometric_pin != '';
+
+-- Biometric clock-in/out events from ZKTeco devices
+CREATE TABLE IF NOT EXISTS attendance_events (
+  id TEXT PRIMARY KEY,
+  admin_user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL, -- clock_in, clock_out
+  occurred_at TEXT NOT NULL,
+  device_id TEXT,
+  source_event_id TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_attendance_admin ON attendance_events(admin_user_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_occurred ON attendance_events(occurred_at DESC);
 
 -- Workshop-wide settings (key/value)
 CREATE TABLE IF NOT EXISTS app_settings (

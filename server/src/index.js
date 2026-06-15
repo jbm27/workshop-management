@@ -13,10 +13,21 @@ import { lpoIprRouter } from './routes/lpoIpr.js';
 import { customerPortalRouter } from './routes/customerPortal.js';
 import { adminRouter } from './routes/admin.js';
 import { publicLpoVerifyRouter } from './routes/publicLpoVerify.js';
+import { iclockRouter } from './routes/iclock.js';
+import { attendanceRouter } from './routes/attendance.js';
 import { config } from './config.js';
 
 const app = express();
 app.use(cors());
+
+app.use((req, _res, next) => {
+  if (req.path.startsWith('/iclock')) {
+    console.log(`[scanner-http] ${req.method} ${req.originalUrl}`);
+  }
+  next();
+});
+
+app.use('/iclock', express.text({ type: '*/*', limit: '2mb' }), iclockRouter);
 app.use(express.json());
 
 app.use('/api/customers', customersRouter);
@@ -31,8 +42,9 @@ app.use('/api/reports', reportsRouter);
   app.use('/api/customer-portal', customerPortalRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/public/lpo-verify', publicLpoVerifyRouter);
+app.use('/api/attendance', attendanceRouter);
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.get('/api/health', (req, res) => res.json({ ok: true, service: 'workshop-api' }));
 
 initDb().then(() => {
   const cust = db.prepare('SELECT COUNT(*) as n FROM customers').get().n;

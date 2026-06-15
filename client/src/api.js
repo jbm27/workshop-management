@@ -66,6 +66,19 @@ export const api = {
     },
   },
 
+  attendance: {
+    events: (params) => {
+      const sp = new URLSearchParams();
+      if (params?.limit != null) sp.set('limit', String(params.limit));
+      if (params?.from) sp.set('from', params.from);
+      if (params?.to) sp.set('to', params.to);
+      if (params?.admin_user_id != null) sp.set('admin_user_id', String(params.admin_user_id));
+      const qs = sp.toString();
+      return api.get('/attendance/events' + (qs ? `?${qs}` : ''));
+    },
+    clockedIn: () => api.get('/attendance/clocked-in'),
+  },
+
   customers: {
     list: (q) => api.get(q ? `/customers?q=${encodeURIComponent(q)}` : '/customers'),
     get: (id) => api.get(`/customers/${id}`),

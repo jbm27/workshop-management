@@ -6,12 +6,33 @@ import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 
 export const adminRouter = Router();
 
+function normalizeBiometricPin(raw) {
+  if (raw === undefined) return undefined;
+  const s = String(raw).trim();
+  return s === '' ? null : s;
+}
+
+function assertBiometricPinAvailable(pin, exceptUserId) {
+  if (!pin) return null;
+  if (!/^\d+$/.test(pin)) {
+    return 'Biometric PIN must be a numeric User ID (e.g. 1001)';
+  }
+  const row = db
+    .prepare('SELECT id, display_name FROM admin_users WHERE biometric_pin = ? AND id != ? LIMIT 1')
+    .get(pin, exceptUserId ?? -1);
+  if (row) {
+    return `Biometric PIN ${pin} is already assigned to ${row.display_name}`;
+  }
+  return null;
+}
+
 function adminUserRowToPayload(row) {
   if (!row) return null;
   return {
     id: row.id,
     username: row.username,
     display_name: row.display_name,
+    biometric_pin: row.biometric_pin || null,
     active: Number(row.active) === 1,
     is_mechanic: Number(row.is_mechanic) === 1,
     permissions: {
@@ -114,10 +135,14 @@ adminRouter.patch('/workshop-settings', requireAdminPermission('can_manage_team_
 });
 
 adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (req, res) => {
-  const { username, display_name, password, permissions, is_mechanic } = req.body || {};
+  const { username, display_name, password, permissions, is_mechanic, biometric_pin } = req.body || {};
   if (!username || !String(username).trim()) return res.status(400).json({ error: 'username is required' });
   if (!display_name || !String(display_name).trim()) return res.status(400).json({ error: 'display_name is required' });
   if (!password || !String(password).trim()) return res.status(400).json({ error: 'password is required' });
+
+  const pin = normalizeBiometricPin(biometric_pin);
+  const pinError = assertBiometricPinAvailable(pin);
+  if (pinError) return res.status(400).json({ error: pinError });
 
   const usernameClean = String(username).trim();
   const existing = db.prepare('SELECT id FROM admin_users WHERE username = ?').get(usernameClean);
@@ -156,13 +181,13 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
   const row = db.prepare(
     `
       INSERT INTO admin_users
-        (username, display_name, password_salt, password_hash, active, is_mechanic,
+        (username, display_name, password_salt, password_hash, active, is_mechanic, biometric_pin,
          can_create_lpos, can_create_iprs, can_finalize_lpos, can_finalize_iprs,
          can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
          can_record_invoice_payments, can_record_supplier_payments,
          can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
          can_log_test_drives)
-      VALUES (?, ?, ?, ?, 1, ?,
+      VALUES (?, ?, ?, ?, 1, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
@@ -174,6 +199,7 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
     salt,
     hash,
     mechanic ? 1 : 0,
+    pin,
     z,
     z2,
     z3,
@@ -194,12 +220,18 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
 });
 
 adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'), (req, res) => {
-  const { username, permissions, display_name, password, active, is_mechanic } = req.body || {};
+  const { username, permissions, display_name, password, active, is_mechanic, biometric_pin } = req.body || {};
   const adminId = Number(req.params.id);
   if (!Number.isFinite(adminId) || adminId <= 0) return res.status(400).json({ error: 'Invalid user id' });
 
   const current = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(adminId);
   if (!current) return res.status(404).json({ error: 'User not found' });
+
+  const nextPin = biometric_pin !== undefined ? normalizeBiometricPin(biometric_pin) : current.biometric_pin || null;
+  if (biometric_pin !== undefined) {
+    const pinError = assertBiometricPinAvailable(nextPin, adminId);
+    if (pinError) return res.status(400).json({ error: pinError });
+  }
 
   // Compute updated fields; do not spread `current` after these or it will overwrite changes.
   const updates = {
@@ -281,6 +313,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
       display_name = ?,
       active = ?,
       is_mechanic = ?,
+      biometric_pin = ?,
       password_salt = COALESCE(?, password_salt),
       password_hash = COALESCE(?, password_hash),
       can_create_lpos = ?,
@@ -305,6 +338,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
     updates.display_name,
     updates.active,
     nextIsMech,
+    nextPin,
     newSalt,
     newHash,
     next.can_create_lpos,

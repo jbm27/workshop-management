@@ -54,6 +54,7 @@ export default function AdminUsers() {
     password: '',
     active: true,
     is_mechanic: false,
+    biometric_pin: '',
     permissions: defaultPermissions(),
   });
   const [busy, setBusy] = useState(false);
@@ -63,6 +64,10 @@ export default function AdminUsers() {
   const [labourSettingsBusy, setLabourSettingsBusy] = useState(false);
   const [labourSettingsError, setLabourSettingsError] = useState('');
   const [labourSettingsSaved, setLabourSettingsSaved] = useState(false);
+  const [attendanceEvents, setAttendanceEvents] = useState([]);
+  const [clockedIn, setClockedIn] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -76,9 +81,22 @@ export default function AdminUsers() {
       .finally(() => setLoading(false));
   };
 
+  const loadAttendance = () => {
+    setAttendanceLoading(true);
+    return Promise.all([api.attendance.events({ limit: 25 }), api.attendance.clockedIn()])
+      .then(([events, clocked]) => {
+        setAttendanceEvents(events);
+        setClockedIn(clocked);
+        setAttendanceError('');
+      })
+      .catch((e) => setAttendanceError(String(e?.message || 'Could not load attendance.')))
+      .finally(() => setAttendanceLoading(false));
+  };
+
   useEffect(() => {
     if (!canManage) return;
     load();
+    loadAttendance();
     setLabourSettingsError('');
     setLabourSettingsSaved(false);
     api.admin.workshopSettings
@@ -99,6 +117,7 @@ export default function AdminUsers() {
       password: '',
       active: true,
       is_mechanic: false,
+      biometric_pin: '',
       permissions: defaultPermissions(),
     });
     setModal({ mode: 'create' });
@@ -112,6 +131,7 @@ export default function AdminUsers() {
       password: '',
       active: u.active,
       is_mechanic: !!u.is_mechanic,
+      biometric_pin: u.biometric_pin || '',
       permissions: { ...defaultPermissions(), ...u.permissions },
     });
     setModal({ mode: 'edit', user: u });
@@ -149,6 +169,7 @@ export default function AdminUsers() {
         display_name: form.display_name.trim(),
         active: !!form.active,
         is_mechanic: !!form.is_mechanic,
+        biometric_pin: form.biometric_pin.trim() || null,
         permissions: form.is_mechanic ? mechanicPermissionsPayload(form.permissions.can_log_test_drives) : form.permissions,
       };
       if (modal?.mode === 'create') {
@@ -162,6 +183,7 @@ export default function AdminUsers() {
       setModal(null);
       setForm((s) => ({ ...s, password: '' }));
       await load();
+      await loadAttendance();
     } catch (err) {
       setSaveError(String(err?.message || 'Save failed.'));
     } finally {
@@ -258,6 +280,60 @@ export default function AdminUsers() {
         </button>
       </div>
 
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Biometric attendance</h2>
+          <button type="button" className="btn" onClick={loadAttendance} disabled={attendanceLoading}>
+            {attendanceLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
+        <p style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+          Set each team member&apos;s <strong>Biometric PIN</strong> to match their User ID on the ZKTeco F18 (e.g. 1001).
+          Point the scanner at <code>workshop-management-production-a8e5.up.railway.app</code>, port <strong>443</strong>, HTTPS on.
+        </p>
+        {attendanceError ? <p style={{ color: 'var(--danger)' }}>{attendanceError}</p> : null}
+        <p style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+          <strong>Currently clocked in:</strong>{' '}
+          {clockedIn.length
+            ? clockedIn.map((r) => `${r.display_name}${r.biometric_pin ? ` (${r.biometric_pin})` : ''}`).join(', ')
+            : 'Nobody'}
+        </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Name</th>
+                <th>PIN</th>
+                <th>Event</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attendanceLoading && !attendanceEvents.length && (
+                <tr>
+                  <td colSpan={4}>Loading…</td>
+                </tr>
+              )}
+              {!attendanceLoading && attendanceEvents.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="empty">
+                    No clock events yet.
+                  </td>
+                </tr>
+              )}
+              {attendanceEvents.map((ev) => (
+                <tr key={ev.id}>
+                  <td>{new Date(ev.occurred_at).toLocaleString()}</td>
+                  <td>{ev.display_name}</td>
+                  <td>{ev.biometric_pin || '—'}</td>
+                  <td>{ev.event_type === 'clock_in' ? 'Clock in' : 'Clock out'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div className="search-bar" style={{ marginBottom: '1rem' }}>
         <button type="button" className="btn primary" onClick={openCreate}>
           Add team member
@@ -271,6 +347,7 @@ export default function AdminUsers() {
               <tr>
                 <th>Name</th>
                 <th>Username</th>
+                <th>Biometric PIN</th>
                 <th>Active</th>
                 <th>Permissions</th>
                 <th />
@@ -279,12 +356,12 @@ export default function AdminUsers() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={5}>Loading…</td>
+                  <td colSpan={6}>Loading…</td>
                 </tr>
               )}
               {!loading && users.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="empty">
+                  <td colSpan={6} className="empty">
                     No team members yet.
                   </td>
                 </tr>
@@ -296,6 +373,7 @@ export default function AdminUsers() {
                       <strong>{u.display_name}</strong>
                     </td>
                     <td>{u.username}</td>
+                    <td>{u.biometric_pin || '—'}</td>
                     <td>{u.active ? 'Yes' : 'No'}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{permSummary(u) || '—'}</td>
                     <td>
@@ -357,6 +435,20 @@ export default function AdminUsers() {
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   autoComplete={modal.mode === 'create' ? 'new-password' : 'current-password'}
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Biometric PIN (ZKTeco User ID)</label>
+                <input
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="e.g. 1001"
+                  value={form.biometric_pin}
+                  onChange={(e) => setForm({ ...form, biometric_pin: e.target.value.replace(/\D/g, '') })}
+                />
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
+                  Must match the User ID enrolled on the fingerprint scanner. Leave blank if this person does not use the scanner.
+                </div>
               </div>
 
               <div className="form-group">
