@@ -1629,8 +1629,8 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     yPos += actualRowHeight;
   });
   
-  // Totals box (right side)
-  let totalsY = Math.max(yPos + 10, tableTop + 80); // Reduce gap to items
+  // Totals box (right side) — keep it close to the last line item.
+  let totalsY = yPos + 10;
   const totalsBoxWidth = 180;
   const totalsBoxX = pageWidth - margin - totalsBoxWidth;
   const totalsBoxHeight = 60;
