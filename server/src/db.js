@@ -783,6 +783,22 @@ function migrate(db) {
   } catch (e) {
     console.error('[workshop-db] Bootstrap admin seed (migrate) failed:', e?.message || e);
   }
+
+  // One-time: continue job/invoice numbering from MechanicDesk (next = 47093).
+  try {
+    const migrated = sqlJsGet(db, "SELECT key FROM app_settings WHERE key = 'sequences_baseline_47093'");
+    if (!migrated) {
+      const baseline = 47092;
+      for (const name of ['job_number', 'invoice_number', 'quote_number']) {
+        db.run('INSERT OR IGNORE INTO sequences (name, value) VALUES (?, ?)', [name, baseline]);
+        db.run('UPDATE sequences SET value = ? WHERE name = ?', [baseline, name]);
+      }
+      db.run("INSERT INTO app_settings (key, value_real) VALUES ('sequences_baseline_47093', 1)");
+      console.log(`[workshop-db] Sequences set — next job J${baseline + 1}, next invoice INV-${baseline + 1}`);
+    }
+  } catch (e) {
+    console.error('[workshop-db] sequences_baseline_47093 migration:', e?.message || e);
+  }
 }
 
 /** Run work in one SQLite transaction without saving until commit (avoids partial writes mid-tx). */
@@ -888,9 +904,9 @@ export async function initDb() {
   _db.run(schema);
   _db.run(`
     CREATE TABLE IF NOT EXISTS sequences (name TEXT PRIMARY KEY, value INTEGER DEFAULT 0);
-    INSERT OR IGNORE INTO sequences (name, value) VALUES ('job_number', 1000);
-    INSERT OR IGNORE INTO sequences (name, value) VALUES ('invoice_number', 1000);
-    INSERT OR IGNORE INTO sequences (name, value) VALUES ('quote_number', 1000);
+    INSERT OR IGNORE INTO sequences (name, value) VALUES ('job_number', 47092);
+    INSERT OR IGNORE INTO sequences (name, value) VALUES ('invoice_number', 47092);
+    INSERT OR IGNORE INTO sequences (name, value) VALUES ('quote_number', 47092);
     INSERT OR IGNORE INTO sequences (name, value) VALUES ('lpo', 1000);
     INSERT OR IGNORE INTO sequences (name, value) VALUES ('ipr', 1000);
   `);

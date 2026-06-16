@@ -17,8 +17,8 @@ initSqlJs().then((SQL) => {
   db.run(schema);
   db.run(`
     CREATE TABLE IF NOT EXISTS sequences (name TEXT PRIMARY KEY, value INTEGER DEFAULT 0);
-    INSERT OR IGNORE INTO sequences (name, value) VALUES ('job_number', 1000);
-    INSERT OR IGNORE INTO sequences (name, value) VALUES ('invoice_number', 1000);
+    INSERT OR IGNORE INTO sequences (name, value) VALUES ('job_number', 47092);
+    INSERT OR IGNORE INTO sequences (name, value) VALUES ('invoice_number', 47092);
   `);
   db.run(`INSERT OR IGNORE INTO job_types (id, name, description, default_labour_hours, default_labour_rate) VALUES (1, 'General Service', 'Standard service', 1.5, 2500)`);
 

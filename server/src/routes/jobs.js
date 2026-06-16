@@ -5,6 +5,7 @@ import { allocateRepeatJobNumber } from '../repeatJobFamily.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
+import { JOB_INVOICE_SEQUENCE_BASELINE } from '../sequences.js';
 
 export const jobsRouter = Router();
 
@@ -30,7 +31,7 @@ function assertNotMechanic(req, res) {
 
 function nextJobNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('job_number');
-  const next = (row?.value ?? 1000) + 1;
+  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'job_number');
   return `J${next}`;
 }
@@ -932,14 +933,14 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
 
 function nextQuoteNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('quote_number');
-  const next = (row?.value ?? 1000) + 1;
+  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'quote_number');
   return `QUO-${next}`;
 }
 
 function nextInvoiceNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('invoice_number');
-  const next = (row?.value ?? 1000) + 1;
+  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'invoice_number');
   return `INV-${next}`;
 }

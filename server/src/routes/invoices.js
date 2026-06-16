@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, transactionSync } from '../db.js';
 import { config } from '../config.js';
-import { nextSequenceRef } from '../sequences.js';
+import { nextSequenceRef, JOB_INVOICE_SEQUENCE_BASELINE } from '../sequences.js';
 import { drawWorkshopDocumentHeader, kshFormat } from '../workshopPdf.js';
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
 import PDFDocument from 'pdfkit';
@@ -108,7 +108,7 @@ function syncInvoicePaymentStatus(invoiceId) {
 
 function nextInvoiceNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('invoice_number');
-  const next = (row?.value ?? 1000) + 1;
+  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'invoice_number');
   return `INV-${next}`;
 }
@@ -116,7 +116,7 @@ function nextInvoiceNumber() {
 /** Same sequence and format as job-attached quotes (`jobs` route). */
 function nextQuoteNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('quote_number');
-  const next = (row?.value ?? 1000) + 1;
+  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'quote_number');
   return `QUO-${next}`;
 }
