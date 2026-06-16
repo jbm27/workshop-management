@@ -64,8 +64,7 @@ export default function AdminUsers() {
   const [labourSettingsBusy, setLabourSettingsBusy] = useState(false);
   const [labourSettingsError, setLabourSettingsError] = useState('');
   const [labourSettingsSaved, setLabourSettingsSaved] = useState(false);
-  const [attendanceEvents, setAttendanceEvents] = useState([]);
-  const [clockedIn, setClockedIn] = useState([]);
+  const [clockedInIds, setClockedInIds] = useState(new Set());
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState('');
 
@@ -83,10 +82,10 @@ export default function AdminUsers() {
 
   const loadAttendance = () => {
     setAttendanceLoading(true);
-    return Promise.all([api.attendance.events({ limit: 25 }), api.attendance.clockedIn()])
-      .then(([events, clocked]) => {
-        setAttendanceEvents(events);
-        setClockedIn(clocked);
+    return api.attendance
+      .clockedIn()
+      .then((clocked) => {
+        setClockedInIds(new Set(clocked.map((r) => Number(r.admin_user_id))));
         setAttendanceError('');
       })
       .catch((e) => setAttendanceError(String(e?.message || 'Could not load attendance.')))
@@ -280,63 +279,16 @@ export default function AdminUsers() {
         </button>
       </div>
 
-      <div className="card" style={{ marginBottom: '1.25rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Biometric attendance</h2>
-          <button type="button" className="btn" onClick={loadAttendance} disabled={attendanceLoading}>
-            {attendanceLoading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-        <p style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-          Set each team member&apos;s <strong>Biometric PIN</strong> to match their User ID on the ZKTeco F18 (e.g. 1001).
-          Point the scanner at <code>workshopmanagementproductiona8e5.up.railway.app</code>, port <strong>443</strong>, HTTPS on.
-        </p>
-        {attendanceError ? <p style={{ color: 'var(--danger)' }}>{attendanceError}</p> : null}
-        <p style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>
-          <strong>Currently clocked in:</strong>{' '}
-          {clockedIn.length
-            ? clockedIn.map((r) => `${r.display_name}${r.biometric_pin ? ` (${r.biometric_pin})` : ''}`).join(', ')
-            : 'Nobody'}
-        </p>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Name</th>
-                <th>PIN</th>
-                <th>Event</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attendanceLoading && !attendanceEvents.length && (
-                <tr>
-                  <td colSpan={4}>Loading…</td>
-                </tr>
-              )}
-              {!attendanceLoading && attendanceEvents.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="empty">
-                    No clock events yet.
-                  </td>
-                </tr>
-              )}
-              {attendanceEvents.map((ev) => (
-                <tr key={ev.id}>
-                  <td>{new Date(ev.occurred_at).toLocaleString()}</td>
-                  <td>{ev.display_name}</td>
-                  <td>{ev.biometric_pin || '—'}</td>
-                  <td>{ev.event_type === 'clock_in' ? 'Clock in' : 'Clock out'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {attendanceError ? (
+        <p style={{ color: 'var(--danger)', marginTop: 0 }}>{attendanceError}</p>
+      ) : null}
 
-      <div className="search-bar" style={{ marginBottom: '1rem' }}>
+      <div className="search-bar" style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <button type="button" className="btn primary" onClick={openCreate}>
           Add team member
+        </button>
+        <button type="button" className="btn" onClick={loadAttendance} disabled={attendanceLoading}>
+          {attendanceLoading ? 'Refreshing attendance…' : 'Refresh attendance'}
         </button>
       </div>
 
@@ -348,6 +300,7 @@ export default function AdminUsers() {
                 <th>Name</th>
                 <th>Username</th>
                 <th>Biometric PIN</th>
+                <th>Attendance</th>
                 <th>Active</th>
                 <th>Permissions</th>
                 <th />
@@ -356,12 +309,12 @@ export default function AdminUsers() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6}>Loading…</td>
+                  <td colSpan={7}>Loading…</td>
                 </tr>
               )}
               {!loading && users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="empty">
+                  <td colSpan={7} className="empty">
                     No team members yet.
                   </td>
                 </tr>
@@ -374,6 +327,15 @@ export default function AdminUsers() {
                     </td>
                     <td>{u.username}</td>
                     <td>{u.biometric_pin || '—'}</td>
+                    <td>
+                      {!u.biometric_pin ? (
+                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                      ) : clockedInIds.has(Number(u.id)) ? (
+                        <span style={{ color: '#15803d' }}>Clocked in</span>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)' }}>Clocked out</span>
+                      )}
+                    </td>
                     <td>{u.active ? 'Yes' : 'No'}</td>
                     <td style={{ color: 'var(--text-muted)' }}>{permSummary(u) || '—'}</td>
                     <td>
