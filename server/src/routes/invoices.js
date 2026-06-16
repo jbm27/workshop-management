@@ -1583,15 +1583,19 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   // Better column width distribution: Description gets more space, others are proportional
   const colWidths = { desc: contentWidth * 0.45, qty: contentWidth * 0.12, unit: contentWidth * 0.21, amount: contentWidth * 0.22 };
   const rowHeight = 20;
+  const pageBottom = doc.page.height - margin;
+
+  const drawItemsHeader = (headerTop) => {
+    doc.fontSize(9).font('Helvetica-Bold');
+    doc.text('Description', margin, headerTop, { width: colWidths.desc });
+    doc.text('Qty.', margin + colWidths.desc, headerTop, { width: colWidths.qty, align: 'right' });
+    doc.text('Unit Price', margin + colWidths.desc + colWidths.qty, headerTop, { width: colWidths.unit, align: 'right' });
+    doc.text('Amount', margin + colWidths.desc + colWidths.qty + colWidths.unit, headerTop, { width: colWidths.amount, align: 'right' });
+    doc.moveTo(margin, headerTop + 15).lineTo(margin + contentWidth, headerTop + 15).stroke();
+  };
   
   // Table header
-  doc.fontSize(9).font('Helvetica-Bold');
-  doc.text('Description', margin, tableTop, { width: colWidths.desc });
-  doc.text('Qty.', margin + colWidths.desc, tableTop, { width: colWidths.qty, align: 'right' });
-  doc.text('Unit Price', margin + colWidths.desc + colWidths.qty, tableTop, { width: colWidths.unit, align: 'right' });
-  doc.text('Amount', margin + colWidths.desc + colWidths.qty + colWidths.unit, tableTop, { width: colWidths.amount, align: 'right' });
-  
-  doc.moveTo(margin, tableTop + 15).lineTo(margin + contentWidth, tableTop + 15).stroke();
+  drawItemsHeader(tableTop);
   
   // Table rows
   yPos = tableTop + 20;
@@ -1605,6 +1609,15 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     // Calculate height needed for description wrapping
     const descHeight = doc.heightOfString(desc, { width: colWidths.desc });
     const actualRowHeight = Math.max(rowHeight, descHeight + 4);
+
+    // If this row would overflow the current page, start a new page and re-draw the header.
+    if (yPos + actualRowHeight > pageBottom) {
+      doc.addPage();
+      yPos = margin + 20;
+      const newHeaderTop = margin;
+      drawItemsHeader(newHeaderTop);
+      doc.fontSize(9).font('Helvetica');
+    }
     
     doc.text(desc, margin, yPos, { width: colWidths.desc });
     doc.text(qty.toFixed(1), margin + colWidths.desc, yPos, { width: colWidths.qty, align: 'right' });
@@ -1617,10 +1630,14 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   });
   
   // Totals box (right side)
-  const totalsY = Math.max(yPos + 10, tableTop + 80); // Reduce gap to items
+  let totalsY = Math.max(yPos + 10, tableTop + 80); // Reduce gap to items
   const totalsBoxWidth = 180;
   const totalsBoxX = pageWidth - margin - totalsBoxWidth;
   const totalsBoxHeight = 60;
+  if (totalsY + totalsBoxHeight > pageBottom) {
+    doc.addPage();
+    totalsY = margin + 20;
+  }
   
   doc.rect(totalsBoxX, totalsY, totalsBoxWidth, totalsBoxHeight).stroke();
   let totalsYPos = totalsY + 10;
