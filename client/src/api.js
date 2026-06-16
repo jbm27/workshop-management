@@ -39,6 +39,7 @@ export const api = {
     login: (body) => api.post('/admin/login', body),
     logout: () => api.post('/admin/logout', {}),
     me: () => api.get('/admin/me'),
+    changePassword: (body) => api.post('/admin/change-password', body),
     workshopSettings: {
       get: () => api.get('/admin/workshop-settings'),
       update: (body) => api.patch('/admin/workshop-settings', body),

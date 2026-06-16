@@ -100,6 +100,40 @@ adminRouter.get('/me', requireAdminAuth, (req, res) => {
   res.json(req.admin);
 });
 
+adminRouter.post('/change-password', requireAdminAuth, (req, res) => {
+  const currentPassword = String(req.body?.current_password || '');
+  const newPassword = String(req.body?.new_password || '');
+  if (!currentPassword.trim()) {
+    return res.status(400).json({ error: 'current_password is required' });
+  }
+  if (!newPassword.trim()) {
+    return res.status(400).json({ error: 'new_password is required' });
+  }
+  if (newPassword.trim().length < 3) {
+    return res.status(400).json({ error: 'New password must be at least 3 characters' });
+  }
+
+  const row = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(req.admin.id);
+  if (!row || Number(row.active) !== 1) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const ok = verifyPassword(currentPassword, row.password_salt, row.password_hash);
+  if (!ok) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const { salt, hash } = hashPassword(newPassword.trim());
+  db.prepare(
+    `
+      UPDATE admin_users
+      SET password_salt = ?, password_hash = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `,
+  ).run(salt, hash, req.admin.id);
+
+  res.status(204).send();
+});
+
 adminRouter.get('/users/assignable', requireAdminAuth, denyMechanics, (req, res) => {
   const rows = db
     .prepare('SELECT id, username, display_name FROM admin_users WHERE active = 1 ORDER BY display_name, username')

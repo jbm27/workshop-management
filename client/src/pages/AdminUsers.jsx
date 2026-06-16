@@ -289,7 +289,7 @@ export default function AdminUsers() {
         </div>
         <p style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
           Set each team member&apos;s <strong>Biometric PIN</strong> to match their User ID on the ZKTeco F18 (e.g. 1001).
-          Point the scanner at <code>workshop-management-production-a8e5.up.railway.app</code>, port <strong>443</strong>, HTTPS on.
+          Point the scanner at <code>workshopmanagementproductiona8e5.up.railway.app</code>, port <strong>443</strong>, HTTPS on.
         </p>
         {attendanceError ? <p style={{ color: 'var(--danger)' }}>{attendanceError}</p> : null}
         <p style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>

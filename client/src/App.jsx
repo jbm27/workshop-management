@@ -28,9 +28,14 @@ function isMechanicAllowedPath(pathname) {
 }
 
 function AppShell({ children }) {
-  const { admin, logout } = useAdmin();
+  const { admin, logout, changePassword } = useAdmin();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const isMechanic = Boolean(admin?.is_mechanic);
   const canViewStores = admin?.permissions?.can_view_stores;
   const canViewLpoIpr = admin?.permissions?.can_view_lpo_ipr;
@@ -39,6 +44,13 @@ function AppShell({ children }) {
 
   useEffect(() => {
     setNavOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    setShowPasswordForm(false);
+    setPasswordMsg('');
+    setCurrentPassword('');
+    setNewPassword('');
   }, [location.pathname]);
 
   useEffect(() => {
@@ -60,6 +72,30 @@ function AppShell({ children }) {
       document.body.style.overflow = prev;
     };
   }, [navOpen]);
+
+  const submitPasswordChange = async (e) => {
+    e.preventDefault();
+    setPasswordMsg('');
+    if (!currentPassword.trim() || !newPassword.trim()) {
+      setPasswordMsg('Enter current and new password.');
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      await changePassword({
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setShowPasswordForm(false);
+      setPasswordMsg('Password changed.');
+    } catch (err) {
+      setPasswordMsg(String(err?.message || 'Password change failed.'));
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
 
   return (
     <div className={`app ${navOpen ? 'app--nav-open' : ''}`}>
@@ -120,6 +156,41 @@ function AppShell({ children }) {
         {admin && (
           <div className="sidebar-footer">
             <div className="sidebar-user">Signed in as {admin.display_name || admin.username}</div>
+            <button
+              type="button"
+              className="btn"
+              style={{ marginBottom: '0.4rem' }}
+              onClick={() => {
+                setPasswordMsg('');
+                setShowPasswordForm((v) => !v);
+              }}
+            >
+              {showPasswordForm ? 'Cancel password change' : 'Change password'}
+            </button>
+            {showPasswordForm && (
+              <form onSubmit={submitPasswordChange} style={{ marginBottom: '0.55rem' }}>
+                <input
+                  type="password"
+                  placeholder="Current password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  autoComplete="current-password"
+                  style={{ width: '100%', marginBottom: '0.35rem' }}
+                />
+                <input
+                  type="password"
+                  placeholder="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                  style={{ width: '100%', marginBottom: '0.35rem' }}
+                />
+                <button type="submit" className="btn" disabled={passwordBusy} style={{ width: '100%' }}>
+                  {passwordBusy ? 'Saving…' : 'Save password'}
+                </button>
+              </form>
+            )}
+            {passwordMsg && <div style={{ fontSize: '0.83rem', marginBottom: '0.45rem' }}>{passwordMsg}</div>}
             <button type="button" className="btn btn-sidebar-logout" onClick={() => logout()}>
               Log out
             </button>

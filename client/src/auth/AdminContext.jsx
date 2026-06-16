@@ -51,12 +51,17 @@ export function AdminProvider({ children }) {
     setAdmin(null);
   };
 
+  const changePassword = async ({ current_password, new_password }) => {
+    await api.admin.changePassword({ current_password, new_password });
+  };
+
   const value = useMemo(
     () => ({
       admin,
       loading,
       login,
       logout,
+      changePassword,
     }),
     [admin, loading],
   );
