@@ -1450,6 +1450,16 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   
   const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(req.params.id);
+  const isInvoiceDoc = inv.type === 'invoice';
+  let amountPaid = 0;
+  let balanceDue = 0;
+  if (isInvoiceDoc) {
+    amountPaid =
+      Number(
+        db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM invoice_payments WHERE invoice_id = ?').get(req.params.id)?.s,
+      ) || 0;
+    balanceDue = Math.round(((Number(inv.total) || 0) - amountPaid) * 100) / 100;
+  }
   const tasks = inv.job_id ? db.prepare('SELECT description FROM job_tasks WHERE job_id = ? ORDER BY sort_order, id').all(inv.job_id) : [];
   const workDescription = tasks.length > 0 ? tasks.map(t => t.description).join(', ') : (inv.job_notes || '');
   
@@ -1665,7 +1675,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   let totalsY = yPos + 10;
   const totalsBoxWidth = 180;
   const totalsBoxX = pageWidth - margin - totalsBoxWidth;
-  const totalsBoxHeight = 60;
+  const totalsBoxHeight = isInvoiceDoc ? 96 : 60;
   if (totalsY + totalsBoxHeight > pageBottom) {
     doc.addPage();
     totalsY = margin + 20;
@@ -1675,39 +1685,33 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   let totalsYPos = totalsY + 10;
   
   doc.fontSize(9).font('Helvetica');
-  // Subtotal - label on left, value on right (no decimals)
+  const formatKsh = (n) => kshFormat(n);
   const subtotalRounded = Math.round(inv.subtotal || 0);
   const taxRounded = Math.round(inv.tax_amount || 0);
   const totalRounded = Math.round(inv.total || 0);
 
   doc.text('Subtotal', totalsBoxX + 10, totalsYPos);
-  doc.text(
-    `KSh ${subtotalRounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-    totalsBoxX + 10,
-    totalsYPos,
-    { width: totalsBoxWidth - 20, align: 'right' }
-  );
+  doc.text(formatKsh(subtotalRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   totalsYPos += 12;
   
-  // VAT
   doc.text('VAT', totalsBoxX + 10, totalsYPos);
-  doc.text(
-    `KSh ${taxRounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-    totalsBoxX + 10,
-    totalsYPos,
-    { width: totalsBoxWidth - 20, align: 'right' }
-  );
+  doc.text(formatKsh(taxRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   totalsYPos += 12;
   
-  // Total Incl. VAT
   doc.fontSize(10).font('Helvetica-Bold');
   doc.text('Total Incl. VAT', totalsBoxX + 10, totalsYPos);
-  doc.text(
-    `KSh ${totalRounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
-    totalsBoxX + 10,
-    totalsYPos,
-    { width: totalsBoxWidth - 20, align: 'right' }
-  );
+  doc.text(formatKsh(totalRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
+
+  if (isInvoiceDoc) {
+    totalsYPos += 14;
+    doc.fontSize(9).font('Helvetica');
+    doc.text('Paid to date', totalsBoxX + 10, totalsYPos);
+    doc.text(formatKsh(amountPaid), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
+    totalsYPos += 12;
+    doc.font('Helvetica-Bold');
+    doc.text('Balance due', totalsBoxX + 10, totalsYPos);
+    doc.text(formatKsh(balanceDue), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
+  }
   
   // Footer - Notes and payment details (kept on a single page, left aligned)
   const footerY = totalsY + totalsBoxHeight + 20;
