@@ -1713,34 +1713,37 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const footerY = totalsY + totalsBoxHeight + 20;
   doc.fontSize(8).font('Helvetica');
   
-  // Disclaimers and notes
   let footerYPos = footerY;
-  doc.text(
-    'Please note that this is an estimate only and not a final bill. In case of any additional costs, you will be notified for approval.',
-    margin,
-    footerYPos,
-    { width: contentWidth * 0.9 }
-  );
-  footerYPos = doc.y + 10;
-  
-  // Limited warranty note for starred parts – always show so meaning is clear
+  const isQuoteDoc = inv.type === 'quote';
+
+  if (isQuoteDoc) {
+    doc.text(
+      'Please note that this is an estimate only and not a final bill. In case of any additional costs, you will be notified for approval.',
+      margin,
+      footerYPos,
+      { width: contentWidth * 0.9 },
+    );
+    footerYPos = doc.y + 10;
+  }
+
   doc.text(
     '*Non-genuine & **2nd hand parts come with limited warranty',
     margin,
     footerYPos,
-    { width: contentWidth * 0.9 }
+    { width: contentWidth * 0.9 },
   );
   footerYPos = doc.y + 10;
-  
-  // Payment terms
-  doc.font('Helvetica-Bold').text('Payment Terms:', margin, footerYPos);
-  footerYPos = doc.y + 6;
-  doc.font('Helvetica').text(company.paymentTerms, margin, footerYPos);
-  footerYPos = doc.y + 4;
-  doc.text(`Validity ${company.validityDays} days`, margin, footerYPos);
-  footerYPos = doc.y + 4;
-  doc.text('Cheque payment to go through before collection', margin, footerYPos);
-  footerYPos = doc.y + 10;
+
+  if (isQuoteDoc) {
+    doc.font('Helvetica-Bold').text('Payment Terms:', margin, footerYPos);
+    footerYPos = doc.y + 6;
+    doc.font('Helvetica').text(company.paymentTerms, margin, footerYPos);
+    footerYPos = doc.y + 4;
+    doc.text(`Validity ${company.validityDays} days`, margin, footerYPos);
+    footerYPos = doc.y + 4;
+    doc.text('Cheque payment to go through before collection', margin, footerYPos);
+    footerYPos = doc.y + 10;
+  }
   
   // Payment and bank details – all on the left to avoid spilling to a new page
   doc.font('Helvetica-Bold').text('Payment Details:', margin, footerYPos);
