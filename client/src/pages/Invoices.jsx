@@ -117,7 +117,7 @@ export default function Invoices() {
                 <th>Number</th>
                 <th>Customer</th>
                 <th>Vehicle</th>
-                <th>Type</th>
+                <th>Created</th>
                 <th>Total</th>
                 <th>Balance</th>
                 <th></th>
@@ -139,7 +139,9 @@ export default function Invoices() {
                     </td>
                     <td>{i.customer_name}</td>
                     <td style={{ color: vehicleLabel ? undefined : 'var(--text-muted)' }}>{vehicleLabel || '—'}</td>
-                    <td>{i.type}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {i.created_at ? new Date(i.created_at).toLocaleDateString() : '—'}
+                    </td>
                     <td>KES {Number(i.total || 0).toLocaleString()}</td>
                     <td>
                       {isInv ? (
