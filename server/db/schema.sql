@@ -244,6 +244,8 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   lpo_ref TEXT,
   ipr_ref TEXT,
   supplier_id INTEGER REFERENCES suppliers(id),
+  vat_rate REAL DEFAULT 16,
+  vat_exempt INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

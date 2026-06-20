@@ -617,8 +617,6 @@ function PortalDocumentTotals({ doc }) {
   const subtotal = Number(doc.subtotal || 0);
   const tax = Number(doc.tax_amount || 0);
   const total = Number(doc.total || 0);
-  const rate = Number(doc.tax_rate) || 0;
-  const pct = (rate * 100).toFixed(0);
   const hasInvoicePaymentSummary = doc.balance != null && doc.balance !== undefined;
   const paid = Number(doc.amount_paid ?? 0);
   const balance = Number(doc.balance);
@@ -629,7 +627,7 @@ function PortalDocumentTotals({ doc }) {
         Subtotal (ex VAT) <strong>{kes(subtotal)}</strong>
       </p>
       <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)' }}>
-        VAT ({pct}%) <strong>{kes(tax)}</strong>
+        VAT <strong>{kes(tax)}</strong>
       </p>
       <p style={{ margin: '0.5rem 0 0', fontSize: '1.1rem' }}>
         Total (inc VAT) <strong>{kes(total)}</strong>

@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { getAverageLabourCostPerHour } from './workshopSettings.js';
+import { invoiceLineNet, invoiceLineVat } from './invoiceLineTotals.js';
 
 function syncInvoicePaymentStatusAfterTotalChange(invoiceId) {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
@@ -26,12 +27,20 @@ function syncInvoicePaymentStatusAfterTotalChange(invoiceId) {
 }
 
 export function refreshInvoiceTotalsFromLineItems(invoiceId) {
-  const inv = db.prepare('SELECT type, tax_rate FROM invoices WHERE id = ?').get(invoiceId);
+  const inv = db.prepare('SELECT type FROM invoices WHERE id = ?').get(invoiceId);
   if (!inv) return;
-  const subtotal =
-    Number(db.prepare('SELECT COALESCE(SUM(quantity * unit_price), 0) AS s FROM invoice_items WHERE invoice_id = ?').get(invoiceId).s) || 0;
-  const tax_amount = subtotal * (Number(inv.tax_rate) || 0);
-  const total = subtotal + tax_amount;
+  const lines = db
+    .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt FROM invoice_items WHERE invoice_id = ?')
+    .all(invoiceId);
+  let subtotal = 0;
+  let tax_amount = 0;
+  for (const line of lines) {
+    subtotal += invoiceLineNet(line);
+    tax_amount += invoiceLineVat(line);
+  }
+  subtotal = Math.round(subtotal * 100) / 100;
+  tax_amount = Math.round(tax_amount * 100) / 100;
+  const total = Math.round((subtotal + tax_amount) * 100) / 100;
   db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ?, updated_at = datetime(\'now\') WHERE id = ?').run(
     subtotal,
     tax_amount,
@@ -94,8 +103,8 @@ export function computeJobLabourHoursAndCostRate(jobId) {
 }
 
 const insertLabourLine = db.prepare(`
-  INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id)
-  VALUES (?, 'Labour', ?, ?, ?, 'labour', NULL)
+  INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt)
+  VALUES (?, 'Labour', ?, ?, ?, 'labour', NULL, 16, 0)
 `);
 
 /**

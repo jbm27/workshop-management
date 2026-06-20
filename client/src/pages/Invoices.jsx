@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
+import { defaultInvoiceLineVatFields, parseVatPayload } from '../utils/invoiceLineVat';
 
 export default function Invoices() {
   const [list, setList] = useState([]);
@@ -12,7 +14,7 @@ export default function Invoices() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({
     customer_id: '', vehicle_id: '', type: 'invoice', due_date: '', notes: '',
-    items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour' }],
+    items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour', ...defaultInvoiceLineVatFields() }],
   });
 
   const load = () =>
@@ -36,11 +38,15 @@ export default function Invoices() {
   const openCreate = () => {
     setForm({
       customer_id: '', vehicle_id: '', type: 'invoice', due_date: '', notes: '',
-      items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour' }],
+      items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour', ...defaultInvoiceLineVatFields() }],
     });
     setModal('create');
   };
-  const addLine = () => setForm((f) => ({ ...f, items: [...f.items, { description: '', quantity: 1, unit_price: 0, type: 'other' }] }));
+  const addLine = () =>
+    setForm((f) => ({
+      ...f,
+      items: [...f.items, { description: '', quantity: 1, unit_price: 0, type: 'other', ...defaultInvoiceLineVatFields() }],
+    }));
   const updateLine = (i, field, value) => setForm((f) => ({
     ...f,
     items: f.items.map((it, j) => (j === i ? { ...it, [field]: value } : it)),
@@ -50,12 +56,24 @@ export default function Invoices() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.customer_id) return alert('Select a customer');
-    const items = form.items.filter((it) => it.description && (it.unit_price || 0) >= 0).map((it) => ({
-      description: it.description,
-      quantity: Number(it.quantity) || 1,
-      unit_price: Number(it.unit_price) || 0,
-      type: it.type || 'other',
-    }));
+    const items = form.items
+      .filter((it) => it.description && (it.unit_price || 0) >= 0)
+      .map((it) => {
+        let vat;
+        try {
+          vat = parseVatPayload(it);
+        } catch (err) {
+          throw err;
+        }
+        return {
+          description: it.description,
+          quantity: Number(it.quantity) || 1,
+          unit_price: Number(it.unit_price) || 0,
+          type: it.type || 'other',
+          vat_rate: vat.vat_rate,
+          vat_exempt: vat.vat_exempt,
+        };
+      });
     if (items.length === 0) return alert('Add at least one line item');
     try {
       await api.invoices.create({
@@ -69,7 +87,7 @@ export default function Invoices() {
       setModal(null);
       load();
     } catch (err) {
-      alert(err.message);
+      alert(err.message || String(err));
     }
   };
 
@@ -176,11 +194,21 @@ export default function Invoices() {
               </div>
               <div className="form-group">
                 <label>Line items</label>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                  Sale prices are <strong>ex VAT</strong>. Choose VAT per line below.
+                </p>
                 {form.items.map((it, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
-                    <input placeholder="Description" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} style={{ flex: 2 }} />
+                  <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input placeholder="Description" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} style={{ flex: '2 1 140px' }} />
                     <input type="number" placeholder="Qty" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} style={{ width: '60px' }} min="0" step="0.01" />
-                    <input type="number" placeholder="Price" value={it.unit_price} onChange={(e) => updateLine(i, 'unit_price', e.target.value)} style={{ width: '100px' }} min="0" step="0.01" />
+                    <input type="number" placeholder="Price ex VAT" value={it.unit_price} onChange={(e) => updateLine(i, 'unit_price', e.target.value)} style={{ width: '100px' }} min="0" step="0.01" />
+                    <InvoiceLineVatSelect
+                      value={{ vat_mode: it.vat_mode, vat_rate_custom: it.vat_rate_custom }}
+                      onChange={(vat) => setForm((f) => ({
+                        ...f,
+                        items: f.items.map((row, j) => (j === i ? { ...row, ...vat } : row)),
+                      }))}
+                    />
                     <button type="button" className="btn" onClick={() => removeLine(i)}>×</button>
                   </div>
                 ))}

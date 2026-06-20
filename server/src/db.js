@@ -251,6 +251,26 @@ function migrate(db) {
     if (iiCols.length && !iiCols.includes('supplier_id')) {
       db.run('ALTER TABLE invoice_items ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)');
     }
+    if (iiCols.length && !iiCols.includes('vat_rate')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN vat_rate REAL DEFAULT 16');
+    }
+    if (iiCols.length && !iiCols.includes('vat_exempt')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN vat_exempt INTEGER DEFAULT 0');
+    }
+    if (iiCols.includes('vat_rate')) {
+      db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
+      db.run('UPDATE invoice_items SET vat_exempt = 0 WHERE vat_exempt IS NULL');
+      const vatExpr =
+        'CASE WHEN IFNULL(vat_exempt, 0) = 1 THEN 0 ELSE quantity * unit_price * IFNULL(vat_rate, 0) / 100.0 END';
+      db.run(`
+        UPDATE invoices SET
+          subtotal = (SELECT COALESCE(SUM(quantity * unit_price), 0) FROM invoice_items WHERE invoice_id = invoices.id),
+          tax_amount = (SELECT COALESCE(SUM(${vatExpr}), 0) FROM invoice_items WHERE invoice_id = invoices.id),
+          total =
+            (SELECT COALESCE(SUM(quantity * unit_price), 0) FROM invoice_items WHERE invoice_id = invoices.id) +
+            (SELECT COALESCE(SUM(${vatExpr}), 0) FROM invoice_items WHERE invoice_id = invoices.id)
+      `);
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }

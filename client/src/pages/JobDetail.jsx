@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
+import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
 import { useAdmin } from '../auth/AdminContext';
+import {
+  invoiceLineNet,
+  invoiceVatLabel,
+  vatFromFormData,
+  vatFromElementIds,
+  vatModeFromLine,
+} from '../utils/invoiceLineVat';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
 const JOB_STATUS_LABEL = {
@@ -431,8 +439,14 @@ export default function JobDetail() {
     const quantity = Number(fd.get('quantity')) || 1;
     const unit_price = Number(fd.get('unit_price')) || 0;
     if (!description) return alert('Item description is required');
+    let vat;
     try {
-      await api.invoices.addItem(quote.id, { description, quantity, unit_price });
+      vat = vatFromFormData(fd);
+    } catch (err) {
+      return alert(err.message);
+    }
+    try {
+      await api.invoices.addItem(quote.id, { description, quantity, unit_price, ...vat });
       const inv = await api.invoices.get(quote.id);
       setQuote(inv);
       setAddQuoteItem(false);
@@ -477,8 +491,14 @@ export default function JobDetail() {
     if (descriptionMatchesUnapprovedQuote(quote, description) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) {
       return;
     }
+    let vat;
     try {
-      await api.invoices.addItem(invoice.id, { description, quantity, unit_price, purchase_price });
+      vat = vatFromFormData(fd);
+    } catch (err) {
+      return alert(err.message);
+    }
+    try {
+      await api.invoices.addItem(invoice.id, { description, quantity, unit_price, purchase_price, ...vat });
       const inv = await api.invoices.get(invoice.id);
       setInvoice(inv);
       setAddInvoiceItem(false);
@@ -541,6 +561,8 @@ export default function JobDetail() {
         description: line.description,
         quantity: line.quantity ?? 1,
         unit_price: line.unit_price ?? 0,
+        vat_rate: line.vat_rate,
+        vat_exempt: line.vat_exempt,
       });
       const inv = await api.invoices.get(invoice.id);
       setInvoice(inv);
@@ -610,6 +632,8 @@ export default function JobDetail() {
           description: it.description,
           quantity: it.quantity ?? 1,
           unit_price: it.unit_price ?? 0,
+          vat_rate: it.vat_rate,
+          vat_exempt: it.vat_exempt,
         });
       }
       const inv = await api.invoices.get(invoice.id);
@@ -1558,12 +1582,13 @@ export default function JobDetail() {
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
               <strong>Purchase</strong> (unit cost) can be an internal estimate. Use the <strong>LPO & IPR</strong> section
               below to allocate real supplier costs; several purchases can map to one invoice line. The{' '}
-              <strong>Labour</strong> line is fixed at quantity 1: enter the labour <strong>sale</strong> as the line total;
+              <strong>Labour</strong> line is fixed at quantity 1: enter the labour <strong>sale (ex VAT)</strong> as the unit price;
               internal <strong>cost</strong> follows logged hours × the average labour cost rate (Team members).
+              Choose VAT per sale line below.
             </p>
             {addInvoiceItem && (
               <form onSubmit={submitInvoiceItem} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 100px auto', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 100px 140px auto', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Item / description</label>
                     <input type="text" name="description" required placeholder="e.g. Labour" />
@@ -1577,8 +1602,12 @@ export default function JobDetail() {
                     <input type="number" name="purchase_price" min="0" step="0.01" defaultValue="0" placeholder="0" />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
-                    <label>Sale (customer)</label>
+                    <label>Sale (ex VAT)</label>
                     <input type="number" name="unit_price" min="0" step="0.01" required placeholder="0" />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>VAT</label>
+                    <InvoiceLineVatSelect />
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button type="submit" className="btn primary">Add</button>
@@ -1607,14 +1636,15 @@ export default function JobDetail() {
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Purchase (unit cost)</th>
-                    <th>Sale price</th>
-                    <th>Total</th>
+                    <th>Sale (ex VAT)</th>
+                    <th>VAT</th>
+                    <th>Line total (ex VAT)</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {(!invoice.items || invoice.items.length === 0) && (
-                    <tr><td colSpan={6} className="empty">No invoice lines yet. Add items above.</td></tr>
+                    <tr><td colSpan={7} className="empty">No invoice lines yet. Add items above.</td></tr>
                   )}
                   {invoice.items?.map((it) => {
                     const purchaseFromAlloc =
@@ -1654,15 +1684,25 @@ export default function JobDetail() {
                             )}
                           </td>
                           <td><input type="number" id={`inv-sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} /></td>
+                          <td>
+                            <InvoiceLineVatSelect idPrefix={`inv-item-${it.id}`} defaultFields={vatModeFromLine(it)} />
+                          </td>
                           <td>—</td>
                           <td>
                             <button
                               type="button"
                               className="btn primary"
                               onClick={() => {
+                                let vat;
+                                try {
+                                  vat = vatFromElementIds(`inv-item-${it.id}`);
+                                } catch (err) {
+                                  alert(err.message);
+                                  return;
+                                }
                                 const sale = Number(document.getElementById(`inv-sale-${it.id}`)?.value) ?? it.unit_price;
                                 if (labour) {
-                                  updateInvoiceItem(it.id, { unit_price: sale });
+                                  updateInvoiceItem(it.id, { unit_price: sale, ...vat });
                                   return;
                                 }
                                 const desc = document.getElementById(`inv-desc-${it.id}`)?.value?.trim();
@@ -1671,7 +1711,15 @@ export default function JobDetail() {
                                   purchaseFromAlloc
                                     ? Number(it.purchase_price ?? 0)
                                     : Number(document.getElementById(`inv-purchase-${it.id}`)?.value) || 0;
-                                if (desc) updateInvoiceItem(it.id, { description: desc, quantity: qty, purchase_price: purchase, unit_price: sale });
+                                if (desc) {
+                                  updateInvoiceItem(it.id, {
+                                    description: desc,
+                                    quantity: qty,
+                                    purchase_price: purchase,
+                                    unit_price: sale,
+                                    ...vat,
+                                  });
+                                }
                               }}
                             >
                               Save
@@ -1708,7 +1756,8 @@ export default function JobDetail() {
                             )}
                           </td>
                           <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
-                          <td><strong>KES {((it.quantity ?? 1) * (it.unit_price ?? 0)).toLocaleString()}</strong></td>
+                          <td>{invoiceVatLabel(it)}</td>
+                          <td><strong>KES {invoiceLineNet(it).toLocaleString()}</strong></td>
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
                               <button type="button" className="btn" onClick={() => setEditingInvoiceItemId(it.id)}>Edit</button>
@@ -1746,7 +1795,7 @@ export default function JobDetail() {
                   <p style={{ margin: '0 0 0.35rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                     Subtotal (ex VAT) {formatKes(invoice.subtotal ?? 0)}
                     {' · '}
-                    VAT ({((Number(invoice.tax_rate) || 0) * 100).toFixed(0)}%) {formatKes(invoice.tax_amount)}
+                    VAT {formatKes(invoice.tax_amount)}
                   </p>
                 )}
                 <p style={{ margin: 0, fontSize: '0.95rem' }}>
@@ -1900,12 +1949,12 @@ export default function JobDetail() {
         {!quoteLoading && quote && (
           <>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
-              The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour <strong>sale</strong> as that line total.
-              It is not tied to logged hours (hours only affect internal costing on the invoice).
+              The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour{' '}
+              <strong>sale (ex VAT)</strong> as the unit price. Choose VAT per line below.
             </p>
             {addQuoteItem && (
               <form onSubmit={submitQuoteItem} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px auto', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }} className="form-row-quote">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 140px auto', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }} className="form-row-quote">
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Item / description</label>
                     <input type="text" name="description" required placeholder="e.g. Oil filter" />
@@ -1915,8 +1964,12 @@ export default function JobDetail() {
                     <input type="number" name="quantity" min="0.01" step="0.01" defaultValue="1" />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
-                    <label>Sale (customer)</label>
+                    <label>Sale (ex VAT)</label>
                     <input type="number" name="unit_price" min="0" step="0.01" required placeholder="0" />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label>VAT</label>
+                    <InvoiceLineVatSelect />
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button type="submit" className="btn primary">Add</button>
@@ -1935,14 +1988,15 @@ export default function JobDetail() {
                     <th>Approved</th>
                     <th>Item</th>
                     <th>Qty</th>
-                    <th>Sale price</th>
-                    <th>Total</th>
+                    <th>Sale (ex VAT)</th>
+                    <th>VAT</th>
+                    <th>Line total (ex VAT)</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {(!quote.items || quote.items.length === 0) && (
-                    <tr><td colSpan={6} className="empty">No quote lines yet. Add items above.</td></tr>
+                    <tr><td colSpan={7} className="empty">No quote lines yet. Add items above.</td></tr>
                   )}
                   {quote.items?.map((it) => {
                     const labour = isLabourLine(it);
@@ -1960,17 +2014,27 @@ export default function JobDetail() {
                           </td>
                           <td>{labour ? <span>1</span> : <input type="number" id={`qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />}</td>
                           <td><input type="number" id={`sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} /></td>
+                          <td>
+                            <InvoiceLineVatSelect idPrefix={`item-${it.id}`} defaultFields={vatModeFromLine(it)} />
+                          </td>
                           <td>—</td>
                           <td>
                             <button type="button" className="btn primary" onClick={() => {
+                              let vat;
+                              try {
+                                vat = vatFromElementIds(`item-${it.id}`);
+                              } catch (err) {
+                                alert(err.message);
+                                return;
+                              }
                               const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
                               if (labour) {
-                                updateQuoteItem(it.id, { unit_price: sale });
+                                updateQuoteItem(it.id, { unit_price: sale, ...vat });
                                 return;
                               }
                               const desc = document.getElementById(`desc-${it.id}`)?.value?.trim();
                               const qty = Number(document.getElementById(`qty-${it.id}`)?.value) || 1;
-                              if (desc) updateQuoteItem(it.id, { description: desc, quantity: qty, unit_price: sale });
+                              if (desc) updateQuoteItem(it.id, { description: desc, quantity: qty, unit_price: sale, ...vat });
                             }}>Save</button>
                             <button type="button" className="btn" onClick={() => setEditingItemId(null)}>Cancel</button>
                           </td>
@@ -1983,7 +2047,8 @@ export default function JobDetail() {
                           <td>{labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}</td>
                           <td>{labour ? 1 : it.quantity}</td>
                           <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
-                          <td><strong>KES {((it.quantity ?? 1) * (it.unit_price ?? 0)).toLocaleString()}</strong></td>
+                          <td>{invoiceVatLabel(it)}</td>
+                          <td><strong>KES {invoiceLineNet(it).toLocaleString()}</strong></td>
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
                               <button type="button" className="btn" onClick={() => setEditingItemId(it.id)}>Edit</button>
@@ -2007,9 +2072,12 @@ export default function JobDetail() {
             </div>
             {quote.items?.length > 0 && (
               <p style={{ marginTop: '1rem', fontWeight: 600 }}>
-                Quote total: KES {(quote.total ?? 0).toLocaleString()}
+                Quote total (inc VAT): KES {(quote.total ?? 0).toLocaleString()}
                 {quote.tax_amount != null && quote.tax_amount > 0 && (
-                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.9rem' }}> (incl. tax)</span>
+                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                    {' '}
+                    · ex VAT {Number(quote.subtotal ?? 0).toLocaleString()} · VAT {Number(quote.tax_amount).toLocaleString()}
+                  </span>
                 )}
               </p>
             )}

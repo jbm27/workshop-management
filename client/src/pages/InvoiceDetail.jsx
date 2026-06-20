@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
+import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
 import { useAdmin } from '../auth/AdminContext';
+import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, vatFromFormData, vatFromElementIds, vatModeFromLine } from '../utils/invoiceLineVat';
 
 function kes(n) {
   const x = Number(n);
@@ -184,8 +186,14 @@ export default function InvoiceDetail() {
     const quantity = Number(fd.get('quantity')) || 1;
     const unit_price = Number(fd.get('unit_price')) || 0;
     if (!description) return alert('Item description is required');
+    let vat;
     try {
-      await api.invoices.addItem(id, { description, quantity, unit_price });
+      vat = vatFromFormData(fd);
+    } catch (err) {
+      return alert(err.message);
+    }
+    try {
+      await api.invoices.addItem(id, { description, quantity, unit_price, ...vat });
       await refresh();
       setAddQuoteItem(false);
       e.target.reset();
@@ -447,7 +455,7 @@ export default function InvoiceDetail() {
         {canEditQuoteLines && (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
             The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour{' '}
-            <strong>sale</strong> as that line total.
+            <strong>sale (ex VAT)</strong> as that line unit price. Choose VAT per line below.
           </p>
         )}
         {isQuote && items.length > 0 && (
@@ -462,7 +470,7 @@ export default function InvoiceDetail() {
             style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}
           >
             <div
-              style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px auto', gap: '0.5rem', alignItems: 'end' }}
+              style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 140px auto', gap: '0.5rem', alignItems: 'end' }}
               className="form-row-quote"
             >
               <div className="form-group" style={{ margin: 0 }}>
@@ -474,8 +482,12 @@ export default function InvoiceDetail() {
                 <input type="number" name="quantity" min="0.01" step="0.01" defaultValue="1" />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
-                <label>Sale (customer)</label>
+                <label>Sale (ex VAT)</label>
                 <input type="number" name="unit_price" min="0" step="0.01" required placeholder="0" />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>VAT</label>
+                <InvoiceLineVatSelect />
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="submit" className="btn primary">Add</button>
@@ -497,15 +509,16 @@ export default function InvoiceDetail() {
                 {isQuote && <th>Customer approved</th>}
                 <th>Qty</th>
                 {!isQuote && <th>Purchase (unit)</th>}
-                <th>Unit price</th>
-                <th>Line total</th>
+                <th>Unit price (ex VAT)</th>
+                <th>VAT</th>
+                <th>Line total (ex VAT)</th>
                 {canEditQuoteLines && <th></th>}
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={canEditQuoteLines ? 6 : isQuote ? 5 : 5} className="empty">
+                  <td colSpan={canEditQuoteLines ? 7 : isQuote ? 6 : 6} className="empty">
                     {canEditQuoteLines ? 'No quote lines yet. Add items above.' : 'No line items yet'}
                   </td>
                 </tr>
@@ -555,20 +568,32 @@ export default function InvoiceDetail() {
                           style={{ width: '5rem' }}
                         />
                       </td>
+                      <td>
+                        <InvoiceLineVatSelect idPrefix={`item-${it.id}`} defaultFields={vatModeFromLine(it)} />
+                      </td>
                       <td>—</td>
                       <td>
                         <button
                           type="button"
                           className="btn primary"
                           onClick={() => {
+                            let vat;
+                            try {
+                              vat = vatFromElementIds(`item-${it.id}`);
+                            } catch (err) {
+                              alert(err.message);
+                              return;
+                            }
                             const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
                             if (labour) {
-                              updateQuoteItem(it.id, { unit_price: sale });
+                              updateQuoteItem(it.id, { unit_price: sale, ...vat });
                               return;
                             }
                             const desc = document.getElementById(`desc-${it.id}`)?.value?.trim();
                             const itemQty = Number(document.getElementById(`qty-${it.id}`)?.value) || 1;
-                            if (desc) updateQuoteItem(it.id, { description: desc, quantity: itemQty, unit_price: sale });
+                            if (desc) {
+                              updateQuoteItem(it.id, { description: desc, quantity: itemQty, unit_price: sale, ...vat });
+                            }
                           }}
                         >
                           Save
@@ -625,7 +650,8 @@ export default function InvoiceDetail() {
                       </td>
                     )}
                     <td>{kes(price)}</td>
-                    <td>{kes(qty * price)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{invoiceVatLabel(it)}</td>
+                    <td>{kes(invoiceLineNet(it))}</td>
                     {canEditQuoteLines && (
                       <td>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
@@ -645,10 +671,10 @@ export default function InvoiceDetail() {
           </table>
         </div>
         <div style={{ marginTop: '1rem', textAlign: 'right', maxWidth: '280px', marginLeft: 'auto' }}>
-          <p style={{ margin: '0.25rem 0' }}>Subtotal <strong>{kes(subtotal)}</strong></p>
+          <p style={{ margin: '0.25rem 0' }}>Subtotal (ex VAT) <strong>{kes(subtotal)}</strong></p>
           <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)' }}>
-            VAT ({((Number(inv.tax_rate) || 0) * 100).toFixed(0)}%) <strong>{kes(tax)}</strong></p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '1.1rem' }}>Total <strong>{kes(total)}</strong></p>
+            VAT <strong>{kes(tax)}</strong></p>
+          <p style={{ margin: '0.5rem 0 0', fontSize: '1.1rem' }}>Total (inc VAT) <strong>{kes(total)}</strong></p>
         </div>
       </div>
 

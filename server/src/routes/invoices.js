@@ -18,6 +18,7 @@ import {
   refreshInvoiceTotalsFromLineItems,
   syncLabourLinesForJob,
 } from '../jobInvoiceLabour.js';
+import { normalizeInvoiceLineVat } from '../invoiceLineTotals.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -464,10 +465,23 @@ invoicesRouter.post('/', (req, res) => {
   `).run(invoice_number, job_id || null, customer_id, vehicle_id || null, resolvedType, due_date || null, notes || null, taxRate);
   const invId = result.lastInsertRowid;
   if (Array.isArray(items) && items.length) {
-    const ins = db.prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const ins = db.prepare(
+      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
     for (const it of items) {
       const pp = resolvedType === 'quote' ? 0 : it.purchase_price ?? 0;
-      ins.run(invId, it.description, it.quantity ?? 1, it.unit_price ?? 0, pp, it.type || 'other', it.stock_item_id || null);
+      const { vat_rate, vat_exempt } = normalizeInvoiceLineVat(it);
+      ins.run(
+        invId,
+        it.description,
+        it.quantity ?? 1,
+        it.unit_price ?? 0,
+        pp,
+        it.type || 'other',
+        it.stock_item_id || null,
+        vat_rate,
+        vat_exempt,
+      );
     }
   }
   const jid = job_id != null && String(job_id).trim() !== '' ? parseInt(job_id, 10) : null;
@@ -534,7 +548,7 @@ invoicesRouter.delete('/:id/payments/:paymentId', requireAdminPermission('can_re
 });
 
 invoicesRouter.post('/:id/items', (req, res) => {
-  const { description, quantity, unit_price, purchase_price, type, stock_item_id } = req.body;
+  const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt } = req.body;
   if (!description || unit_price == null) return res.status(400).json({ error: 'description and unit_price required' });
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
@@ -551,10 +565,21 @@ invoicesRouter.post('/:id/items', (req, res) => {
   if (inv.type === 'invoice' && inv.job_id && lineType === 'labour') {
     pp = computeJobLabourTotalUnitCost(inv.job_id);
   }
+  const vat = normalizeInvoiceLineVat({ vat_rate, vat_exempt });
   db.prepare(`
-    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(req.params.id, description, quantity ?? 1, unit_price, pp, type || 'other', stock_item_id || null);
+    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    req.params.id,
+    description,
+    quantity ?? 1,
+    unit_price,
+    pp,
+    type || 'other',
+    stock_item_id || null,
+    vat.vat_rate,
+    vat.vat_exempt,
+  );
   if (inv.job_id) syncLabourLinesForJob(inv.job_id);
   else refreshInvoiceTotalsFromLineItems(req.params.id);
   const inserted = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id DESC LIMIT 1').get(req.params.id);
@@ -566,7 +591,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
 });
 
 invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
-  const { description, quantity, unit_price, purchase_price: bodyPurchase } = req.body;
+  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
@@ -585,14 +610,21 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   if (isJobLabourInvoice) {
     nextPurchase = computeJobLabourTotalUnitCost(inv.job_id);
   }
+  const vatInput =
+    vat_rate !== undefined || vat_exempt !== undefined
+      ? { vat_rate: vat_rate ?? item.vat_rate, vat_exempt: vat_exempt ?? item.vat_exempt }
+      : { vat_rate: item.vat_rate, vat_exempt: item.vat_exempt };
+  const vat = normalizeInvoiceLineVat(vatInput);
   db.prepare(`
-    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, created_at = created_at
+    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, vat_rate = ?, vat_exempt = ?, created_at = created_at
     WHERE id = ? AND invoice_id = ?
   `).run(
     nextDesc,
     nextQty,
     unit_price !== undefined ? unit_price : item.unit_price,
     nextPurchase,
+    vat.vat_rate,
+    vat.vat_exempt,
     req.params.itemId,
     req.params.id
   );
