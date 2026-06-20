@@ -15,6 +15,10 @@ function isQuoteLineApproved(line) {
   return Number(line?.approved) === 1;
 }
 
+function isLabourLine(it) {
+  return String(it?.type || '').toLowerCase() === 'labour';
+}
+
 export default function InvoiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -34,6 +38,8 @@ export default function InvoiceDetail() {
   const [fromQuoteVehicleId, setFromQuoteVehicleId] = useState('');
   const [fromQuoteJobNotes, setFromQuoteJobNotes] = useState('');
   const [fromQuoteBusy, setFromQuoteBusy] = useState(false);
+  const [addQuoteItem, setAddQuoteItem] = useState(false);
+  const [editingItemId, setEditingItemId] = useState(null);
 
   const refresh = () =>
     api.invoices.get(id).then((data) => {
@@ -171,6 +177,43 @@ export default function InvoiceDetail() {
     }
   };
 
+  const submitQuoteItem = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const description = fd.get('description')?.trim();
+    const quantity = Number(fd.get('quantity')) || 1;
+    const unit_price = Number(fd.get('unit_price')) || 0;
+    if (!description) return alert('Item description is required');
+    try {
+      await api.invoices.addItem(id, { description, quantity, unit_price });
+      await refresh();
+      setAddQuoteItem(false);
+      e.target.reset();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const updateQuoteItem = async (itemId, data) => {
+    try {
+      await api.invoices.updateItem(id, itemId, data);
+      await refresh();
+      setEditingItemId(null);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const removeQuoteItem = async (itemId) => {
+    if (!confirm('Remove this line from the quote?')) return;
+    try {
+      await api.invoices.deleteItem(id, itemId);
+      await refresh();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   if (loading) return <div className="page-title">Loading…</div>;
   if (!inv) {
     return (
@@ -189,6 +232,7 @@ export default function InvoiceDetail() {
   const amountPaid = Number(inv.amount_paid ?? payments.reduce((s, p) => s + Number(p.amount || 0), 0)) || 0;
   const balance = inv.type === 'invoice' ? Number(inv.balance ?? total - amountPaid) : null;
   const isQuote = inv.type === 'quote';
+  const canEditQuoteLines = isQuote && !inv.job_id;
   const quoteApprovedCount = isQuote ? items.filter((it) => isQuoteLineApproved(it)).length : 0;
 
   return (
@@ -400,11 +444,50 @@ export default function InvoiceDetail() {
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Line items</h3>
+        {canEditQuoteLines && (
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+            The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour{' '}
+            <strong>sale</strong> as that line total.
+          </p>
+        )}
         {isQuote && items.length > 0 && (
           <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
             Customer portal: <strong>{quoteApprovedCount}</strong> of <strong>{items.length}</strong> line
             {items.length === 1 ? '' : 's'} approved. Refresh the page after the customer approves to see updates.
           </p>
+        )}
+        {canEditQuoteLines && addQuoteItem && (
+          <form
+            onSubmit={submitQuoteItem}
+            style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}
+          >
+            <div
+              style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px auto', gap: '0.5rem', alignItems: 'end' }}
+              className="form-row-quote"
+            >
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Item / description</label>
+                <input type="text" name="description" required placeholder="e.g. Oil filter" />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Qty</label>
+                <input type="number" name="quantity" min="0.01" step="0.01" defaultValue="1" />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label>Sale (customer)</label>
+                <input type="number" name="unit_price" min="0" step="0.01" required placeholder="0" />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className="btn primary">Add</button>
+                <button type="button" className="btn" onClick={() => setAddQuoteItem(false)}>Cancel</button>
+              </div>
+            </div>
+          </form>
+        )}
+        {canEditQuoteLines && !addQuoteItem && (
+          <button type="button" className="btn" onClick={() => setAddQuoteItem(true)} style={{ marginBottom: '1rem' }}>
+            + Add item
+          </button>
         )}
         <div className="table-wrap">
           <table>
@@ -416,18 +499,85 @@ export default function InvoiceDetail() {
                 {!isQuote && <th>Purchase (unit)</th>}
                 <th>Unit price</th>
                 <th>Line total</th>
+                {canEditQuoteLines && <th></th>}
               </tr>
             </thead>
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="empty">No line items yet</td>
+                  <td colSpan={canEditQuoteLines ? 6 : isQuote ? 5 : 5} className="empty">
+                    {canEditQuoteLines ? 'No quote lines yet. Add items above.' : 'No line items yet'}
+                  </td>
                 </tr>
               )}
               {items.map((it) => {
-                const labour = String(it.type || '').toLowerCase() === 'labour';
+                const labour = isLabourLine(it);
                 const qty = labour ? 1 : Number(it.quantity) || 0;
                 const price = Number(it.unit_price) || 0;
+                if (canEditQuoteLines && editingItemId === it.id) {
+                  return (
+                    <tr key={it.id}>
+                      <td>
+                        {labour ? (
+                          <span style={{ fontWeight: 600 }}>Labour</span>
+                        ) : (
+                          <input type="text" id={`desc-${it.id}`} defaultValue={it.description} style={{ width: '100%' }} />
+                        )}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {isQuoteLineApproved(it) ? (
+                          <span style={{ color: 'var(--success)', fontWeight: 600 }}>Yes</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>Pending</span>
+                        )}
+                      </td>
+                      <td>
+                        {labour ? (
+                          <span>1</span>
+                        ) : (
+                          <input
+                            type="number"
+                            id={`qty-${it.id}`}
+                            min="0.01"
+                            step="0.01"
+                            defaultValue={it.quantity}
+                            style={{ width: '4rem' }}
+                          />
+                        )}
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          id={`sale-${it.id}`}
+                          min="0"
+                          step="0.01"
+                          defaultValue={it.unit_price}
+                          style={{ width: '5rem' }}
+                        />
+                      </td>
+                      <td>—</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn primary"
+                          onClick={() => {
+                            const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
+                            if (labour) {
+                              updateQuoteItem(it.id, { unit_price: sale });
+                              return;
+                            }
+                            const desc = document.getElementById(`desc-${it.id}`)?.value?.trim();
+                            const itemQty = Number(document.getElementById(`qty-${it.id}`)?.value) || 1;
+                            if (desc) updateQuoteItem(it.id, { description: desc, quantity: itemQty, unit_price: sale });
+                          }}
+                        >
+                          Save
+                        </button>
+                        <button type="button" className="btn" onClick={() => setEditingItemId(null)}>Cancel</button>
+                      </td>
+                    </tr>
+                  );
+                }
                 return (
                   <tr key={it.id}>
                     <td>
@@ -476,6 +626,18 @@ export default function InvoiceDetail() {
                     )}
                     <td>{kes(price)}</td>
                     <td>{kes(qty * price)}</td>
+                    {canEditQuoteLines && (
+                      <td>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                          <button type="button" className="btn" onClick={() => setEditingItemId(it.id)}>Edit</button>
+                          {!labour && (
+                            <button type="button" className="btn danger" onClick={() => removeQuoteItem(it.id)}>
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
