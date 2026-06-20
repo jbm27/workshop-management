@@ -214,7 +214,7 @@ export default function JobDetail() {
   const [sendQuoteCopied, setSendQuoteCopied] = useState(false);
   const [editDetailsModalOpen, setEditDetailsModalOpen] = useState(false);
   const [editDetailsBusy, setEditDetailsBusy] = useState(false);
-  const [editDetailsForm, setEditDetailsForm] = useState({ description: '', notes: '' });
+  const [editDetailsForm, setEditDetailsForm] = useState({ description: '', notes: '', order_number: '' });
   const [editCvModalOpen, setEditCvModalOpen] = useState(false);
   const [editCvBusy, setEditCvBusy] = useState(false);
   const [customersList, setCustomersList] = useState([]);
@@ -719,6 +719,7 @@ export default function JobDetail() {
       const updated = await api.jobs.update(id, {
         description: editDetailsForm.description.trim() || null,
         notes: editDetailsForm.notes.trim() || null,
+        order_number: editDetailsForm.order_number.trim() || null,
       });
       setJob(updated);
       setEditDetailsModalOpen(false);
@@ -997,6 +998,14 @@ export default function JobDetail() {
                   {(editDetailsForm.description || '').length}/{JOB_DESCRIPTION_MAX_LEN}
                 </p>
               </div>
+              <div className="form-group">
+                <label>Order number</label>
+                <input
+                  value={editDetailsForm.order_number}
+                  onChange={(e) => setEditDetailsForm((s) => ({ ...s, order_number: e.target.value }))}
+                  placeholder="Customer PO / order number (shown on invoice)"
+                />
+              </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Internal notes</label>
                 <textarea
@@ -1034,7 +1043,7 @@ export default function JobDetail() {
                   <option value="">— Choose customer —</option>
                   {customersList.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}
+                      {c.company_name ? `${c.company_name}${c.name ? ` · ${c.name}` : ''}` : c.name}
                     </option>
                   ))}
                 </select>
@@ -1107,7 +1116,19 @@ export default function JobDetail() {
               )}
             </div>
             <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
-            <p>{job.customer_name}</p>
+            {job.customer_company_name ? (
+              <>
+                <p><strong>{job.customer_company_name}</strong></p>
+                {job.customer_name && (
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{job.customer_name}</p>
+                )}
+              </>
+            ) : (
+              <p>{job.customer_name}</p>
+            )}
+            {job.customer_registration_number && (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Reg: {job.customer_registration_number}</p>
+            )}
             <p>{job.customer_phone || '—'}</p>
             <p>{job.customer_email || '—'}</p>
           </div>
@@ -1117,6 +1138,9 @@ export default function JobDetail() {
               <strong>Description:</strong> {job.description || '—'}
             </p>
             <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
+            {job.order_number && (
+              <p><strong>Order no:</strong> {job.order_number}</p>
+            )}
             <div
               style={{
                 marginTop: '0.75rem',
@@ -1201,6 +1225,7 @@ export default function JobDetail() {
                               setEditDetailsForm({
                                 description: job.description || '',
                                 notes: job.notes || '',
+                                order_number: job.order_number || '',
                               });
                               setEditDetailsModalOpen(true);
                             }}
@@ -1268,8 +1293,16 @@ export default function JobDetail() {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Vehicle & job</h3>
           <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
-          <p>{job.customer_name}</p>
+          {job.customer_company_name ? (
+            <>
+              <p><strong>{job.customer_company_name}</strong></p>
+              {job.customer_name && <p>{job.customer_name}</p>}
+            </>
+          ) : (
+            <p>{job.customer_name}</p>
+          )}
           <p><strong>Due:</strong> {job.due_date ? new Date(job.due_date).toLocaleDateString() : '—'}</p>
+          {job.order_number && <p><strong>Order no:</strong> {job.order_number}</p>}
           {job.notes && <p style={{ marginTop: '0.5rem' }}><em>{job.notes}</em></p>}
           <p style={{ marginTop: '0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
             {isRepeatJob && !showRepeatVisitHandover ? (

@@ -7,7 +7,7 @@ export default function Customers() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ name: '', email: '', phone: '', address: '', notes: '' });
+  const [form, setForm] = useState({ name: '', company_name: '', registration_number: '', email: '', phone: '', address: '', notes: '' });
   const [portalUrl, setPortalUrl] = useState('');
 
   const load = () => {
@@ -36,11 +36,19 @@ export default function Customers() {
   }, [q]);
 
   const openCreate = () => {
-    setForm({ name: '', email: '', phone: '', address: '', notes: '' });
+    setForm({ name: '', company_name: '', registration_number: '', email: '', phone: '', address: '', notes: '' });
     setModal('create');
   };
   const openEdit = (c) => {
-    setForm({ name: c.name, email: c.email || '', phone: c.phone || '', address: c.address || '', notes: c.notes || '' });
+    setForm({
+      name: c.name,
+      company_name: c.company_name || '',
+      registration_number: c.registration_number || '',
+      email: c.email || '',
+      phone: c.phone || '',
+      address: c.address || '',
+      notes: c.notes || '',
+    });
     setModal({ type: 'edit', id: c.id });
   };
   const submit = async (e) => {
@@ -126,7 +134,18 @@ export default function Customers() {
               {!loading && !loadError && list.length === 0 && <tr><td colSpan={4} className="empty">No customers</td></tr>}
               {!loading && list.map((c) => (
                 <tr key={c.id}>
-                  <td>{c.name}</td>
+                  <td>
+                    {c.company_name ? (
+                      <>
+                        <strong>{c.company_name}</strong>
+                        {c.name && (
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{c.name}</div>
+                        )}
+                      </>
+                    ) : (
+                      c.name
+                    )}
+                  </td>
                   <td>{c.phone || '—'}</td>
                   <td>{c.email || '—'}</td>
                   <td style={{ width: '1%', whiteSpace: 'nowrap' }}>
@@ -149,6 +168,25 @@ export default function Customers() {
               <div className="form-group">
                 <label>Name *</label>
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                  Contact name for businesses, or the customer name for private individuals.
+                </p>
+              </div>
+              <div className="form-group">
+                <label>Company name</label>
+                <input
+                  value={form.company_name}
+                  onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                  placeholder="For business customers"
+                />
+              </div>
+              <div className="form-group">
+                <label>Registration number</label>
+                <input
+                  value={form.registration_number}
+                  onChange={(e) => setForm({ ...form, registration_number: e.target.value })}
+                  placeholder="Business registration / PIN"
+                />
               </div>
               <div className="form-group">
                 <label>Phone</label>

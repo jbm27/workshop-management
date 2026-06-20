@@ -38,7 +38,8 @@ function nextJobNumber() {
 
 const jobDetailSql = `
   SELECT j.*, v.registration, v.make, v.model, v.vin,
-    c.name as customer_name, c.phone as customer_phone, c.email as customer_email,
+    c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
+    c.phone as customer_phone, c.email as customer_email,
     rj.job_number as related_job_number,
     rj.status as related_job_status
   FROM jobs j
@@ -416,11 +417,12 @@ jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
   const fuel_out = req.body?.fuel_out ? String(req.body.fuel_out).trim() : null;
   const valuables_in_vehicle = req.body?.valuables_in_vehicle ? String(req.body.valuables_in_vehicle).trim() : null;
   const due_date = req.body?.due_date ? String(req.body.due_date).trim() : null;
+  const order_number = req.body?.order_number != null ? String(req.body.order_number).trim() : '';
 
   const job_number = nextJobNumber();
   const result = db.prepare(`
-    INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
+    INSERT INTO jobs (job_number, vehicle_id, customer_id, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, order_number, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
   `).run(
     job_number,
     vehicleId,
@@ -432,6 +434,7 @@ jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
     fuel_out || null,
     valuables_in_vehicle || null,
     due_date || null,
+    order_number || null,
   );
   const jobId = result.lastInsertRowid;
   db.prepare('UPDATE invoices SET job_id = ?, vehicle_id = ?, updated_at = datetime("now") WHERE id = ?').run(jobId, vehicleId, inv.id);
@@ -727,7 +730,7 @@ jobsRouter.delete('/:id/time-logs/:logId', requireAdminAuth, (req, res) => {
 
 jobsRouter.post('/', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
-  const { vehicle_id, customer_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
+  const { vehicle_id, customer_id, description, notes, order_number, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, tasks } = req.body;
   const normalizedDescription = description != null ? String(description).trim() : '';
   if (normalizedDescription.length > JOB_DESCRIPTION_MAX_LEN) {
     return res.status(400).json({ error: `Job description must be ${JOB_DESCRIPTION_MAX_LEN} characters or fewer` });
@@ -767,8 +770,8 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
   }
   let job_number = is_repeat_job ? allocateRepeatJobNumber(related_job_id) : nextJobNumber();
   const insertJob = db.prepare(`
-    INSERT INTO jobs (job_number, vehicle_id, customer_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status, is_repeat_job, related_job_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)
+    INSERT INTO jobs (job_number, vehicle_id, customer_id, description, notes, order_number, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, status, is_repeat_job, related_job_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_progress', ?, ?)
   `);
   let result;
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -779,6 +782,7 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
         customer_id || null,
         normalizedDescription || null,
         notes || null,
+        order_number != null && String(order_number).trim() !== '' ? String(order_number).trim() : null,
         odometer_in || null,
         odometer_out || null,
         fuel_in || null,
@@ -833,7 +837,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   const suppressRepeatVisitHandover =
     Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
 
-  let { status, customer_id, vehicle_id, description, notes, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  let { status, customer_id, vehicle_id, description, notes, order_number, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
   if (description !== undefined) {
     const normalizedDescription = description != null ? String(description).trim() : '';
     if (normalizedDescription.length > JOB_DESCRIPTION_MAX_LEN) {
@@ -882,7 +886,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   }
   const nextStatus = status ?? row.status;
   db.prepare(`
-    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, description = ?, notes = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
+    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, description = ?, notes = ?, order_number = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     nextStatus,
@@ -890,6 +894,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     vehicle_id !== undefined ? vehicle_id : row.vehicle_id,
     description !== undefined ? (description || null) : row.description,
     notes ?? row.notes,
+    order_number !== undefined ? (order_number != null && String(order_number).trim() !== '' ? String(order_number).trim() : null) : row.order_number,
     odometer_in !== undefined ? odometer_in : row.odometer_in,
     odometer_out !== undefined ? odometer_out : row.odometer_out,
     fuel_in !== undefined ? fuel_in : row.fuel_in,

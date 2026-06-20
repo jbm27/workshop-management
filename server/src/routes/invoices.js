@@ -43,11 +43,13 @@ function invoiceBelongsToRepeatJob(invoiceId) {
 
 function fullInvoicePayload(invoiceId) {
   const inv = db.prepare(`
-    SELECT i.*, c.name as customer_name, c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
-      v.registration, v.make, v.model
+    SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
+      c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
+      v.registration, v.make, v.model, j.order_number as job_order_number
     FROM invoices i
     LEFT JOIN customers c ON i.customer_id = c.id
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
+    LEFT JOIN jobs j ON j.id = i.job_id
     WHERE i.id = ?
   `).get(invoiceId);
   if (!inv) return null;
@@ -1438,9 +1440,10 @@ invoicesRouter.get('/:id/iprs/:iprId/pdf', (req, res) => {
 
 invoicesRouter.get('/:id/pdf', (req, res) => {
   const inv = db.prepare(`
-    SELECT i.*, c.name as customer_name, c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
+    SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
+      c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
       v.registration, v.make, v.model, v.vin, v.year, v.odometer, v.notes as vehicle_notes,
-      j.job_number, j.description as job_description, j.notes as job_notes, j.odometer_in, j.odometer_out
+      j.job_number, j.description as job_description, j.notes as job_notes, j.odometer_in, j.odometer_out, j.order_number as job_order_number
     FROM invoices i
     JOIN customers c ON i.customer_id = c.id
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
@@ -1564,8 +1567,23 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   let leftY = detailsTop;
   doc.fontSize(10).font('Helvetica-Bold').text('PREPARED FOR:', margin, leftY);
   leftY = doc.y + 4;
-  doc.fontSize(11).font('Helvetica-Bold').text(inv.customer_name, margin, leftY);
-  leftY = doc.y + 6;
+  const companyName = inv.customer_company_name ? String(inv.customer_company_name).trim() : '';
+  const customerName = inv.customer_name ? String(inv.customer_name).trim() : '';
+  if (companyName) {
+    doc.fontSize(11).font('Helvetica-Bold').text(companyName, margin, leftY);
+    leftY = doc.y + 4;
+    if (inv.customer_registration_number) {
+      doc.fontSize(9).font('Helvetica').text(`Reg No: ${inv.customer_registration_number}`, margin, leftY, { width: colWidth });
+      leftY = doc.y + 4;
+    }
+    if (customerName && customerName.toLowerCase() !== companyName.toLowerCase()) {
+      doc.text(`Contact: ${customerName}`, margin, leftY, { width: colWidth });
+      leftY = doc.y + 4;
+    }
+  } else {
+    doc.fontSize(11).font('Helvetica-Bold').text(customerName || '—', margin, leftY);
+    leftY = doc.y + 6;
+  }
 
   doc.fontSize(9).font('Helvetica');
   if (inv.customer_address) {
@@ -1584,6 +1602,12 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.font('Helvetica-Bold').text('Job Description:', margin, leftY, { width: colWidth });
     leftY = doc.y + 2;
     doc.font('Helvetica').text(String(inv.job_description), margin, leftY, { width: colWidth });
+    leftY = doc.y + 4;
+  }
+  if (isInvoiceDoc && inv.job_order_number) {
+    doc.font('Helvetica-Bold').text('Order No:', margin, leftY, { width: colWidth });
+    leftY = doc.y + 2;
+    doc.font('Helvetica').text(String(inv.job_order_number), margin, leftY, { width: colWidth });
     leftY = doc.y + 4;
   }
 

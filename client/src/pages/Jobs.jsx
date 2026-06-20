@@ -17,7 +17,7 @@ function jobStatusLabel(status) {
   return JOB_STATUS_LABEL[status] || status.replace(/_/g, ' ');
 }
 
-const EMPTY_CUSTOMER = { name: '', email: '', phone: '', address: '', notes: '' };
+const EMPTY_CUSTOMER = { name: '', company_name: '', registration_number: '', email: '', phone: '', address: '', notes: '' };
 const EMPTY_VEHICLE = { registration: '', make: '', model: '', year: '', vin: '', notes: '' };
 const ADD_NEW = '__add_new__';
 const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
@@ -88,6 +88,7 @@ export default function Jobs() {
     tasks: [],
     description: '',
     notes: '',
+    order_number: '',
     due_date: '',
     odometer_in: '',
     fuel_in: '',
@@ -162,6 +163,7 @@ export default function Jobs() {
       tasks: [],
       description: '',
       notes: '',
+      order_number: '',
       due_date: '',
       odometer_in: '',
       fuel_in: '',
@@ -264,6 +266,7 @@ export default function Jobs() {
         description: form.description?.trim() || undefined,
         tasks: form.tasks.filter((t) => t && String(t).trim()),
         notes: form.notes,
+        order_number: form.order_number?.trim() || undefined,
         due_date: form.due_date || undefined,
         odometer_in: repeatSkipVehicleHandover ? null : form.odometer_in ? Number(form.odometer_in) : null,
         fuel_in: repeatSkipVehicleHandover ? null : form.fuel_in || null,
@@ -822,7 +825,23 @@ export default function Jobs() {
                             value={form.newCustomer.name}
                             onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, name: e.target.value } })}
                             required
-                            placeholder="Customer name"
+                            placeholder="Contact or customer name"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Company name</label>
+                          <input
+                            value={form.newCustomer.company_name}
+                            onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, company_name: e.target.value } })}
+                            placeholder="For business customers"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Registration number</label>
+                          <input
+                            value={form.newCustomer.registration_number}
+                            onChange={(e) => setForm({ ...form, newCustomer: { ...form.newCustomer, registration_number: e.target.value } })}
+                            placeholder="Business registration / PIN"
                           />
                         </div>
                         <div className="form-group">
@@ -945,6 +964,14 @@ export default function Jobs() {
                   </div>
                 ))}
                 <button type="button" className="btn" onClick={addTask}>+ Add task</button>
+              </div>
+              <div className="form-group">
+                <label>Order number</label>
+                <input
+                  value={form.order_number}
+                  onChange={(e) => setForm({ ...form, order_number: e.target.value })}
+                  placeholder="Customer PO / order number (shown on invoice)"
+                />
               </div>
               <div className="form-group">
                 <label>Due date</label>

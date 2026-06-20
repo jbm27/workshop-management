@@ -5,6 +5,8 @@
 CREATE TABLE IF NOT EXISTS customers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
+  company_name TEXT,
+  registration_number TEXT,
   email TEXT,
   phone TEXT,
   address TEXT,
@@ -145,6 +147,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   status TEXT DEFAULT 'in_progress', -- in_progress, vehicle_released, completed, cancelled
   description TEXT,
   notes TEXT,
+  order_number TEXT,
   odometer_in INTEGER,
   odometer_out INTEGER,
   fuel_in TEXT,

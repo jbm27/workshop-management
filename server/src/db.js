@@ -183,6 +183,12 @@ function migrate(db) {
     if (!custCols.includes('portal_token')) {
       db.run('ALTER TABLE customers ADD COLUMN portal_token TEXT');
     }
+    if (!custCols.includes('company_name')) {
+      db.run('ALTER TABLE customers ADD COLUMN company_name TEXT');
+    }
+    if (!custCols.includes('registration_number')) {
+      db.run('ALTER TABLE customers ADD COLUMN registration_number TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
@@ -216,6 +222,9 @@ function migrate(db) {
     }
     if (!jobCols.includes('related_job_id')) {
       db.run('ALTER TABLE jobs ADD COLUMN related_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL');
+    }
+    if (!jobCols.includes('order_number')) {
+      db.run('ALTER TABLE jobs ADD COLUMN order_number TEXT');
     }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;

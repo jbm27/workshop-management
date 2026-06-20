@@ -9,11 +9,11 @@ customersRouter.get('/', (req, res) => {
   if (q) {
     stmt = db.prepare(`
       SELECT * FROM customers
-      WHERE name LIKE ? OR email LIKE ? OR phone LIKE ?
+      WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? OR IFNULL(company_name, '') LIKE ? OR IFNULL(registration_number, '') LIKE ?
       ORDER BY name
     `);
     const like = `%${q}%`;
-    res.json(stmt.all(like, like, like));
+    res.json(stmt.all(like, like, like, like, like));
   } else {
     stmt = db.prepare('SELECT * FROM customers ORDER BY name');
     res.json(stmt.all());
@@ -31,24 +31,41 @@ customersRouter.get('/:id/vehicles', (req, res) => {
 });
 
 customersRouter.post('/', (req, res) => {
-  const { name, email, phone, address, notes } = req.body;
+  const { name, company_name, registration_number, email, phone, address, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   const result = db.prepare(`
-    INSERT INTO customers (name, email, phone, address, notes)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(name, email || null, phone || null, address || null, notes || null);
+    INSERT INTO customers (name, company_name, registration_number, email, phone, address, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    name,
+    company_name?.trim() || null,
+    registration_number?.trim() || null,
+    email || null,
+    phone || null,
+    address || null,
+    notes || null,
+  );
   const row = db.prepare('SELECT * FROM customers WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(row);
 });
 
 customersRouter.patch('/:id', (req, res) => {
-  const { name, email, phone, address, notes } = req.body;
+  const { name, company_name, registration_number, email, phone, address, notes } = req.body;
   const row = db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Customer not found' });
   db.prepare(`
-    UPDATE customers SET name = ?, email = ?, phone = ?, address = ?, notes = ?, updated_at = datetime('now')
+    UPDATE customers SET name = ?, company_name = ?, registration_number = ?, email = ?, phone = ?, address = ?, notes = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(name ?? row.name, email ?? row.email, phone ?? row.phone, address ?? row.address, notes ?? row.notes, req.params.id);
+  `).run(
+    name ?? row.name,
+    company_name !== undefined ? (company_name?.trim() || null) : row.company_name,
+    registration_number !== undefined ? (registration_number?.trim() || null) : row.registration_number,
+    email ?? row.email,
+    phone ?? row.phone,
+    address ?? row.address,
+    notes ?? row.notes,
+    req.params.id,
+  );
   res.json(db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id));
 });
 

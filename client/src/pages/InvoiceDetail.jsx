@@ -39,6 +39,7 @@ export default function InvoiceDetail() {
   const [customerVehicles, setCustomerVehicles] = useState([]);
   const [fromQuoteVehicleId, setFromQuoteVehicleId] = useState('');
   const [fromQuoteJobNotes, setFromQuoteJobNotes] = useState('');
+  const [fromQuoteOrderNumber, setFromQuoteOrderNumber] = useState('');
   const [fromQuoteBusy, setFromQuoteBusy] = useState(false);
   const [addQuoteItem, setAddQuoteItem] = useState(false);
   const [editingItemId, setEditingItemId] = useState(null);
@@ -159,6 +160,7 @@ export default function InvoiceDetail() {
         quote_id: Number(id),
         vehicle_id: Number(vid),
         notes: fromQuoteJobNotes.trim() || undefined,
+        order_number: fromQuoteOrderNumber.trim() || undefined,
       });
       navigate(`/jobs/${job.id}`);
     } catch (err) {
@@ -272,10 +274,27 @@ export default function InvoiceDetail() {
       <div className="grid-2">
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Customer</h3>
-          <p><strong>{inv.customer_name || '—'}</strong></p>
+          {inv.customer_company_name ? (
+            <>
+              <p><strong>{inv.customer_company_name}</strong></p>
+              {inv.customer_name && (
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{inv.customer_name}</p>
+              )}
+            </>
+          ) : (
+            <p><strong>{inv.customer_name || '—'}</strong></p>
+          )}
+          {inv.customer_registration_number && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Reg: {inv.customer_registration_number}</p>
+          )}
           {inv.customer_email && <p>{inv.customer_email}</p>}
           {inv.customer_phone && <p>{inv.customer_phone}</p>}
           {inv.customer_address && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{inv.customer_address}</p>}
+          {!isQuote && inv.job_order_number && (
+            <p style={{ marginTop: '0.75rem' }}>
+              <strong>Order no:</strong> {inv.job_order_number}
+            </p>
+          )}
         </div>
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Vehicle</h3>
@@ -318,6 +337,14 @@ export default function InvoiceDetail() {
                   invoice metadata if your app supports it).
                 </p>
               )}
+            </div>
+            <div className="form-group">
+              <label>Order number (optional)</label>
+              <input
+                value={fromQuoteOrderNumber}
+                onChange={(e) => setFromQuoteOrderNumber(e.target.value)}
+                placeholder="Customer PO / order number for the invoice"
+              />
             </div>
             <div className="form-group">
               <label>Job notes (optional)</label>
