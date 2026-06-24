@@ -1846,32 +1846,41 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   );
   footerYPos = doc.y + 10;
 
+  const colGap = 12;
+  const leftColWidth = contentWidth * 0.48;
+  const rightColX = margin + leftColWidth + colGap;
+  const rightColWidth = contentWidth - leftColWidth - colGap;
+  const paymentBlockY = footerYPos;
+
+  let leftY = paymentBlockY;
+  doc.fontSize(8).font('Helvetica-Bold').text('Payment Details:', margin, leftY, { width: leftColWidth });
+  leftY = doc.y + 6;
+  doc.font('Helvetica').text(`Mpesa Till Number: ${company.mpesa.tillNumber}`, margin, leftY, { width: leftColWidth });
+  leftY = doc.y + 10;
+  doc.fontSize(9).font('Helvetica-Bold').text(company.bank.name, margin, leftY, { width: leftColWidth });
+  leftY = doc.y + 6;
+  doc.font('Helvetica').text(`Name: ${company.legalName}`, margin, leftY, { width: leftColWidth });
+  leftY = doc.y + 4;
+  doc.text(`Branch: ${company.bank.branch}`, margin, leftY, { width: leftColWidth });
+  leftY = doc.y + 4;
+  doc.text(`Acc. No: ${company.bank.accountNumber}`, margin, leftY, { width: leftColWidth });
+  leftY = doc.y + 4;
+  doc.text(`Swift Code: ${company.bank.swiftCode}`, margin, leftY, { width: leftColWidth });
+  const leftEndY = doc.y;
+
+  let rightY = paymentBlockY;
+  doc.fontSize(8).font('Helvetica-Bold').text('Payment Terms:', rightColX, rightY, { width: rightColWidth });
+  rightY = doc.y + 6;
+  doc.font('Helvetica').text(company.paymentTerms, rightColX, rightY, { width: rightColWidth });
+  rightY = doc.y + 4;
   if (isQuoteDoc) {
-    doc.font('Helvetica-Bold').text('Payment Terms:', margin, footerYPos);
-    footerYPos = doc.y + 6;
-    doc.font('Helvetica').text(company.paymentTerms, margin, footerYPos);
-    footerYPos = doc.y + 4;
-    doc.text(`Validity ${company.validityDays} days`, margin, footerYPos);
-    footerYPos = doc.y + 4;
-    doc.text('Cheque payment to go through before collection', margin, footerYPos);
-    footerYPos = doc.y + 10;
+    doc.text(`Validity ${company.validityDays} days`, rightColX, rightY, { width: rightColWidth });
+    rightY = doc.y + 4;
   }
-  
-  // Payment and bank details – all on the left to avoid spilling to a new page
-  doc.font('Helvetica-Bold').text('Payment Details:', margin, footerYPos);
-  footerYPos = doc.y + 6;
-  doc.font('Helvetica').text(`Mpesa Till Number: ${company.mpesa.tillNumber}`, margin, footerYPos);
-  footerYPos = doc.y + 10;
-  
-  doc.fontSize(9).font('Helvetica-Bold').text(company.bank.name, margin, footerYPos);
-  footerYPos = doc.y + 6;
-  doc.font('Helvetica').text(`Name: ${company.legalName}`, margin, footerYPos);
-  footerYPos = doc.y + 4;
-  doc.text(`Branch: ${company.bank.branch}`, margin, footerYPos);
-  footerYPos = doc.y + 4;
-  doc.text(`Acc. No: ${company.bank.accountNumber}`, margin, footerYPos);
-  footerYPos = doc.y + 4;
-  doc.text(`Swift Code: ${company.bank.swiftCode}`, margin, footerYPos);
+  doc.text('Cheque payment to go through before collection', rightColX, rightY, { width: rightColWidth });
+  const rightEndY = doc.y;
+
+  footerYPos = Math.max(leftEndY, rightEndY) + 10;
   
   doc.end();
 });
