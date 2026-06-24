@@ -1846,41 +1846,41 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   );
   footerYPos = doc.y + 10;
 
-  const colGap = 12;
-  const leftColWidth = contentWidth * 0.48;
-  const rightColX = margin + leftColWidth + colGap;
-  const rightColWidth = contentWidth - leftColWidth - colGap;
+  const paymentColGap = 12;
+  const paymentLeftColWidth = contentWidth * 0.48;
+  const paymentRightColX = margin + paymentLeftColWidth + paymentColGap;
+  const paymentRightColWidth = contentWidth - paymentLeftColWidth - paymentColGap;
   const paymentBlockY = footerYPos;
 
-  let leftY = paymentBlockY;
-  doc.fontSize(8).font('Helvetica-Bold').text('Payment Details:', margin, leftY, { width: leftColWidth });
-  leftY = doc.y + 6;
-  doc.font('Helvetica').text(`Mpesa Till Number: ${company.mpesa.tillNumber}`, margin, leftY, { width: leftColWidth });
-  leftY = doc.y + 10;
-  doc.fontSize(9).font('Helvetica-Bold').text(company.bank.name, margin, leftY, { width: leftColWidth });
-  leftY = doc.y + 6;
-  doc.font('Helvetica').text(`Name: ${company.legalName}`, margin, leftY, { width: leftColWidth });
-  leftY = doc.y + 4;
-  doc.text(`Branch: ${company.bank.branch}`, margin, leftY, { width: leftColWidth });
-  leftY = doc.y + 4;
-  doc.text(`Acc. No: ${company.bank.accountNumber}`, margin, leftY, { width: leftColWidth });
-  leftY = doc.y + 4;
-  doc.text(`Swift Code: ${company.bank.swiftCode}`, margin, leftY, { width: leftColWidth });
-  const leftEndY = doc.y;
+  let paymentLeftY = paymentBlockY;
+  doc.fontSize(8).font('Helvetica-Bold').text('Payment Details:', margin, paymentLeftY, { width: paymentLeftColWidth });
+  paymentLeftY = doc.y + 6;
+  doc.font('Helvetica').text(`Mpesa Till Number: ${company.mpesa.tillNumber}`, margin, paymentLeftY, { width: paymentLeftColWidth });
+  paymentLeftY = doc.y + 10;
+  doc.fontSize(9).font('Helvetica-Bold').text(company.bank.name, margin, paymentLeftY, { width: paymentLeftColWidth });
+  paymentLeftY = doc.y + 6;
+  doc.font('Helvetica').text(`Name: ${company.legalName}`, margin, paymentLeftY, { width: paymentLeftColWidth });
+  paymentLeftY = doc.y + 4;
+  doc.text(`Branch: ${company.bank.branch}`, margin, paymentLeftY, { width: paymentLeftColWidth });
+  paymentLeftY = doc.y + 4;
+  doc.text(`Acc. No: ${company.bank.accountNumber}`, margin, paymentLeftY, { width: paymentLeftColWidth });
+  paymentLeftY = doc.y + 4;
+  doc.text(`Swift Code: ${company.bank.swiftCode}`, margin, paymentLeftY, { width: paymentLeftColWidth });
+  const paymentLeftEndY = doc.y;
 
-  let rightY = paymentBlockY;
-  doc.fontSize(8).font('Helvetica-Bold').text('Payment Terms:', rightColX, rightY, { width: rightColWidth });
-  rightY = doc.y + 6;
-  doc.font('Helvetica').text(company.paymentTerms, rightColX, rightY, { width: rightColWidth });
-  rightY = doc.y + 4;
+  let paymentRightY = paymentBlockY;
+  doc.fontSize(8).font('Helvetica-Bold').text('Payment Terms:', paymentRightColX, paymentRightY, { width: paymentRightColWidth });
+  paymentRightY = doc.y + 6;
+  doc.font('Helvetica').text(company.paymentTerms, paymentRightColX, paymentRightY, { width: paymentRightColWidth });
+  paymentRightY = doc.y + 4;
   if (isQuoteDoc) {
-    doc.text(`Validity ${company.validityDays} days`, rightColX, rightY, { width: rightColWidth });
-    rightY = doc.y + 4;
+    doc.text(`Validity ${company.validityDays} days`, paymentRightColX, paymentRightY, { width: paymentRightColWidth });
+    paymentRightY = doc.y + 4;
   }
-  doc.text('Cheque payment to go through before collection', rightColX, rightY, { width: rightColWidth });
-  const rightEndY = doc.y;
+  doc.text('Cheque payment to go through before collection', paymentRightColX, paymentRightY, { width: paymentRightColWidth });
+  const paymentRightEndY = doc.y;
 
-  footerYPos = Math.max(leftEndY, rightEndY) + 10;
+  footerYPos = Math.max(paymentLeftEndY, paymentRightEndY) + 10;
   
   doc.end();
 });
