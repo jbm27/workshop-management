@@ -31,6 +31,9 @@ function resolveLogoPath() {
 /** Default logo fit box on letterhead PDFs. */
 export const LETTERHEAD_LOGO_FIT = { width: 260, height: 200 };
 
+/** One line of vertical space (matches contact block line spacing). */
+export const LETTERHEAD_LINE_GAP = 12;
+
 /**
  * Draw workshop logo and return the Y coordinate of its bottom edge (actual scaled height, not fit box).
  */
@@ -50,7 +53,7 @@ export function drawLetterheadLogo(doc, margin, headerY, fitWidth = LETTERHEAD_L
 }
 
 /** Y position for content below letterhead — uses the taller of logo vs right-column blocks. */
-export function letterheadDetailsTop(leftBottom, rightBottom, gap = 4) {
+export function letterheadDetailsTop(leftBottom, rightBottom, gap = LETTERHEAD_LINE_GAP) {
   return Math.max(leftBottom, rightBottom) + gap;
 }
 
@@ -68,7 +71,7 @@ export function drawCompanyContactBlock(doc, company, contactX, contactY, width 
   doc.text(`Tel: ${phoneFormatted}`, contactX, contactY, { width, align: 'left' });
   contactY += 12;
   doc.text(`Email: ${company.email}`, contactX, contactY, { width, align: 'left' });
-  return contactY;
+  return doc.y;
 }
 
 /**
@@ -98,7 +101,7 @@ export function drawWorkshopDocumentHeader(
 
   const docBoxWidth = 200;
   const docBoxX = contactX;
-  const docBoxY = contactEndY + 8;
+  const docBoxY = contactEndY + LETTERHEAD_LINE_GAP;
   const boxPad = 10;
   const innerW = docBoxWidth - 2 * boxPad;
   const boxGap = 4;
@@ -205,7 +208,7 @@ export function drawStockStoreLpoHeader(doc, company, { docBoxTitle, docBoxNumbe
 
   const docBoxWidth = 200;
   const docBoxX = contactX;
-  const docBoxY = contactEndY + 8;
+  const docBoxY = contactEndY + LETTERHEAD_LINE_GAP;
   const boxPad = 10;
   const innerW = docBoxWidth - 2 * boxPad;
   const boxGap = 4;

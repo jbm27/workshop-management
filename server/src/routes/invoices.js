@@ -8,6 +8,7 @@ import {
   drawCompanyContactBlock,
   letterheadDetailsTop,
   LETTERHEAD_LOGO_FIT,
+  LETTERHEAD_LINE_GAP,
   kshFormat,
 } from '../workshopPdf.js';
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
@@ -1566,7 +1567,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
 
   const docBoxWidth = 200;
   const docBoxX = contactX;
-  const docBoxY = contactEndY + 8;
+  const docBoxY = contactEndY + LETTERHEAD_LINE_GAP;
   const docBoxPad = 10;
   const docBoxInnerW = docBoxWidth - 2 * docBoxPad;
   const numberPart = inv.invoice_number.replace(/^QUO-/, '').replace(/^INV-/, '');
