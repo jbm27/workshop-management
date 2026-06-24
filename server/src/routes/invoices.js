@@ -45,7 +45,7 @@ function fullInvoicePayload(invoiceId) {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
-      v.registration, v.make, v.model, j.order_number as job_order_number
+      v.registration, v.make, v.model, v.vin, j.order_number as job_order_number
     FROM invoices i
     LEFT JOIN customers c ON i.customer_id = c.id
     LEFT JOIN vehicles v ON i.vehicle_id = v.id

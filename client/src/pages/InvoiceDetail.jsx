@@ -303,6 +303,9 @@ export default function InvoiceDetail() {
           ) : (
             <p style={{ color: 'var(--text-muted)' }}>No vehicle linked</p>
           )}
+          {inv.vin && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.35rem' }}>VIN: {inv.vin}</p>
+          )}
           <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.75rem' }}>
             Created {inv.created_at ? new Date(inv.created_at).toLocaleString() : '—'}
           </p>

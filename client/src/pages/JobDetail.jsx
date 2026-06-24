@@ -1116,6 +1116,9 @@ export default function JobDetail() {
               )}
             </div>
             <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
+            {job.vin && (
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>VIN: {job.vin}</p>
+            )}
             {job.customer_company_name ? (
               <>
                 <p><strong>{job.customer_company_name}</strong></p>
@@ -1293,6 +1296,7 @@ export default function JobDetail() {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Vehicle & job</h3>
           <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
+          {job.vin && <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>VIN: {job.vin}</p>}
           {job.customer_company_name ? (
             <>
               <p><strong>{job.customer_company_name}</strong></p>
