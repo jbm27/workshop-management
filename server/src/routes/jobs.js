@@ -6,6 +6,7 @@ import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
 import { streamJobTasksPdf } from '../jobTasksPdf.js';
+import { deductOutstandingStockForJob } from '../invoiceStockDeduction.js';
 import { JOB_INVOICE_SEQUENCE_BASELINE, QUOTE_SEQUENCE_BASELINE } from '../sequences.js';
 
 export const jobsRouter = Router();
@@ -929,6 +930,22 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     valuables_in_vehicle = undefined;
   }
   const nextStatus = status ?? row.status;
+  if (nextStatus === 'completed' && String(row.status) !== 'completed') {
+    const jobIdsToClose = [Number(req.params.id)];
+    if (Number(row.is_repeat_job) !== 1) {
+      const children = db
+        .prepare(`SELECT id FROM jobs WHERE related_job_id = ? AND is_repeat_job = 1`)
+        .all(req.params.id);
+      jobIdsToClose.push(...children.map((c) => Number(c.id)));
+    }
+    try {
+      for (const jid of jobIdsToClose) {
+        if (Number.isFinite(jid) && jid > 0) deductOutstandingStockForJob(jid);
+      }
+    } catch (e) {
+      return res.status(400).json({ error: e.message || 'Insufficient stock to complete this job' });
+    }
+  }
   db.prepare(`
     UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, description = ?, notes = ?, order_number = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
     WHERE id = ?

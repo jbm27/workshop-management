@@ -266,6 +266,10 @@ function migrate(db) {
     if (iiCols.length && !iiCols.includes('vat_exempt')) {
       db.run('ALTER TABLE invoice_items ADD COLUMN vat_exempt INTEGER DEFAULT 0');
     }
+    if (iiCols.length && !iiCols.includes('stock_deducted_qty')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN stock_deducted_qty REAL DEFAULT 0');
+      db.run('UPDATE invoice_items SET stock_deducted_qty = 0 WHERE stock_deducted_qty IS NULL');
+    }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
       db.run('UPDATE invoice_items SET vat_exempt = 0 WHERE vat_exempt IS NULL');

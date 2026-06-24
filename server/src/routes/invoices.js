@@ -24,6 +24,10 @@ import {
   syncLabourLinesForJob,
 } from '../jobInvoiceLabour.js';
 import { normalizeInvoiceLineVat } from '../invoiceLineTotals.js';
+import {
+  deductOutstandingStockForInvoice,
+  restoreStockDeductionForInvoiceItem,
+} from '../invoiceStockDeduction.js';
 
 export const invoicesRouter = Router();
 
@@ -100,7 +104,7 @@ function syncInvoicePaymentStatus(invoiceId) {
   let paid_at = null;
   if (paid <= 0) {
     status = 'draft';
-  } else if (total > 0 && paid >= total) {
+  } else   if (total > 0 && paid >= total) {
     status = 'paid';
     paid_at =
       db.prepare('SELECT paid_at FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at DESC, id DESC LIMIT 1').get(invoiceId)
@@ -109,7 +113,52 @@ function syncInvoicePaymentStatus(invoiceId) {
     status = 'sent';
   }
 
+  if (status === 'paid' && inv.status !== 'paid') {
+    deductOutstandingStockForInvoice(invoiceId);
+  }
+
   db.prepare('UPDATE invoices SET status = ?, paid_at = ?, updated_at = datetime(\'now\') WHERE id = ?').run(status, paid_at, invoiceId);
+}
+
+function resolveStockForInvoiceLine({ stock_item_id, description, unit_price, purchase_price, type, inv }) {
+  let resolvedStockId =
+    stock_item_id != null && String(stock_item_id).trim() !== '' ? Number(stock_item_id) : null;
+  if (resolvedStockId != null && (!Number.isFinite(resolvedStockId) || resolvedStockId <= 0)) {
+    return { error: 'Invalid stock_item_id' };
+  }
+
+  let lineType = String(type || 'other');
+  let unitPrice = unit_price;
+  let purchasePrice = purchase_price;
+
+  if (resolvedStockId) {
+    const stock = db
+      .prepare('SELECT id, code, name, cost_price, sell_price FROM stock_items WHERE id = ?')
+      .get(resolvedStockId);
+    if (!stock) return { error: 'Stock item not found' };
+    lineType = lineType === 'labour' ? 'labour' : 'part';
+    if (unitPrice == null || unitPrice === '' || Number(unitPrice) === 0) {
+      unitPrice = Number(stock.sell_price) || 0;
+    }
+    if (inv.type === 'invoice' && (purchasePrice == null || purchasePrice === '')) {
+      purchasePrice = Number(stock.cost_price) || 0;
+    }
+    const label = [stock.code, stock.name].filter(Boolean).join(' - ');
+    const desc = description != null ? String(description).trim() : '';
+    if (!desc && label) {
+      description = label;
+    }
+  } else if (lineType === 'part' && type !== 'labour') {
+    lineType = 'other';
+  }
+
+  return {
+    stock_item_id: resolvedStockId,
+    description,
+    unit_price: unitPrice,
+    purchase_price: purchasePrice,
+    type: lineType,
+  };
 }
 
 function nextInvoiceNumber() {
@@ -588,10 +637,18 @@ invoicesRouter.patch('/:id', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const { status, paid_at, due_date, notes } = req.body;
+  const nextStatus = status ?? inv.status;
+  if (nextStatus === 'paid' && inv.status !== 'paid' && inv.type === 'invoice') {
+    try {
+      deductOutstandingStockForInvoice(req.params.id);
+    } catch (e) {
+      return res.status(400).json({ error: e.message || 'Insufficient stock to mark invoice paid' });
+    }
+  }
   db.prepare(`
     UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(status ?? inv.status, paid_at ?? inv.paid_at, due_date ?? inv.due_date, notes ?? inv.notes, req.params.id);
+  `).run(nextStatus, paid_at ?? inv.paid_at, due_date ?? inv.due_date, notes ?? inv.notes, req.params.id);
   const payload = fullInvoicePayload(req.params.id);
   res.json(payload);
 });
@@ -604,11 +661,16 @@ invoicesRouter.post('/:id/payments', requireAdminPermission('can_record_invoice_
   const numAmount = Number(amount);
   if (!numAmount || numAmount <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
   const when = paid_at && String(paid_at).trim() ? String(paid_at).trim() : null;
-  db.prepare(`
+  const payResult = db.prepare(`
     INSERT INTO invoice_payments (invoice_id, amount, paid_at, notes)
     VALUES (?, ?, COALESCE(?, datetime('now')), ?)
   `).run(req.params.id, numAmount, when, notes || null);
-  syncInvoicePaymentStatus(req.params.id);
+  try {
+    syncInvoicePaymentStatus(req.params.id);
+  } catch (e) {
+    db.prepare('DELETE FROM invoice_payments WHERE id = ?').run(payResult.lastInsertRowid);
+    return res.status(400).json({ error: e.message || 'Payment could not be applied: insufficient stock' });
+  }
   res.status(201).json(fullInvoicePayload(req.params.id));
 });
 
@@ -623,10 +685,24 @@ invoicesRouter.delete('/:id/payments/:paymentId', requireAdminPermission('can_re
 
 invoicesRouter.post('/:id/items', (req, res) => {
   const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt } = req.body;
-  if (!description || unit_price == null) return res.status(400).json({ error: 'description and unit_price required' });
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  const lineType = String(type || 'other');
+  const resolved = resolveStockForInvoiceLine({
+    stock_item_id,
+    description,
+    unit_price,
+    purchase_price,
+    type,
+    inv,
+  });
+  if (resolved.error) return res.status(400).json({ error: resolved.error });
+  if (!resolved.description || String(resolved.description).trim() === '') {
+    return res.status(400).json({ error: 'description is required' });
+  }
+  if (resolved.unit_price == null || resolved.unit_price === '') {
+    return res.status(400).json({ error: 'unit_price is required' });
+  }
+  const lineType = resolved.type;
   if (inv.job_id && lineType === 'labour') {
     const existingLabour = db
       .prepare(`SELECT id FROM invoice_items WHERE invoice_id = ? AND type = 'labour' LIMIT 1`)
@@ -635,7 +711,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
       return res.status(400).json({ error: 'This document already has a labour line; it is updated automatically from the job.' });
     }
   }
-  let pp = inv.type === 'quote' ? 0 : purchase_price ?? 0;
+  let pp = inv.type === 'quote' ? 0 : resolved.purchase_price ?? 0;
   if (inv.type === 'invoice' && inv.job_id && lineType === 'labour') {
     pp = computeJobLabourTotalUnitCost(inv.job_id);
   }
@@ -645,12 +721,12 @@ invoicesRouter.post('/:id/items', (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.params.id,
-    description,
+    resolved.description,
     quantity ?? 1,
-    unit_price,
+    resolved.unit_price,
     pp,
-    type || 'other',
-    stock_item_id || null,
+    lineType,
+    resolved.stock_item_id,
     vat.vat_rate,
     vat.vat_exempt,
   );
@@ -665,7 +741,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
 });
 
 invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
-  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt } = req.body;
+  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
@@ -675,10 +751,24 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   const isJobLabourInvoice = inv.type === 'invoice' && isCanonLabour && inv.job_id != null;
   let nextDesc = description !== undefined ? description : item.description;
   let nextQty = quantity !== undefined ? quantity : item.quantity;
+  let nextStockId =
+    stock_item_id !== undefined
+      ? stock_item_id == null || String(stock_item_id).trim() === ''
+        ? null
+        : Number(stock_item_id)
+      : item.stock_item_id;
+  if (nextStockId != null && (!Number.isFinite(nextStockId) || nextStockId <= 0)) {
+    return res.status(400).json({ error: 'Invalid stock_item_id' });
+  }
   if (isCanonLabour) {
     nextDesc = 'Labour';
     nextQty = 1;
+    nextStockId = null;
+  } else if (nextStockId) {
+    const stock = db.prepare('SELECT id, code, name FROM stock_items WHERE id = ?').get(nextStockId);
+    if (!stock) return res.status(404).json({ error: 'Stock item not found' });
   }
+  let nextType = isCanonLabour ? 'labour' : nextStockId ? 'part' : lineType === 'part' ? 'other' : lineType;
   let nextPurchase =
     inv.type === 'quote' ? 0 : bodyPurchase !== undefined ? Number(bodyPurchase) : item.purchase_price ?? 0;
   if (isJobLabourInvoice) {
@@ -690,13 +780,15 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
       : { vat_rate: item.vat_rate, vat_exempt: item.vat_exempt };
   const vat = normalizeInvoiceLineVat(vatInput);
   db.prepare(`
-    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, vat_rate = ?, vat_exempt = ?, created_at = created_at
+    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, type = ?, stock_item_id = ?, vat_rate = ?, vat_exempt = ?, created_at = created_at
     WHERE id = ? AND invoice_id = ?
   `).run(
     nextDesc,
     nextQty,
     unit_price !== undefined ? unit_price : item.unit_price,
     nextPurchase,
+    nextType,
+    nextStockId,
     vat.vat_rate,
     vat.vat_exempt,
     req.params.itemId,
@@ -718,6 +810,9 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
 invoicesRouter.delete('/:id/items/:itemId', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  const existing = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Item not found' });
+  restoreStockDeductionForInvoiceItem(req.params.itemId);
   const result = db.prepare('DELETE FROM invoice_items WHERE id = ? AND invoice_id = ?').run(req.params.itemId, req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: 'Item not found' });
   if (inv.job_id) syncLabourLinesForJob(inv.job_id);

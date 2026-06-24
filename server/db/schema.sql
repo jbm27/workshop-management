@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   purchase_price REAL DEFAULT 0,
   type TEXT DEFAULT 'labour', -- labour, part, other
   stock_item_id INTEGER REFERENCES stock_items(id),
+  stock_deducted_qty REAL DEFAULT 0,
   approved INTEGER DEFAULT 0,
   lpo_ref TEXT,
   ipr_ref TEXT,

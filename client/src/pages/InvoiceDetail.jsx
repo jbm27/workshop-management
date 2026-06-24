@@ -3,8 +3,12 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
 import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
+import StockItemSearchInput from '../components/StockItemSearchInput';
 import { useAdmin } from '../auth/AdminContext';
+import { formatStockItemLabel } from '../utils/stockItemLabel';
 import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, vatFromFormData, vatFromElementIds, vatModeFromLine } from '../utils/invoiceLineVat';
+
+const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
 
 function kes(n) {
   const x = Number(n);
@@ -43,6 +47,8 @@ export default function InvoiceDetail() {
   const [fromQuoteBusy, setFromQuoteBusy] = useState(false);
   const [addQuoteItem, setAddQuoteItem] = useState(false);
   const [editingItemId, setEditingItemId] = useState(null);
+  const [quoteLineDraft, setQuoteLineDraft] = useState(emptyStockLineDraft);
+  const [quoteEditStock, setQuoteEditStock] = useState({ query: '', stockItemId: null });
   const [copyQuoteOpen, setCopyQuoteOpen] = useState(false);
   const [copyQuoteBusy, setCopyQuoteBusy] = useState(false);
   const [copyCustomers, setCopyCustomers] = useState([]);
@@ -71,6 +77,14 @@ export default function InvoiceDetail() {
       .catch(() => setInv(null))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!editingItemId || !inv?.items) return;
+    const it = inv.items.find((x) => x.id === editingItemId);
+    if (it && !isLabourLine(it)) {
+      setQuoteEditStock({ query: it.description || '', stockItemId: it.stock_item_id || null });
+    }
+  }, [editingItemId, inv]);
 
   useEffect(() => {
     if (!inv || inv.type !== 'quote' || inv.job_id || !inv.customer_id) {
@@ -190,9 +204,9 @@ export default function InvoiceDetail() {
   const submitQuoteItem = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const description = fd.get('description')?.trim();
+    const description = quoteLineDraft.query.trim();
     const quantity = Number(fd.get('quantity')) || 1;
-    const unit_price = Number(fd.get('unit_price')) || 0;
+    const unit_price = Number(quoteLineDraft.unitPrice || fd.get('unit_price')) || 0;
     if (!description) return alert('Item description is required');
     let vat;
     try {
@@ -201,9 +215,17 @@ export default function InvoiceDetail() {
       return alert(err.message);
     }
     try {
-      await api.invoices.addItem(id, { description, quantity, unit_price, ...vat });
+      await api.invoices.addItem(id, {
+        description,
+        quantity,
+        unit_price,
+        stock_item_id: quoteLineDraft.stockItemId || undefined,
+        type: quoteLineDraft.stockItemId ? 'part' : undefined,
+        ...vat,
+      });
       await refresh();
       setAddQuoteItem(false);
+      setQuoteLineDraft(emptyStockLineDraft());
       e.target.reset();
     } catch (err) {
       alert(err.message);
@@ -567,8 +589,21 @@ export default function InvoiceDetail() {
               className="form-row-quote"
             >
               <div className="form-group" style={{ margin: 0 }}>
-                <label>Item / description</label>
-                <input type="text" name="description" required placeholder="e.g. Oil filter" />
+                <label>Store item / description</label>
+                <StockItemSearchInput
+                  query={quoteLineDraft.query}
+                  onQueryChange={(q) => setQuoteLineDraft((d) => ({ ...d, query: q, stockItemId: null }))}
+                  selectedStockItemId={quoteLineDraft.stockItemId}
+                  onSelect={(item) =>
+                    setQuoteLineDraft({
+                      query: formatStockItemLabel(item),
+                      stockItemId: item.id,
+                      unitPrice: item.sell_price != null ? String(item.sell_price) : '',
+                    })
+                  }
+                  placeholder="Search store or type description…"
+                  required
+                />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Qty</label>
@@ -576,7 +611,16 @@ export default function InvoiceDetail() {
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>Sale (ex VAT)</label>
-                <input type="number" name="unit_price" min="0" step="0.01" required placeholder="0" />
+                <input
+                  type="number"
+                  name="unit_price"
+                  min="0"
+                  step="0.01"
+                  required
+                  value={quoteLineDraft.unitPrice}
+                  onChange={(e) => setQuoteLineDraft((d) => ({ ...d, unitPrice: e.target.value }))}
+                  placeholder="0"
+                />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>VAT</label>
@@ -584,7 +628,7 @@ export default function InvoiceDetail() {
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button type="submit" className="btn primary">Add</button>
-                <button type="button" className="btn" onClick={() => setAddQuoteItem(false)}>Cancel</button>
+                <button type="button" className="btn" onClick={() => { setAddQuoteItem(false); setQuoteLineDraft(emptyStockLineDraft()); }}>Cancel</button>
               </div>
             </div>
           </form>
@@ -627,7 +671,18 @@ export default function InvoiceDetail() {
                         {labour ? (
                           <span style={{ fontWeight: 600 }}>Labour</span>
                         ) : (
-                          <input type="text" id={`desc-${it.id}`} defaultValue={it.description} style={{ width: '100%' }} />
+                          <StockItemSearchInput
+                            query={quoteEditStock.query}
+                            onQueryChange={(q) => setQuoteEditStock((s) => ({ ...s, query: q, stockItemId: null }))}
+                            selectedStockItemId={quoteEditStock.stockItemId}
+                            onSelect={(item) =>
+                              setQuoteEditStock({
+                                query: formatStockItemLabel(item),
+                                stockItemId: item.id,
+                              })
+                            }
+                            placeholder="Search store or type description…"
+                          />
                         )}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
@@ -682,10 +737,16 @@ export default function InvoiceDetail() {
                               updateQuoteItem(it.id, { unit_price: sale, ...vat });
                               return;
                             }
-                            const desc = document.getElementById(`desc-${it.id}`)?.value?.trim();
+                            const desc = quoteEditStock.query.trim();
                             const itemQty = Number(document.getElementById(`qty-${it.id}`)?.value) || 1;
                             if (desc) {
-                              updateQuoteItem(it.id, { description: desc, quantity: itemQty, unit_price: sale, ...vat });
+                              updateQuoteItem(it.id, {
+                                description: desc,
+                                quantity: itemQty,
+                                unit_price: sale,
+                                stock_item_id: quoteEditStock.stockItemId,
+                                ...vat,
+                              });
                             }
                           }}
                         >
