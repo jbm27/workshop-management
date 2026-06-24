@@ -24,6 +24,7 @@ import {
   syncLabourLinesForJob,
 } from '../jobInvoiceLabour.js';
 import { normalizeInvoiceLineVat } from '../invoiceLineTotals.js';
+import { isHeaderLine, enrichItemsWithSectionTotals, nextInvoiceItemSortOrder } from '../invoiceLineSections.js';
 import {
   deductOutstandingStockForInvoice,
   restoreStockDeductionForInvoiceItem,
@@ -77,7 +78,7 @@ function fullInvoicePayload(invoiceId) {
     LEFT JOIN suppliers s ON s.id = ii.supplier_id
     LEFT JOIN stock_items st ON st.id = ii.stock_item_id
     WHERE ii.invoice_id = ?
-    ORDER BY ii.id
+    ORDER BY ii.sort_order, ii.id
   `,
     )
     .all(invoiceId);
@@ -552,10 +553,10 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
   `).run(invoice_number, customer_id, vehicle_id, src.due_date || null, copyNotes, taxRate);
   const newId = result.lastInsertRowid;
 
-  const srcItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(src.id);
+  const srcItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(src.id);
   const ins = db.prepare(
-    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved)
-     VALUES (?, ?, ?, ?, 0, ?, NULL, ?, ?, 0)`,
+    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved, sort_order)
+     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?)`,
   );
   for (const it of srcItems) {
     const lineType = String(it.type || 'other');
@@ -565,8 +566,10 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
       it.quantity ?? 1,
       it.unit_price ?? 0,
       lineType,
+      it.stock_item_id ?? null,
       it.vat_rate ?? 16,
       it.vat_exempt ?? 0,
+      it.sort_order ?? 0,
     );
   }
   ensureStandaloneLabourLineIfMissing(newId);
@@ -589,21 +592,39 @@ invoicesRouter.post('/', (req, res) => {
   const invId = result.lastInsertRowid;
   if (Array.isArray(items) && items.length) {
     const ins = db.prepare(
-      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
+    let sortOrder = 0;
     for (const it of items) {
       const pp = resolvedType === 'quote' ? 0 : it.purchase_price ?? 0;
       const { vat_rate, vat_exempt } = normalizeInvoiceLineVat(it);
+      const lineType = String(it.type || 'other');
+      if (lineType === 'header') {
+        ins.run(
+          invId,
+          String(it.description || '').trim() || 'Section',
+          0,
+          0,
+          0,
+          'header',
+          null,
+          0,
+          1,
+          sortOrder++,
+        );
+        continue;
+      }
       ins.run(
         invId,
         it.description,
         it.quantity ?? 1,
         it.unit_price ?? 0,
         pp,
-        it.type || 'other',
+        lineType,
         it.stock_item_id || null,
         vat_rate,
         vat_exempt,
+        sortOrder++,
       );
     }
   }
@@ -687,6 +708,25 @@ invoicesRouter.post('/:id/items', (req, res) => {
   const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+
+  if (String(type || '').toLowerCase() === 'header') {
+    const title = String(description || '').trim();
+    if (!title) return res.status(400).json({ error: 'Header title is required' });
+    const sortOrder = nextInvoiceItemSortOrder(db, req.params.id);
+    db.prepare(`
+      INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order)
+      VALUES (?, ?, 0, 0, 0, 'header', NULL, 0, 1, ?)
+    `).run(req.params.id, title, sortOrder);
+    const inserted = db
+      .prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order DESC, id DESC LIMIT 1')
+      .get(req.params.id);
+    if (inv.type === 'quote') {
+      const { purchase_price, ...rest } = inserted;
+      return res.json(rest);
+    }
+    return res.json(inserted);
+  }
+
   const resolved = resolveStockForInvoiceLine({
     stock_item_id,
     description,
@@ -716,9 +756,10 @@ invoicesRouter.post('/:id/items', (req, res) => {
     pp = computeJobLabourTotalUnitCost(inv.job_id);
   }
   const vat = normalizeInvoiceLineVat({ vat_rate, vat_exempt });
+  const sortOrder = nextInvoiceItemSortOrder(db, req.params.id);
   db.prepare(`
-    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.params.id,
     resolved.description,
@@ -729,6 +770,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
     resolved.stock_item_id,
     vat.vat_rate,
     vat.vat_exempt,
+    sortOrder,
   );
   if (inv.job_id) syncLabourLinesForJob(inv.job_id);
   else refreshInvoiceTotalsFromLineItems(req.params.id);
@@ -746,6 +788,21 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (isHeaderLine(item)) {
+    const title = description !== undefined ? String(description).trim() : String(item.description || '').trim();
+    if (!title) return res.status(400).json({ error: 'Header title is required' });
+    db.prepare(`UPDATE invoice_items SET description = ?, created_at = created_at WHERE id = ? AND invoice_id = ?`).run(
+      title,
+      req.params.itemId,
+      req.params.id,
+    );
+    const updated = db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(req.params.itemId);
+    if (inv.type === 'quote') {
+      const { purchase_price, ...rest } = updated;
+      return res.json(rest);
+    }
+    return res.json(updated);
+  }
   const lineType = String(item.type || 'other');
   const isCanonLabour = lineType === 'labour';
   const isJobLabourInvoice = inv.type === 'invoice' && isCanonLabour && inv.job_id != null;
@@ -858,8 +915,9 @@ invoicesRouter.post('/:id/lpos', requireAdminPermission('can_create_lpos'), (req
       if (!Number.isFinite(n) || n <= 0) {
         return res.status(400).json({ error: 'Each line needs a valid invoice_item_id when set' });
       }
-      const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(n, req.params.id);
+      const item = db.prepare('SELECT id, type FROM invoice_items WHERE id = ? AND invoice_id = ?').get(n, req.params.id);
       if (!item) return res.status(400).json({ error: 'Invalid invoice_item_id for this invoice' });
+      if (isHeaderLine(item)) return res.status(400).json({ error: 'Section headers cannot be linked to LPO lines' });
       iid = n;
     } else if (!repeatCostDoc) {
       return res.status(400).json({ error: 'Each line needs invoice_item_id' });
@@ -917,8 +975,9 @@ invoicesRouter.patch('/:id/lpos/:lpoId', requireAdminPermission('can_create_lpos
         if (!Number.isFinite(n) || n <= 0) {
           return res.status(400).json({ error: 'Each line needs a valid invoice_item_id when set' });
         }
-        const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(n, req.params.id);
+        const item = db.prepare('SELECT id, type FROM invoice_items WHERE id = ? AND invoice_id = ?').get(n, req.params.id);
         if (!item) return res.status(400).json({ error: 'Invalid invoice_item_id for this invoice' });
+        if (isHeaderLine(item)) return res.status(400).json({ error: 'Section headers cannot be linked to LPO lines' });
         iid = n;
       } else if (!repeatCostDoc) {
         return res.status(400).json({ error: 'Each line needs invoice_item_id' });
@@ -1041,8 +1100,9 @@ function insertIprLinesFromBody(invoiceId, iprId, lines) {
     if (!desc) throw new Error('Each line needs a description');
     if (!Number.isFinite(qty) || qty <= 0) throw new Error('Each line needs a positive quantity');
     if (!Number.isFinite(uc) || uc < 0) throw new Error('Each line needs a valid unit_cost');
-    const item = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(iid, invoiceId);
+    const item = db.prepare('SELECT id, type FROM invoice_items WHERE id = ? AND invoice_id = ?').get(iid, invoiceId);
     if (!item) throw new Error('Invalid invoice_item_id for this invoice');
+    if (isHeaderLine(item)) throw new Error('Section headers cannot be linked to IPR lines');
     const { vat_rate, vat_exempt } = normalizeLpoLineVat(ln);
     if (vat_exempt !== 1 && vat_rate > 100) throw new Error('vat_rate cannot exceed 100');
     insLine.run(iprId, iid, sid, desc, qty, uc, vat_rate, vat_exempt);
@@ -1619,7 +1679,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   `).get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   
-  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(req.params.id);
+  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(req.params.id);
   const isInvoiceDoc = inv.type === 'invoice';
   let amountPaid = 0;
   let balanceDue = 0;
@@ -1788,25 +1848,48 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   // Table header
   drawItemsHeader(tableTop);
   
-  // Table rows
+  // Table rows (headers group following lines and show section subtotals)
   yPos = tableTop + 20;
   doc.fontSize(9).font('Helvetica');
-  items.forEach((item) => {
+  const displayRows = enrichItemsWithSectionTotals(items);
+  displayRows.forEach((row) => {
+    if (row.kind === 'header') {
+      const title = row.item.description || 'Section';
+      const sectionTotal = Math.round(row.sectionNet || 0);
+      const headerHeight = 22;
+      if (yPos + headerHeight > pageBottom) {
+        doc.addPage();
+        yPos = margin + 20;
+        drawItemsHeader(margin);
+        doc.fontSize(9).font('Helvetica');
+      }
+      doc.rect(margin, yPos - 2, contentWidth, headerHeight).fillAndStroke('#f0f0f0', '#dddddd');
+      doc.fillColor('#000000');
+      doc.font('Helvetica-Bold').text(title, margin + 6, yPos + 4, { width: colWidths.desc + colWidths.qty + colWidths.unit - 12 });
+      doc.text(
+        `KSh ${sectionTotal.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`,
+        margin + colWidths.desc + colWidths.qty + colWidths.unit,
+        yPos + 4,
+        { width: colWidths.amount, align: 'right' },
+      );
+      doc.font('Helvetica');
+      yPos += headerHeight + 4;
+      return;
+    }
+
+    const item = row.item;
     const desc = item.description || '';
     const qty = item.quantity || 1;
     const unitPrice = item.unit_price || 0;
     const amount = qty * unitPrice;
     
-    // Calculate height needed for description wrapping
     const descHeight = doc.heightOfString(desc, { width: colWidths.desc });
     const actualRowHeight = Math.max(rowHeight, descHeight + 4);
 
-    // If this row would overflow the current page, start a new page and re-draw the header.
     if (yPos + actualRowHeight > pageBottom) {
       doc.addPage();
       yPos = margin + 20;
-      const newHeaderTop = margin;
-      drawItemsHeader(newHeaderTop);
+      drawItemsHeader(margin);
       doc.fontSize(9).font('Helvetica');
     }
     

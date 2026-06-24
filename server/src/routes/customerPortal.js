@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db.js';
+import { isHeaderLine } from '../invoiceLineSections.js';
 
 export const customerPortalRouter = Router();
 
@@ -59,10 +60,10 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(invoice.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
     : [];
   const out = {
     id: job.id,
@@ -117,11 +118,11 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const isQuote = docType === 'quote';
   const items = isQuote
     ? db
-        .prepare('SELECT id, description, quantity, unit_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id')
+        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
         .all(inv.id)
     : db
         .prepare(
-          'SELECT id, description, quantity, unit_price, purchase_price, approved FROM invoice_items WHERE invoice_id = ? ORDER BY id',
+          'SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id',
         )
         .all(inv.id);
   const quote = isQuote ? portalDocumentForCustomer(inv, items) : null;
@@ -225,7 +226,7 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
 
-  db.prepare('UPDATE invoice_items SET approved = 1 WHERE invoice_id = ?').run(quote.id);
+  db.prepare("UPDATE invoice_items SET approved = 1 WHERE invoice_id = ? AND COALESCE(type, '') != 'header'").run(quote.id);
   res.status(204).send();
 });
 
@@ -247,6 +248,7 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
     .prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?')
     .get(req.params.itemId, quote.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (isHeaderLine(item)) return res.status(400).json({ error: 'Section headers do not require approval' });
 
   const already = item.approved ? 1 : 0;
   if (!approved) {

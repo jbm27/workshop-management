@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { lpoLineGross, lpoVatLabel } from '../utils/lpoLine';
 import { useAdmin } from '../auth/AdminContext';
+import { isHeaderLine } from '../utils/invoiceLineSections';
 
 function kes(n) {
   const x = Number(n);
@@ -452,7 +453,7 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated, repea
     }
   };
 
-  const items = invoice.items || [];
+  const items = (invoice.items || []).filter((it) => !isHeaderLine(it));
 
   return (
     <>

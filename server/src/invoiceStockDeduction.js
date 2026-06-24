@@ -36,7 +36,7 @@ export function deductOutstandingStockForInvoice(invoiceId) {
       `
     SELECT id, stock_item_id, quantity, COALESCE(stock_deducted_qty, 0) AS stock_deducted_qty, type, description
     FROM invoice_items
-    WHERE invoice_id = ? AND stock_item_id IS NOT NULL AND type != 'labour'
+    WHERE invoice_id = ? AND stock_item_id IS NOT NULL AND type NOT IN ('labour', 'header')
   `,
     )
     .all(invoiceId);

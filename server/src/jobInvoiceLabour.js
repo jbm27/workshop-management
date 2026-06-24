@@ -30,11 +30,12 @@ export function refreshInvoiceTotalsFromLineItems(invoiceId) {
   const inv = db.prepare('SELECT type FROM invoices WHERE id = ?').get(invoiceId);
   if (!inv) return;
   const lines = db
-    .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt FROM invoice_items WHERE invoice_id = ?')
+    .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt, type FROM invoice_items WHERE invoice_id = ?')
     .all(invoiceId);
   let subtotal = 0;
   let tax_amount = 0;
   for (const line of lines) {
+    if (String(line.type || '').toLowerCase() === 'header') continue;
     subtotal += invoiceLineNet(line);
     tax_amount += invoiceLineVat(line);
   }

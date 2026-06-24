@@ -7,6 +7,8 @@ import StockItemSearchInput from '../components/StockItemSearchInput';
 import { useAdmin } from '../auth/AdminContext';
 import { formatStockItemLabel } from '../utils/stockItemLabel';
 import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, vatFromFormData, vatFromElementIds, vatModeFromLine } from '../utils/invoiceLineVat';
+import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
+import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
 
@@ -46,7 +48,10 @@ export default function InvoiceDetail() {
   const [fromQuoteOrderNumber, setFromQuoteOrderNumber] = useState('');
   const [fromQuoteBusy, setFromQuoteBusy] = useState(false);
   const [addQuoteItem, setAddQuoteItem] = useState(false);
+  const [addQuoteHeader, setAddQuoteHeader] = useState(false);
+  const [quoteHeaderTitle, setQuoteHeaderTitle] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
+  const [editingHeaderTitle, setEditingHeaderTitle] = useState('');
   const [quoteLineDraft, setQuoteLineDraft] = useState(emptyStockLineDraft);
   const [quoteEditStock, setQuoteEditStock] = useState({ query: '', stockItemId: null });
   const [copyQuoteOpen, setCopyQuoteOpen] = useState(false);
@@ -252,6 +257,20 @@ export default function InvoiceDetail() {
     }
   };
 
+  const submitQuoteHeader = async (e) => {
+    e.preventDefault();
+    const title = quoteHeaderTitle.trim();
+    if (!title) return alert('Header title is required');
+    try {
+      await api.invoices.addItem(id, { description: title, type: 'header' });
+      await refresh();
+      setAddQuoteHeader(false);
+      setQuoteHeaderTitle('');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const openCopyToQuote = () => {
     setCopyCustomerId(inv?.customer_id ? String(inv.customer_id) : '');
     setCopyVehicleId(inv?.vehicle_id ? String(inv.vehicle_id) : '');
@@ -307,7 +326,8 @@ export default function InvoiceDetail() {
   const balance = inv.type === 'invoice' ? Number(inv.balance ?? total - amountPaid) : null;
   const isQuote = inv.type === 'quote';
   const canEditQuoteLines = isQuote && !inv.job_id;
-  const quoteApprovedCount = isQuote ? items.filter((it) => isQuoteLineApproved(it)).length : 0;
+  const quoteApprovedCount = isQuote ? items.filter((it) => !isHeaderLine(it) && isQuoteLineApproved(it)).length : 0;
+  const quoteLineCount = isQuote ? items.filter((it) => !isHeaderLine(it)).length : 0;
   const dueDateDirty = (inv.due_date ? String(inv.due_date).slice(0, 10) : '') !== dueDate;
   const notesDirty = (inv.notes || '') !== notes;
 
@@ -575,8 +595,8 @@ export default function InvoiceDetail() {
         )}
         {isQuote && items.length > 0 && (
           <p style={{ margin: '0 0 0.75rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
-            Customer portal: <strong>{quoteApprovedCount}</strong> of <strong>{items.length}</strong> line
-            {items.length === 1 ? '' : 's'} approved. Refresh the page after the customer approves to see updates.
+            Customer portal: <strong>{quoteApprovedCount}</strong> of <strong>{quoteLineCount}</strong> line
+            {quoteLineCount === 1 ? '' : 's'} approved. Refresh the page after the customer approves to see updates.
           </p>
         )}
         {canEditQuoteLines && addQuoteItem && (
@@ -633,10 +653,34 @@ export default function InvoiceDetail() {
             </div>
           </form>
         )}
-        {canEditQuoteLines && !addQuoteItem && (
-          <button type="button" className="btn" onClick={() => setAddQuoteItem(true)} style={{ marginBottom: '1rem' }}>
-            + Add item
-          </button>
+        {canEditQuoteLines && addQuoteHeader && (
+          <form
+            onSubmit={submitQuoteHeader}
+            style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}
+          >
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
+                <label>Section header</label>
+                <input
+                  value={quoteHeaderTitle}
+                  onChange={(e) => setQuoteHeaderTitle(e.target.value)}
+                  placeholder="e.g. FOR CFL - JAN"
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button type="submit" className="btn primary">Add header</button>
+                <button type="button" className="btn" onClick={() => { setAddQuoteHeader(false); setQuoteHeaderTitle(''); }}>Cancel</button>
+              </div>
+            </div>
+          </form>
+        )}
+        {canEditQuoteLines && !addQuoteItem && !addQuoteHeader && (
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <button type="button" className="btn" onClick={() => setAddQuoteItem(true)}>+ Item</button>
+            <span style={{ color: 'var(--border)' }}>|</span>
+            <button type="button" className="btn" onClick={() => setAddQuoteHeader(true)}>+ Header</button>
+          </div>
         )}
         <div className="table-wrap">
           <table>
@@ -660,7 +704,39 @@ export default function InvoiceDetail() {
                   </td>
                 </tr>
               )}
-              {items.map((it) => {
+              {enrichItemsWithSectionTotals(items).map((row) => {
+                if (row.kind === 'header') {
+                  const it = row.item;
+                  const labelColSpan = 5;
+                  return (
+                    <InvoiceSectionHeaderRow
+                      key={it.id}
+                      item={it}
+                      sectionNet={row.sectionNet}
+                      labelColSpan={labelColSpan}
+                      formatMoney={kes}
+                      editable={canEditQuoteLines}
+                      editing={editingItemId === it.id}
+                      editTitle={editingHeaderTitle}
+                      onEditTitleChange={setEditingHeaderTitle}
+                      onStartEdit={() => {
+                        setEditingItemId(it.id);
+                        setEditingHeaderTitle(it.description || '');
+                      }}
+                      onSave={() => {
+                        const title = editingHeaderTitle.trim();
+                        if (!title) return alert('Header title is required');
+                        updateQuoteItem(it.id, { description: title });
+                      }}
+                      onCancel={() => {
+                        setEditingItemId(null);
+                        setEditingHeaderTitle('');
+                      }}
+                      onRemove={() => removeQuoteItem(it.id)}
+                    />
+                  );
+                }
+                const it = row.item;
                 const labour = isLabourLine(it);
                 const qty = labour ? 1 : Number(it.quantity) || 0;
                 const price = Number(it.unit_price) || 0;

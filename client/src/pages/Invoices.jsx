@@ -49,6 +49,11 @@ export default function Invoices() {
       ...f,
       items: [...f.items, { description: '', itemQuery: '', stock_item_id: null, quantity: 1, unit_price: 0, type: 'other', ...defaultInvoiceLineVatFields() }],
     }));
+  const addHeaderLine = () =>
+    setForm((f) => ({
+      ...f,
+      items: [...f.items, { description: '', type: 'header', quantity: 0, unit_price: 0, itemQuery: '', stock_item_id: null, ...defaultInvoiceLineVatFields() }],
+    }));
   const updateLine = (i, field, value) => setForm((f) => ({
     ...f,
     items: f.items.map((it, j) => (j === i ? { ...it, [field]: value } : it)),
@@ -59,8 +64,13 @@ export default function Invoices() {
     e.preventDefault();
     if (!form.customer_id) return alert('Select a customer');
     const items = form.items
-      .filter((it) => it.description && (it.unit_price || 0) >= 0)
       .map((it) => {
+        if (String(it.type) === 'header') {
+          const title = String(it.description || it.itemQuery || '').trim();
+          if (!title) return null;
+          return { description: title, type: 'header' };
+        }
+        if (!it.description && !(it.unit_price || 0)) return null;
         let vat;
         try {
           vat = parseVatPayload(it);
@@ -76,7 +86,8 @@ export default function Invoices() {
           vat_rate: vat.vat_rate,
           vat_exempt: vat.vat_exempt,
         };
-      });
+      })
+      .filter(Boolean);
     if (items.length === 0) return alert('Add at least one line item');
     try {
       await api.invoices.create({
@@ -203,8 +214,15 @@ export default function Invoices() {
                   Sale prices are <strong>ex VAT</strong>. Choose VAT per line below.
                 </p>
                 {form.items.map((it, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    {String(it.type) === 'labour' ? (
+                  <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center', flexWrap: 'wrap', background: String(it.type) === 'header' ? '#f0f0f0' : undefined, padding: String(it.type) === 'header' ? '0.35rem 0.5rem' : 0, borderRadius: 'var(--radius)' }}>
+                    {String(it.type) === 'header' ? (
+                      <input
+                        value={it.description || it.itemQuery || ''}
+                        onChange={(e) => updateLine(i, 'description', e.target.value)}
+                        placeholder="Section header title"
+                        style={{ flex: '2 1 200px', fontWeight: 600 }}
+                      />
+                    ) : String(it.type) === 'labour' ? (
                       <input value={it.description} readOnly style={{ flex: '2 1 140px' }} />
                     ) : (
                       <div style={{ flex: '2 1 180px', minWidth: '10rem' }}>
@@ -240,6 +258,8 @@ export default function Invoices() {
                         />
                       </div>
                     )}
+                    {String(it.type) !== 'header' && (
+                      <>
                     <input type="number" placeholder="Qty" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} style={{ width: '60px' }} min="0" step="0.01" />
                     <input type="number" placeholder="Price ex VAT" value={it.unit_price} onChange={(e) => updateLine(i, 'unit_price', e.target.value)} style={{ width: '100px' }} min="0" step="0.01" />
                     <InvoiceLineVatSelect
@@ -249,10 +269,15 @@ export default function Invoices() {
                         items: f.items.map((row, j) => (j === i ? { ...row, ...vat } : row)),
                       }))}
                     />
+                      </>
+                    )}
                     <button type="button" className="btn" onClick={() => removeLine(i)}>×</button>
                   </div>
                 ))}
-                <button type="button" className="btn" onClick={addLine}>Add line</button>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button type="button" className="btn" onClick={addLine}>Add line</button>
+                  <button type="button" className="btn" onClick={addHeaderLine}>Add header</button>
+                </div>
               </div>
               <div className="form-group">
                 <label>Notes</label>

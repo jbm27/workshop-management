@@ -1,0 +1,43 @@
+import { invoiceLineNet } from './invoiceLineVat';
+
+export function isHeaderLine(line) {
+  return String(line?.type || '').toLowerCase() === 'header';
+}
+
+export function sortInvoiceItems(items) {
+  return [...(items || [])].sort((a, b) => {
+    const sa = Number(a.sort_order);
+    const sb = Number(b.sort_order);
+    const oa = Number.isFinite(sa) ? sa : Number(a.id) || 0;
+    const ob = Number.isFinite(sb) ? sb : Number(b.id) || 0;
+    if (oa !== ob) return oa - ob;
+    return (Number(a.id) || 0) - (Number(b.id) || 0);
+  });
+}
+
+export function enrichItemsWithSectionTotals(items, lineNetFn = invoiceLineNet) {
+  const sorted = sortInvoiceItems(items);
+  const rows = [];
+  let i = 0;
+  while (i < sorted.length) {
+    const row = sorted[i];
+    if (isHeaderLine(row)) {
+      let sectionNet = 0;
+      let j = i + 1;
+      while (j < sorted.length && !isHeaderLine(sorted[j])) {
+        sectionNet += lineNetFn(sorted[j]);
+        j += 1;
+      }
+      rows.push({ kind: 'header', item: row, sectionNet });
+      i += 1;
+      while (i < sorted.length && !isHeaderLine(sorted[i])) {
+        rows.push({ kind: 'line', item: sorted[i] });
+        i += 1;
+      }
+    } else {
+      rows.push({ kind: 'line', item: row });
+      i += 1;
+    }
+  }
+  return rows;
+}

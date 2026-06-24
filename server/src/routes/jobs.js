@@ -450,7 +450,7 @@ jobsRouter.post('/from-quote', requireAdminAuth, (req, res) => {
     WHERE i.id = ?
   `)
     .get(inv.id);
-  const invItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(inv.id);
+  const invItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(inv.id);
   res.status(201).json({ job, invoice: { ...invoiceRow, items: invItems } });
 });
 
@@ -539,7 +539,7 @@ jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
     const quote = db.prepare(`SELECT * FROM invoices WHERE job_id = ? AND type = 'quote' ORDER BY id DESC LIMIT 1`).get(jobId);
     const invoice = db.prepare(`SELECT * FROM invoices WHERE job_id = ? AND type = 'invoice' ORDER BY id DESC LIMIT 1`).get(jobId);
 
-    const quoteItems = quote ? db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(quote.id) : [];
+    const quoteItems = quote ? db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id) : [];
 
     const invoiceItems = invoice
       ? db
@@ -1055,7 +1055,7 @@ jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
     FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id
     WHERE i.id = ?
   `).get(invId);
-  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(invId);
+  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invId);
   res.status(201).json({ ...row, items });
 });
 
@@ -1082,6 +1082,6 @@ jobsRouter.post('/:id/invoice', requireAdminAuth, (req, res) => {
     FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id
     WHERE i.id = ?
   `).get(invId);
-  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(invId);
+  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invId);
   res.status(201).json({ ...row, items });
 });

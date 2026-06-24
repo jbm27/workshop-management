@@ -13,6 +13,8 @@ import {
   vatFromElementIds,
   vatModeFromLine,
 } from '../utils/invoiceLineVat';
+import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
+import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
 const JOB_STATUS_LABEL = {
@@ -87,7 +89,7 @@ function isQuoteLineApproved(line) {
 }
 
 function hasUnapprovedQuoteLines(q) {
-  return quoteLines(q).some((line) => !isQuoteLineApproved(line));
+  return quoteLines(q).some((line) => !isHeaderLine(line) && !isQuoteLineApproved(line));
 }
 
 function descriptionMatchesUnapprovedQuote(q, description) {
@@ -201,11 +203,17 @@ export default function JobDetail() {
   const [quote, setQuote] = useState(null);
   const [quoteLoading, setQuoteLoading] = useState(true);
   const [addQuoteItem, setAddQuoteItem] = useState(false);
+  const [addQuoteHeader, setAddQuoteHeader] = useState(false);
+  const [quoteHeaderTitle, setQuoteHeaderTitle] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
+  const [editingHeaderTitle, setEditingHeaderTitle] = useState('');
   const [invoice, setInvoice] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
   const [addInvoiceItem, setAddInvoiceItem] = useState(false);
+  const [addInvoiceHeader, setAddInvoiceHeader] = useState(false);
+  const [invoiceHeaderTitle, setInvoiceHeaderTitle] = useState('');
   const [editingInvoiceItemId, setEditingInvoiceItemId] = useState(null);
+  const [editingInvoiceHeaderTitle, setEditingInvoiceHeaderTitle] = useState('');
   const [quoteLineDraft, setQuoteLineDraft] = useState(emptyStockLineDraft);
   const [invoiceLineDraft, setInvoiceLineDraft] = useState(emptyStockLineDraft);
   const [quoteEditStock, setQuoteEditStock] = useState({ query: '', stockItemId: null });
@@ -511,6 +519,37 @@ export default function JobDetail() {
     }
   };
 
+  const submitQuoteHeader = async (e) => {
+    e.preventDefault();
+    const title = quoteHeaderTitle.trim();
+    if (!title) return alert('Header title is required');
+    try {
+      await api.invoices.addItem(quote.id, { description: title, type: 'header' });
+      const inv = await api.invoices.get(quote.id);
+      setQuote(inv);
+      setAddQuoteHeader(false);
+      setQuoteHeaderTitle('');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const submitInvoiceHeader = async (e) => {
+    e.preventDefault();
+    if (!invoice) return;
+    const title = invoiceHeaderTitle.trim();
+    if (!title) return alert('Header title is required');
+    try {
+      await api.invoices.addItem(invoice.id, { description: title, type: 'header' });
+      const inv = await api.invoices.get(invoice.id);
+      setInvoice(inv);
+      setAddInvoiceHeader(false);
+      setInvoiceHeaderTitle('');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const submitInvoiceItem = async (e) => {
     e.preventDefault();
     if (!invoice) return;
@@ -592,6 +631,16 @@ export default function JobDetail() {
       alert('Create an invoice first (see Invoice section above).');
       return;
     }
+    if (isHeaderLine(line)) {
+      try {
+        await api.invoices.addItem(invoice.id, { description: line.description, type: 'header' });
+        const inv = await api.invoices.get(invoice.id);
+        setInvoice(inv);
+      } catch (err) {
+        alert(err.message);
+      }
+      return;
+    }
     if (String(line.type || '').toLowerCase() === 'labour') {
       alert('Labour is already on the job invoice and stays in sync with time logs; you do not need to copy it from the quote.');
       return;
@@ -671,10 +720,16 @@ export default function JobDetail() {
     try {
       const toCopy = quote.items.filter((it) => String(it.type || '').toLowerCase() !== 'labour');
       for (const it of toCopy) {
+        if (isHeaderLine(it)) {
+          await api.invoices.addItem(invoice.id, { description: it.description, type: 'header' });
+          continue;
+        }
         await api.invoices.addItem(invoice.id, {
           description: it.description,
           quantity: it.quantity ?? 1,
           unit_price: it.unit_price ?? 0,
+          stock_item_id: it.stock_item_id || undefined,
+          type: it.stock_item_id ? 'part' : it.type,
           vat_rate: it.vat_rate,
           vat_exempt: it.vat_exempt,
         });
@@ -1736,18 +1791,42 @@ export default function JobDetail() {
                 </div>
               </form>
             )}
-            {!addInvoiceItem && (
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  if (hasUnapprovedQuoteLines(quote) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
-                  setAddInvoiceItem(true);
-                }}
-                style={{ marginBottom: '1rem' }}
-              >
-                + Add item
-              </button>
+            {addInvoiceHeader && (
+              <form onSubmit={submitInvoiceHeader} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
+                    <label>Section header</label>
+                    <input
+                      value={invoiceHeaderTitle}
+                      onChange={(e) => setInvoiceHeaderTitle(e.target.value)}
+                      placeholder="e.g. FOR CFL - JAN"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button type="submit" className="btn primary">Add header</button>
+                    <button type="button" className="btn" onClick={() => { setAddInvoiceHeader(false); setInvoiceHeaderTitle(''); }}>Cancel</button>
+                  </div>
+                </div>
+              </form>
+            )}
+            {!addInvoiceItem && !addInvoiceHeader && (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    if (hasUnapprovedQuoteLines(quote) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
+                    setAddInvoiceItem(true);
+                  }}
+                >
+                  + Item
+                </button>
+                <span style={{ color: 'var(--border)' }}>|</span>
+                <button type="button" className="btn" onClick={() => setAddInvoiceHeader(true)}>
+                  + Header
+                </button>
+              </div>
             )}
             <div className="table-wrap">
               <table>
@@ -1766,7 +1845,38 @@ export default function JobDetail() {
                   {(!invoice.items || invoice.items.length === 0) && (
                     <tr><td colSpan={7} className="empty">No invoice lines yet. Add items above.</td></tr>
                   )}
-                  {invoice.items?.map((it) => {
+                  {enrichItemsWithSectionTotals(invoice.items).map((row) => {
+                    if (row.kind === 'header') {
+                      const it = row.item;
+                      return (
+                        <InvoiceSectionHeaderRow
+                          key={it.id}
+                          item={it}
+                          sectionNet={row.sectionNet}
+                          labelColSpan={5}
+                          formatMoney={(n) => `KES ${Number(n).toLocaleString()}`}
+                          editable
+                          editing={editingInvoiceItemId === it.id}
+                          editTitle={editingInvoiceHeaderTitle}
+                          onEditTitleChange={setEditingInvoiceHeaderTitle}
+                          onStartEdit={() => {
+                            setEditingInvoiceItemId(it.id);
+                            setEditingInvoiceHeaderTitle(it.description || '');
+                          }}
+                          onSave={() => {
+                            const title = editingInvoiceHeaderTitle.trim();
+                            if (!title) return alert('Header title is required');
+                            updateInvoiceItem(it.id, { description: title });
+                          }}
+                          onCancel={() => {
+                            setEditingInvoiceItemId(null);
+                            setEditingInvoiceHeaderTitle('');
+                          }}
+                          onRemove={() => removeInvoiceItem(it.id)}
+                        />
+                      );
+                    }
+                    const it = row.item;
                     const purchaseFromAlloc =
                       Number(it.lpo_line_count) > 0 || Number(it.ipr_line_count) > 0;
                     const labour = isLabourLine(it);
@@ -1892,7 +2002,16 @@ export default function JobDetail() {
                           <td><strong>KES {invoiceLineNet(it).toLocaleString()}</strong></td>
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                              <button type="button" className="btn" onClick={() => setEditingInvoiceItemId(it.id)}>Edit</button>
+                              <button
+                                type="button"
+                                className="btn"
+                                onClick={() => {
+                                  setEditingInvoiceHeaderTitle('');
+                                  setEditingInvoiceItemId(it.id);
+                                }}
+                              >
+                                Edit
+                              </button>
                               {!labour && (
                                 <button type="button" className="btn danger" onClick={() => removeInvoiceItem(it.id)}>Remove</button>
                               )}
@@ -2133,8 +2252,31 @@ export default function JobDetail() {
                 </div>
               </form>
             )}
-            {!addQuoteItem && (
-              <button type="button" className="btn" onClick={() => setAddQuoteItem(true)} style={{ marginBottom: '1rem' }}>+ Add item</button>
+            {addQuoteHeader && (
+              <form onSubmit={submitQuoteHeader} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'end', flexWrap: 'wrap' }}>
+                  <div className="form-group" style={{ margin: 0, flex: '1 1 200px' }}>
+                    <label>Section header</label>
+                    <input
+                      value={quoteHeaderTitle}
+                      onChange={(e) => setQuoteHeaderTitle(e.target.value)}
+                      placeholder="e.g. FOR CFL - JAN"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button type="submit" className="btn primary">Add header</button>
+                    <button type="button" className="btn" onClick={() => { setAddQuoteHeader(false); setQuoteHeaderTitle(''); }}>Cancel</button>
+                  </div>
+                </div>
+              </form>
+            )}
+            {!addQuoteItem && !addQuoteHeader && (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                <button type="button" className="btn" onClick={() => setAddQuoteItem(true)}>+ Item</button>
+                <span style={{ color: 'var(--border)' }}>|</span>
+                <button type="button" className="btn" onClick={() => setAddQuoteHeader(true)}>+ Header</button>
+              </div>
             )}
             <div className="table-wrap">
               <table>
@@ -2153,7 +2295,38 @@ export default function JobDetail() {
                   {(!quote.items || quote.items.length === 0) && (
                     <tr><td colSpan={7} className="empty">No quote lines yet. Add items above.</td></tr>
                   )}
-                  {quote.items?.map((it) => {
+                  {enrichItemsWithSectionTotals(quote.items).map((row) => {
+                    if (row.kind === 'header') {
+                      const it = row.item;
+                      return (
+                        <InvoiceSectionHeaderRow
+                          key={it.id}
+                          item={it}
+                          sectionNet={row.sectionNet}
+                          labelColSpan={5}
+                          formatMoney={(n) => `KES ${Number(n).toLocaleString()}`}
+                          editable
+                          editing={editingItemId === it.id}
+                          editTitle={editingHeaderTitle}
+                          onEditTitleChange={setEditingHeaderTitle}
+                          onStartEdit={() => {
+                            setEditingItemId(it.id);
+                            setEditingHeaderTitle(it.description || '');
+                          }}
+                          onSave={() => {
+                            const title = editingHeaderTitle.trim();
+                            if (!title) return alert('Header title is required');
+                            updateQuoteItem(it.id, { description: title });
+                          }}
+                          onCancel={() => {
+                            setEditingItemId(null);
+                            setEditingHeaderTitle('');
+                          }}
+                          onRemove={() => removeQuoteItem(it.id)}
+                        />
+                      );
+                    }
+                    const it = row.item;
                     const labour = isLabourLine(it);
                     return (
                     <tr key={it.id}>
@@ -2225,8 +2398,17 @@ export default function JobDetail() {
                           <td><strong>KES {invoiceLineNet(it).toLocaleString()}</strong></td>
                           <td>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                              <button type="button" className="btn" onClick={() => setEditingItemId(it.id)}>Edit</button>
-                              {invoice && !invoiceLoading && String(it.type || '').toLowerCase() !== 'labour' && (
+                              <button
+                                type="button"
+                                className="btn"
+                                onClick={() => {
+                                  setEditingHeaderTitle('');
+                                  setEditingItemId(it.id);
+                                }}
+                              >
+                                Edit
+                              </button>
+                              {invoice && !invoiceLoading && !isHeaderLine(it) && String(it.type || '').toLowerCase() !== 'labour' && (
                                 <button type="button" className="btn primary" onClick={() => addQuoteLineToInvoice(it)}>
                                   Add to invoice
                                 </button>

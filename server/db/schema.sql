@@ -250,6 +250,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   supplier_id INTEGER REFERENCES suppliers(id),
   vat_rate REAL DEFAULT 16,
   vat_exempt INTEGER DEFAULT 0,
+  sort_order INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

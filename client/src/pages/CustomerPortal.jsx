@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
+import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -576,7 +577,7 @@ function PortalJobDetail() {
 }
 
 function PortalLineItemsTable({ items }) {
-  const list = items || [];
+  const rows = enrichItemsWithSectionTotals(items || []);
   return (
     <div className="table-wrap">
       <table>
@@ -589,12 +590,25 @@ function PortalLineItemsTable({ items }) {
           </tr>
         </thead>
         <tbody>
-          {list.length === 0 && (
+          {rows.length === 0 && (
             <tr>
               <td colSpan={4} className="empty">No lines.</td>
             </tr>
           )}
-          {list.map((item) => {
+          {rows.map((row) => {
+            if (row.kind === 'header') {
+              return (
+                <tr key={row.item.id} style={{ background: '#f0f0f0' }}>
+                  <td colSpan={3} style={{ fontWeight: 600, padding: '0.55rem 0.75rem' }}>
+                    {row.item.description || 'Section'}
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, padding: '0.55rem 0.75rem' }}>
+                    {kes(row.sectionNet)}
+                  </td>
+                </tr>
+              );
+            }
+            const item = row.item;
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
             return (
@@ -656,7 +670,7 @@ function PortalDocumentTotals({ doc }) {
 }
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote }) {
-  const quotePendingCount = quote?.items?.filter((i) => !isQuoteLineApproved(i)).length ?? 0;
+  const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
 
   return (
     <section className="card" style={{ marginTop: '1rem' }}>
@@ -713,7 +727,21 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
             {(!quote.items || quote.items.length === 0) && (
               <tr><td colSpan={5} className="empty">No quote lines.</td></tr>
             )}
-            {quote.items?.map((item) => {
+            {enrichItemsWithSectionTotals(quote.items).map((row) => {
+              if (row.kind === 'header') {
+                return (
+                  <tr key={row.item.id} style={{ background: '#f0f0f0' }}>
+                    <td />
+                    <td colSpan={3} style={{ fontWeight: 600, padding: '0.55rem 0.75rem' }}>
+                      {row.item.description || 'Section'}
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 600, padding: '0.55rem 0.75rem' }}>
+                      {kes(row.sectionNet)}
+                    </td>
+                  </tr>
+                );
+              }
+              const item = row.item;
               const qty = Number(item.quantity) || 0;
               const price = Number(item.unit_price) || 0;
               return (
