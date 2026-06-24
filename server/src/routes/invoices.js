@@ -1725,19 +1725,74 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     yPos += actualRowHeight;
   });
   
-  // Totals box (right side) — keep it close to the last line item.
-  let totalsY = yPos + 10;
+  // Summary row: payment details & terms (left) beside totals box (right).
+  let summaryY = yPos + 10;
   const totalsBoxWidth = 180;
   const totalsBoxX = pageWidth - margin - totalsBoxWidth;
   const totalsBoxHeight = isInvoiceDoc ? 96 : 60;
-  if (totalsY + totalsBoxHeight > pageBottom) {
+  const isQuoteDoc = inv.type === 'quote';
+  const paymentAreaGap = 12;
+  const paymentAreaWidth = totalsBoxX - margin - paymentAreaGap;
+  const paymentDetailsWidth = paymentAreaWidth * 0.52;
+  const paymentTermsGap = 10;
+  const paymentTermsX = margin + paymentDetailsWidth + paymentTermsGap;
+  const paymentTermsWidth = paymentAreaWidth - paymentDetailsWidth - paymentTermsGap;
+  const estimatedPaymentHeight = isQuoteDoc ? 118 : 102;
+  const summaryBlockHeight = Math.max(totalsBoxHeight, estimatedPaymentHeight);
+
+  if (summaryY + summaryBlockHeight > pageBottom) {
     doc.addPage();
-    totalsY = margin + 20;
+    summaryY = margin + 20;
   }
-  
+
+  if (isQuoteDoc) {
+    doc.fontSize(8).font('Helvetica').text(
+      'Please note that this is an estimate only and not a final bill. In case of any additional costs, you will be notified for approval.',
+      margin,
+      summaryY,
+      { width: paymentAreaWidth },
+    );
+    summaryY = doc.y + 8;
+    if (summaryY + summaryBlockHeight > pageBottom) {
+      doc.addPage();
+      summaryY = margin + 20;
+    }
+  }
+
+  const paymentBlockY = summaryY;
+
+  let paymentLeftY = paymentBlockY;
+  doc.fontSize(8).font('Helvetica-Bold').text('Payment Details:', margin, paymentLeftY, { width: paymentDetailsWidth });
+  paymentLeftY = doc.y + 6;
+  doc.font('Helvetica').text(`Mpesa Till Number: ${company.mpesa.tillNumber}`, margin, paymentLeftY, { width: paymentDetailsWidth });
+  paymentLeftY = doc.y + 8;
+  doc.fontSize(9).font('Helvetica-Bold').text(company.bank.name, margin, paymentLeftY, { width: paymentDetailsWidth });
+  paymentLeftY = doc.y + 6;
+  doc.font('Helvetica').text(`Name: ${company.legalName}`, margin, paymentLeftY, { width: paymentDetailsWidth });
+  paymentLeftY = doc.y + 4;
+  doc.text(`Branch: ${company.bank.branch}`, margin, paymentLeftY, { width: paymentDetailsWidth });
+  paymentLeftY = doc.y + 4;
+  doc.text(`Acc. No: ${company.bank.accountNumber}`, margin, paymentLeftY, { width: paymentDetailsWidth });
+  paymentLeftY = doc.y + 4;
+  doc.text(`Swift Code: ${company.bank.swiftCode}`, margin, paymentLeftY, { width: paymentDetailsWidth });
+  const paymentLeftEndY = doc.y;
+
+  let paymentRightY = paymentBlockY;
+  doc.fontSize(8).font('Helvetica-Bold').text('Payment Terms:', paymentTermsX, paymentRightY, { width: paymentTermsWidth });
+  paymentRightY = doc.y + 6;
+  doc.font('Helvetica').text(company.paymentTerms, paymentTermsX, paymentRightY, { width: paymentTermsWidth });
+  paymentRightY = doc.y + 4;
+  if (isQuoteDoc) {
+    doc.text(`Validity ${company.validityDays} days`, paymentTermsX, paymentRightY, { width: paymentTermsWidth });
+    paymentRightY = doc.y + 4;
+  }
+  doc.text('Cheque payment to go through before collection', paymentTermsX, paymentRightY, { width: paymentTermsWidth });
+  const paymentRightEndY = doc.y;
+
+  const totalsY = paymentBlockY;
   doc.rect(totalsBoxX, totalsY, totalsBoxWidth, totalsBoxHeight).stroke();
   let totalsYPos = totalsY + 10;
-  
+
   doc.fontSize(9).font('Helvetica');
   const formatKsh = (n) => kshFormat(n);
   const subtotalRounded = Math.round(inv.subtotal || 0);
@@ -1747,11 +1802,11 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   doc.text('Subtotal', totalsBoxX + 10, totalsYPos);
   doc.text(formatKsh(subtotalRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   totalsYPos += 12;
-  
+
   doc.text('VAT', totalsBoxX + 10, totalsYPos);
   doc.text(formatKsh(taxRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   totalsYPos += 12;
-  
+
   doc.fontSize(10).font('Helvetica-Bold');
   doc.text('Total Incl. VAT', totalsBoxX + 10, totalsYPos);
   doc.text(formatKsh(totalRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
@@ -1767,8 +1822,10 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.text(formatKsh(balanceDue), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   }
 
+  const summaryBottom = Math.max(totalsY + totalsBoxHeight, paymentLeftEndY, paymentRightEndY);
+
   const customerNotes = inv.notes != null ? String(inv.notes).trim() : '';
-  let notesBlockY = totalsY + totalsBoxHeight + 16;
+  let notesBlockY = summaryBottom + 14;
   if (customerNotes) {
     const notesHeadingH = 14;
     const notesBodyH = doc.heightOfString(customerNotes, { width: contentWidth * 0.9 });
@@ -1779,69 +1836,20 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.fontSize(9).font('Helvetica-Bold').text('Notes:', margin, notesBlockY);
     notesBlockY = doc.y + 4;
     doc.font('Helvetica').text(customerNotes, margin, notesBlockY, { width: contentWidth * 0.9 });
-    notesBlockY = doc.y + 12;
-  }
-  
-  // Footer - disclaimers and payment details (kept on a single page, left aligned)
-  const footerY = customerNotes ? notesBlockY : totalsY + totalsBoxHeight + 20;
-  doc.fontSize(8).font('Helvetica');
-  
-  let footerYPos = footerY;
-  const isQuoteDoc = inv.type === 'quote';
-
-  if (isQuoteDoc) {
-    doc.text(
-      'Please note that this is an estimate only and not a final bill. In case of any additional costs, you will be notified for approval.',
-      margin,
-      footerYPos,
-      { width: contentWidth * 0.9 },
-    );
-    footerYPos = doc.y + 10;
+    notesBlockY = doc.y + 10;
   }
 
-  doc.text(
+  let footerYPos = customerNotes ? notesBlockY : summaryBottom + 14;
+  if (footerYPos + 12 > pageBottom) {
+    doc.addPage();
+    footerYPos = margin + 20;
+  }
+  doc.fontSize(8).font('Helvetica').text(
     '*Non-genuine & **2nd hand parts come with limited warranty',
     margin,
     footerYPos,
     { width: contentWidth * 0.9 },
   );
-  footerYPos = doc.y + 10;
 
-  const paymentColGap = 12;
-  const paymentLeftColWidth = contentWidth * 0.48;
-  const paymentRightColX = margin + paymentLeftColWidth + paymentColGap;
-  const paymentRightColWidth = contentWidth - paymentLeftColWidth - paymentColGap;
-  const paymentBlockY = footerYPos;
-
-  let paymentLeftY = paymentBlockY;
-  doc.fontSize(8).font('Helvetica-Bold').text('Payment Details:', margin, paymentLeftY, { width: paymentLeftColWidth });
-  paymentLeftY = doc.y + 6;
-  doc.font('Helvetica').text(`Mpesa Till Number: ${company.mpesa.tillNumber}`, margin, paymentLeftY, { width: paymentLeftColWidth });
-  paymentLeftY = doc.y + 10;
-  doc.fontSize(9).font('Helvetica-Bold').text(company.bank.name, margin, paymentLeftY, { width: paymentLeftColWidth });
-  paymentLeftY = doc.y + 6;
-  doc.font('Helvetica').text(`Name: ${company.legalName}`, margin, paymentLeftY, { width: paymentLeftColWidth });
-  paymentLeftY = doc.y + 4;
-  doc.text(`Branch: ${company.bank.branch}`, margin, paymentLeftY, { width: paymentLeftColWidth });
-  paymentLeftY = doc.y + 4;
-  doc.text(`Acc. No: ${company.bank.accountNumber}`, margin, paymentLeftY, { width: paymentLeftColWidth });
-  paymentLeftY = doc.y + 4;
-  doc.text(`Swift Code: ${company.bank.swiftCode}`, margin, paymentLeftY, { width: paymentLeftColWidth });
-  const paymentLeftEndY = doc.y;
-
-  let paymentRightY = paymentBlockY;
-  doc.fontSize(8).font('Helvetica-Bold').text('Payment Terms:', paymentRightColX, paymentRightY, { width: paymentRightColWidth });
-  paymentRightY = doc.y + 6;
-  doc.font('Helvetica').text(company.paymentTerms, paymentRightColX, paymentRightY, { width: paymentRightColWidth });
-  paymentRightY = doc.y + 4;
-  if (isQuoteDoc) {
-    doc.text(`Validity ${company.validityDays} days`, paymentRightColX, paymentRightY, { width: paymentRightColWidth });
-    paymentRightY = doc.y + 4;
-  }
-  doc.text('Cheque payment to go through before collection', paymentRightColX, paymentRightY, { width: paymentRightColWidth });
-  const paymentRightEndY = doc.y;
-
-  footerYPos = Math.max(paymentLeftEndY, paymentRightEndY) + 10;
-  
   doc.end();
 });
