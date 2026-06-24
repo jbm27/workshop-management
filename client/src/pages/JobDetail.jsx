@@ -1334,7 +1334,16 @@ export default function JobDetail() {
 
       {!isMechanic && (
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Tasks</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <h3 style={{ margin: 0 }}>Tasks</h3>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => api.jobs.downloadTasksPdf(id).catch((err) => alert(err.message))}
+          >
+            Print tasks
+          </button>
+        </div>
         {tasks.length === 0 && !tasksDirty && <p style={{ color: 'var(--text-muted)' }}>No tasks yet.</p>}
         {tasks.map((task, i) => (
           <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>

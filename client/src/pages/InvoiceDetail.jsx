@@ -43,6 +43,12 @@ export default function InvoiceDetail() {
   const [fromQuoteBusy, setFromQuoteBusy] = useState(false);
   const [addQuoteItem, setAddQuoteItem] = useState(false);
   const [editingItemId, setEditingItemId] = useState(null);
+  const [copyQuoteOpen, setCopyQuoteOpen] = useState(false);
+  const [copyQuoteBusy, setCopyQuoteBusy] = useState(false);
+  const [copyCustomers, setCopyCustomers] = useState([]);
+  const [copyCustomerId, setCopyCustomerId] = useState('');
+  const [copyVehicleId, setCopyVehicleId] = useState('');
+  const [copyVehicles, setCopyVehicles] = useState([]);
 
   const refresh = () =>
     api.invoices.get(id).then((data) => {
@@ -224,6 +230,42 @@ export default function InvoiceDetail() {
     }
   };
 
+  const openCopyToQuote = () => {
+    setCopyCustomerId(inv?.customer_id ? String(inv.customer_id) : '');
+    setCopyVehicleId(inv?.vehicle_id ? String(inv.vehicle_id) : '');
+    setCopyQuoteOpen(true);
+    api.customers.list().then(setCopyCustomers).catch(() => setCopyCustomers([]));
+  };
+
+  useEffect(() => {
+    if (!copyQuoteOpen || !copyCustomerId) {
+      setCopyVehicles([]);
+      return;
+    }
+    api.customers
+      .vehicles(copyCustomerId)
+      .then(setCopyVehicles)
+      .catch(() => setCopyVehicles([]));
+  }, [copyQuoteOpen, copyCustomerId]);
+
+  const submitCopyToQuote = async (e) => {
+    e.preventDefault();
+    if (!copyCustomerId) return alert('Select a customer for the new quote');
+    setCopyQuoteBusy(true);
+    try {
+      const created = await api.invoices.copyToQuote(id, {
+        customer_id: Number(copyCustomerId),
+        vehicle_id: copyVehicleId ? Number(copyVehicleId) : null,
+      });
+      setCopyQuoteOpen(false);
+      navigate(`/invoices/${created.id}`);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setCopyQuoteBusy(false);
+    }
+  };
+
   if (loading) return <div className="page-title">Loading…</div>;
   if (!inv) {
     return (
@@ -244,6 +286,8 @@ export default function InvoiceDetail() {
   const isQuote = inv.type === 'quote';
   const canEditQuoteLines = isQuote && !inv.job_id;
   const quoteApprovedCount = isQuote ? items.filter((it) => isQuoteLineApproved(it)).length : 0;
+  const dueDateDirty = (inv.due_date ? String(inv.due_date).slice(0, 10) : '') !== dueDate;
+  const notesDirty = (inv.notes || '') !== notes;
 
   return (
     <>
@@ -258,6 +302,11 @@ export default function InvoiceDetail() {
           </span>
         </h1>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          {(isQuote || inv.type === 'invoice') && (
+            <button type="button" className="btn" onClick={openCopyToQuote}>
+              Copy to quote
+            </button>
+          )}
           {items.length > 0 && (
             <button type="button" className="btn primary" onClick={() => api.invoices.downloadPDF(inv.id)}>
               Download PDF
@@ -462,20 +511,34 @@ export default function InvoiceDetail() {
       )}
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginTop: 0 }}>Due date & notes</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem', alignItems: 'end' }}>
-          <div className="form-group" style={{ margin: 0 }}>
-            <label>Due date</label>
-            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-          </div>
-          <div className="form-group" style={{ margin: 0, gridColumn: '1 / -1' }}>
-            <label>Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
-          </div>
+        <h3 style={{ marginTop: 0 }}>Due date</h3>
+        <div className="form-group" style={{ margin: 0, maxWidth: '240px' }}>
+          <label>Due date</label>
+          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </div>
-        {metaDirty && (
+        {dueDateDirty && (
           <button type="button" className="btn primary" style={{ marginTop: '1rem' }} onClick={saveMeta} disabled={savingMeta}>
-            {savingMeta ? 'Saving…' : 'Save'}
+            {savingMeta ? 'Saving…' : 'Save due date'}
+          </button>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginTop: 0 }}>Customer notes</h3>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
+          Additional information for the customer. Shown on the PDF and in the customer portal where applicable.
+        </p>
+        <div className="form-group" style={{ margin: 0 }}>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={4}
+            placeholder="e.g. Special instructions, warranty details, or payment references…"
+          />
+        </div>
+        {notesDirty && (
+          <button type="button" className="btn primary" style={{ marginTop: '1rem' }} onClick={saveMeta} disabled={savingMeta}>
+            {savingMeta ? 'Saving…' : 'Save notes'}
           </button>
         )}
       </div>
@@ -716,6 +779,56 @@ export default function InvoiceDetail() {
             then finalise to deduct stock. Print PDFs anytime.
           </p>
           <JobInvoiceLpoIprPanel invoice={inv} onInvoiceUpdated={setInv} />
+        </div>
+      )}
+
+      {copyQuoteOpen && (
+        <div className="modal-overlay" onClick={() => !copyQuoteBusy && setCopyQuoteOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+            <header>Copy to new quote</header>
+            <form className="body" onSubmit={submitCopyToQuote}>
+              <p style={{ margin: '0 0 1rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                Creates a new standalone quote with the same line items. Choose the customer (and vehicle) for the new quote.
+              </p>
+              <div className="form-group">
+                <label>Customer *</label>
+                <select
+                  value={copyCustomerId}
+                  onChange={(e) => {
+                    setCopyCustomerId(e.target.value);
+                    setCopyVehicleId('');
+                  }}
+                  required
+                >
+                  <option value="">— Select customer —</option>
+                  {copyCustomers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.company_name ? `${c.company_name}${c.name ? ` · ${c.name}` : ''}` : c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Vehicle (optional)</label>
+                <select value={copyVehicleId} onChange={(e) => setCopyVehicleId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {copyVehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {[v.registration, v.make, v.model].filter(Boolean).join(' ') || `Vehicle #${v.id}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </form>
+            <footer>
+              <button type="button" className="btn" onClick={() => setCopyQuoteOpen(false)} disabled={copyQuoteBusy}>
+                Cancel
+              </button>
+              <button type="submit" className="btn primary" onClick={submitCopyToQuote} disabled={copyQuoteBusy}>
+                {copyQuoteBusy ? 'Creating…' : 'Create quote'}
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </>

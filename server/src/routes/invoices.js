@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, transactionSync } from '../db.js';
 import { config } from '../config.js';
-import { nextSequenceRef, JOB_INVOICE_SEQUENCE_BASELINE } from '../sequences.js';
+import { nextSequenceRef, JOB_INVOICE_SEQUENCE_BASELINE, QUOTE_SEQUENCE_BASELINE } from '../sequences.js';
 import { drawWorkshopDocumentHeader, kshFormat } from '../workshopPdf.js';
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
 import PDFDocument from 'pdfkit';
@@ -119,7 +119,7 @@ function nextInvoiceNumber() {
 /** Same sequence and format as job-attached quotes (`jobs` route). */
 function nextQuoteNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('quote_number');
-  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
+  const next = (row?.value ?? QUOTE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'quote_number');
   return `QUO-${next}`;
 }
@@ -453,6 +453,75 @@ invoicesRouter.get('/:id', (req, res) => {
   const payload = fullInvoicePayload(req.params.id);
   if (!payload) return res.status(404).json({ error: 'Invoice not found' });
   res.json(payload);
+});
+
+/** Duplicate line items into a new standalone quote (optionally for another customer/vehicle). */
+invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
+  const src = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
+  if (!src) return res.status(404).json({ error: 'Document not found' });
+  if (src.type !== 'quote' && src.type !== 'invoice') {
+    return res.status(400).json({ error: 'Only quotes and invoices can be copied to a new quote' });
+  }
+
+  let customer_id =
+    req.body?.customer_id != null && String(req.body.customer_id).trim() !== ''
+      ? Number(req.body.customer_id)
+      : src.customer_id;
+  if (!Number.isFinite(customer_id) || customer_id <= 0) {
+    return res.status(400).json({ error: 'customer_id is required' });
+  }
+  const cust = db.prepare('SELECT id FROM customers WHERE id = ?').get(customer_id);
+  if (!cust) return res.status(404).json({ error: 'Customer not found' });
+
+  let vehicle_id = src.vehicle_id;
+  if (req.body?.vehicle_id !== undefined) {
+    if (req.body.vehicle_id == null || String(req.body.vehicle_id).trim() === '') {
+      vehicle_id = null;
+    } else {
+      vehicle_id = Number(req.body.vehicle_id);
+      if (!Number.isFinite(vehicle_id) || vehicle_id <= 0) {
+        return res.status(400).json({ error: 'Invalid vehicle_id' });
+      }
+      const veh = db.prepare('SELECT id, customer_id FROM vehicles WHERE id = ?').get(vehicle_id);
+      if (!veh) return res.status(404).json({ error: 'Vehicle not found' });
+      if (Number(veh.customer_id) !== Number(customer_id)) {
+        return res.status(400).json({ error: 'Vehicle must belong to the selected customer' });
+      }
+    }
+  }
+
+  const taxRate = 0.16;
+  const invoice_number = nextQuoteNumber();
+  const copyNotes = req.body?.notes !== undefined ? (req.body.notes?.trim() || null) : src.notes || null;
+
+  const result = db.prepare(`
+    INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate)
+    VALUES (?, NULL, ?, ?, 'quote', ?, ?, ?)
+  `).run(invoice_number, customer_id, vehicle_id, src.due_date || null, copyNotes, taxRate);
+  const newId = result.lastInsertRowid;
+
+  const srcItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id').all(src.id);
+  const ins = db.prepare(
+    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved)
+     VALUES (?, ?, ?, ?, 0, ?, NULL, ?, ?, 0)`,
+  );
+  for (const it of srcItems) {
+    const lineType = String(it.type || 'other');
+    ins.run(
+      newId,
+      it.description,
+      it.quantity ?? 1,
+      it.unit_price ?? 0,
+      lineType,
+      it.vat_rate ?? 16,
+      it.vat_exempt ?? 0,
+    );
+  }
+  ensureStandaloneLabourLineIfMissing(newId);
+  refreshInvoiceTotalsFromLineItems(newId);
+
+  const payload = fullInvoicePayload(newId);
+  res.status(201).json(payload);
 });
 
 invoicesRouter.post('/', (req, res) => {
@@ -1736,9 +1805,24 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.text('Balance due', totalsBoxX + 10, totalsYPos);
     doc.text(formatKsh(balanceDue), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   }
+
+  const customerNotes = inv.notes != null ? String(inv.notes).trim() : '';
+  let notesBlockY = totalsY + totalsBoxHeight + 16;
+  if (customerNotes) {
+    const notesHeadingH = 14;
+    const notesBodyH = doc.heightOfString(customerNotes, { width: contentWidth * 0.9 });
+    if (notesBlockY + notesHeadingH + notesBodyH > pageBottom) {
+      doc.addPage();
+      notesBlockY = margin + 20;
+    }
+    doc.fontSize(9).font('Helvetica-Bold').text('Notes:', margin, notesBlockY);
+    notesBlockY = doc.y + 4;
+    doc.font('Helvetica').text(customerNotes, margin, notesBlockY, { width: contentWidth * 0.9 });
+    notesBlockY = doc.y + 12;
+  }
   
-  // Footer - Notes and payment details (kept on a single page, left aligned)
-  const footerY = totalsY + totalsBoxHeight + 20;
+  // Footer - disclaimers and payment details (kept on a single page, left aligned)
+  const footerY = customerNotes ? notesBlockY : totalsY + totalsBoxHeight + 20;
   doc.fontSize(8).font('Helvetica');
   
   let footerYPos = footerY;

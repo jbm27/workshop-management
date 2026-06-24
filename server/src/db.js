@@ -417,7 +417,7 @@ function migrate(db) {
     db.run("INSERT OR IGNORE INTO sequences (name, value) VALUES ('ipr', 1000)");
   } catch (_) {}
   try {
-    db.run("INSERT OR IGNORE INTO sequences (name, value) VALUES ('quote_number', 1000)");
+    db.run("INSERT OR IGNORE INTO sequences (name, value) VALUES ('quote_number', 2437)");
   } catch (_) {}
   try {
     db.run(`
@@ -828,6 +828,20 @@ function migrate(db) {
   } catch (e) {
     console.error('[workshop-db] sequences_baseline_47093 migration:', e?.message || e);
   }
+
+  // Quote numbers: next QUO-2438 (stored value 2437), independent of job/invoice sequences.
+  try {
+    const quoteMigrated = sqlJsGet(db, "SELECT key FROM app_settings WHERE key = 'quote_sequence_baseline_2438'");
+    if (!quoteMigrated) {
+      const quoteBaseline = 2437;
+      db.run('INSERT OR IGNORE INTO sequences (name, value) VALUES (?, ?)', ['quote_number', quoteBaseline]);
+      db.run('UPDATE sequences SET value = ? WHERE name = ?', [quoteBaseline, 'quote_number']);
+      db.run("INSERT INTO app_settings (key, value_real) VALUES ('quote_sequence_baseline_2438', 1)");
+      console.log(`[workshop-db] Quote sequence set — next quote QUO-${quoteBaseline + 1}`);
+    }
+  } catch (e) {
+    console.error('[workshop-db] quote_sequence_baseline_2438 migration:', e?.message || e);
+  }
 }
 
 /** Run work in one SQLite transaction without saving until commit (avoids partial writes mid-tx). */
@@ -935,7 +949,7 @@ export async function initDb() {
     CREATE TABLE IF NOT EXISTS sequences (name TEXT PRIMARY KEY, value INTEGER DEFAULT 0);
     INSERT OR IGNORE INTO sequences (name, value) VALUES ('job_number', 47092);
     INSERT OR IGNORE INTO sequences (name, value) VALUES ('invoice_number', 47092);
-    INSERT OR IGNORE INTO sequences (name, value) VALUES ('quote_number', 47092);
+    INSERT OR IGNORE INTO sequences (name, value) VALUES ('quote_number', 2437);
     INSERT OR IGNORE INTO sequences (name, value) VALUES ('lpo', 1000);
     INSERT OR IGNORE INTO sequences (name, value) VALUES ('ipr', 1000);
   `);

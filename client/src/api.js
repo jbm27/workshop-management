@@ -135,7 +135,6 @@ export const api = {
     deleteTimeLog: (jobId, logId) => api.delete(`/jobs/${jobId}/time-logs/${logId}`),
     deleteIdleTimeLog: (logId) => api.delete(`/jobs/time-logs/idle/${logId}`),
     myTimeLogs: (date) => api.get('/jobs/time-logs/mine' + (date ? `?date=${encodeURIComponent(date)}` : '')),
-    /** Fetches PDF with Bearer token (plain window.open would not send auth). */
     downloadJobSummaryPdf: async (jobId) => {
       const token = typeof window !== 'undefined' ? window.localStorage.getItem('admin_token') : null;
       const headers = {};
@@ -153,6 +152,28 @@ export const api = {
         const a = document.createElement('a');
         a.href = url;
         a.download = `JobSummary_${jobId}.pdf`;
+        a.rel = 'noopener';
+        a.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    },
+    downloadTasksPdf: async (jobId) => {
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('admin_token') : null;
+      const headers = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(API + `/jobs/${encodeURIComponent(jobId)}/tasks-pdf`, { method: 'GET', headers });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) window.localStorage.removeItem('admin_token');
+        throw new Error(data.error || res.statusText);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `JobTasks_${jobId}.pdf`;
         a.rel = 'noopener';
         a.click();
       }
@@ -201,6 +222,7 @@ export const api = {
       const url = API + `/invoices/${id}/pdf`;
       window.open(url, '_blank');
     },
+    copyToQuote: (id, body) => api.post(`/invoices/${id}/copy-to-quote`, body || {}),
   },
   lpoIpr: {
     summary: () => api.get('/lpo-ipr/summary'),

@@ -5,7 +5,8 @@ import { allocateRepeatJobNumber } from '../repeatJobFamily.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
-import { JOB_INVOICE_SEQUENCE_BASELINE } from '../sequences.js';
+import { streamJobTasksPdf } from '../jobTasksPdf.js';
+import { JOB_INVOICE_SEQUENCE_BASELINE, QUOTE_SEQUENCE_BASELINE } from '../sequences.js';
 
 export const jobsRouter = Router();
 
@@ -467,6 +468,49 @@ jobsRouter.post('/:id/quote-prepared', requireAdminAuth, (req, res) => {
     quote_prepared_at: out.quote_prepared_at,
     first_recorded: !hadTimestamp,
   });
+});
+
+jobsRouter.get('/:id/tasks-pdf', requireAdminAuth, (req, res) => {
+  try {
+    const jobId = Number(req.params.id);
+    if (!Number.isFinite(jobId) || jobId <= 0) return res.status(400).json({ error: 'Invalid job id' });
+
+    const job = fullJob(jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    const extra = db
+      .prepare(
+        `
+      SELECT c.address AS customer_address, c.company_name AS customer_company_name,
+        c.registration_number AS customer_registration_number,
+        v.year, v.odometer
+      FROM jobs j
+      LEFT JOIN customers c ON c.id = j.customer_id
+      JOIN vehicles v ON v.id = j.vehicle_id
+      WHERE j.id = ?
+    `,
+      )
+      .get(jobId);
+
+    const tasks = db
+      .prepare('SELECT id, description, sort_order, completed FROM job_tasks WHERE job_id = ? ORDER BY sort_order, id')
+      .all(jobId);
+
+    streamJobTasksPdf(res, {
+      job: {
+        ...job,
+        customer_address: extra?.customer_address || '',
+        customer_company_name: extra?.customer_company_name || '',
+        customer_registration_number: extra?.customer_registration_number || '',
+        year: extra?.year ?? job.year,
+        odometer: extra?.odometer ?? job.odometer,
+      },
+      tasks,
+    });
+  } catch (err) {
+    console.error('tasks-pdf:', err);
+    if (!res.headersSent) res.status(500).json({ error: err.message || 'Failed to generate tasks PDF' });
+  }
 });
 
 jobsRouter.get('/:id/summary-pdf', requireAdminAuth, (req, res) => {
@@ -938,7 +982,7 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
 
 function nextQuoteNumber() {
   const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get('quote_number');
-  const next = (row?.value ?? JOB_INVOICE_SEQUENCE_BASELINE) + 1;
+  const next = (row?.value ?? QUOTE_SEQUENCE_BASELINE) + 1;
   db.prepare('UPDATE sequences SET value = ? WHERE name = ?').run(next, 'quote_number');
   return `QUO-${next}`;
 }
