@@ -15,6 +15,17 @@ export function sortInvoiceItems(items) {
   });
 }
 
+export function reorderItemsById(items, draggedId, targetId) {
+  const sorted = sortInvoiceItems(items);
+  const from = sorted.findIndex((i) => Number(i.id) === Number(draggedId));
+  const to = sorted.findIndex((i) => Number(i.id) === Number(targetId));
+  if (from < 0 || to < 0 || from === to) return sorted;
+  const next = [...sorted];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next.map((item, idx) => ({ ...item, sort_order: idx }));
+}
+
 /** Flat rows for display/PDF: header rows include sectionNet (ex VAT) for following lines. */
 export function enrichItemsWithSectionTotals(items, lineNetFn = invoiceLineNet) {
   const sorted = sortInvoiceItems(items);

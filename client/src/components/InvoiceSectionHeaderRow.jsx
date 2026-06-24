@@ -12,12 +12,16 @@ export default function InvoiceSectionHeaderRow({
   onSave,
   onCancel,
   onRemove,
+  sortable,
+  dragHandle,
+  rowProps,
 }) {
   const title = item?.description || 'Section';
   const totalLabel = formatMoney ? formatMoney(sectionNet) : sectionNet;
 
   return (
-    <tr style={{ background: '#f0f0f0' }}>
+    <tr {...rowProps} style={{ background: '#f0f0f0', ...(rowProps?.style || {}) }}>
+      {sortable && dragHandle}
       <td colSpan={labelColSpan} style={{ fontWeight: 600, padding: '0.55rem 0.75rem', verticalAlign: 'middle' }}>
         {editing ? (
           <input

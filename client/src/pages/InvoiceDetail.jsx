@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
@@ -9,6 +9,8 @@ import { formatStockItemLabel } from '../utils/stockItemLabel';
 import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, vatFromFormData, vatFromElementIds, vatModeFromLine } from '../utils/invoiceLineVat';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
+import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
+import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
 
@@ -307,6 +309,36 @@ export default function InvoiceDetail() {
     }
   };
 
+  const lineDragDisabled =
+    !inv ||
+    inv.type !== 'quote' ||
+    !!inv.job_id ||
+    !!editingItemId ||
+    addQuoteItem ||
+    addQuoteHeader;
+
+  const persistLineReorder = useCallback(
+    async (reordered) => {
+      if (!id) return;
+      setInv((prev) => (prev ? { ...prev, items: reordered } : prev));
+      try {
+        const updated = await api.invoices.reorderItems(id, reordered.map((i) => i.id));
+        setInv(updated);
+      } catch (err) {
+        const refreshed = await api.invoices.get(id);
+        setInv(refreshed);
+        alert(err.message);
+      }
+    },
+    [id],
+  );
+
+  const lineDrag = useInvoiceLineDragReorder({
+    items: inv?.items || [],
+    disabled: lineDragDisabled,
+    onReorder: persistLineReorder,
+  });
+
   if (loading) return <div className="page-title">Loading…</div>;
   if (!inv) {
     return (
@@ -590,7 +622,7 @@ export default function InvoiceDetail() {
         {canEditQuoteLines && (
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
             The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour{' '}
-            <strong>sale (ex VAT)</strong> as that line unit price. Choose VAT per line below.
+            <strong>sale (ex VAT)</strong> as that line unit price. Choose VAT per line below. Drag the <strong>⋮⋮</strong> handle to reorder lines and section headers.
           </p>
         )}
         {isQuote && items.length > 0 && (
@@ -686,6 +718,7 @@ export default function InvoiceDetail() {
           <table>
             <thead>
               <tr>
+                {canEditQuoteLines && <th style={{ width: '1.75rem' }} aria-label="Reorder" />}
                 <th>Description</th>
                 {isQuote && <th>Customer approved</th>}
                 <th>Qty</th>
@@ -699,7 +732,7 @@ export default function InvoiceDetail() {
             <tbody>
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={canEditQuoteLines ? 7 : isQuote ? 6 : 6} className="empty">
+                  <td colSpan={(canEditQuoteLines ? 8 : isQuote ? 6 : 6)} className="empty">
                     {canEditQuoteLines ? 'No quote lines yet. Add items above.' : 'No line items yet'}
                   </td>
                 </tr>
@@ -707,13 +740,12 @@ export default function InvoiceDetail() {
               {enrichItemsWithSectionTotals(items).map((row) => {
                 if (row.kind === 'header') {
                   const it = row.item;
-                  const labelColSpan = 5;
                   return (
                     <InvoiceSectionHeaderRow
                       key={it.id}
                       item={it}
                       sectionNet={row.sectionNet}
-                      labelColSpan={labelColSpan}
+                      labelColSpan={5}
                       formatMoney={kes}
                       editable={canEditQuoteLines}
                       editing={editingItemId === it.id}
@@ -733,6 +765,17 @@ export default function InvoiceDetail() {
                         setEditingHeaderTitle('');
                       }}
                       onRemove={() => removeQuoteItem(it.id)}
+                      sortable={canEditQuoteLines && lineDrag.sortable}
+                      dragHandle={
+                        canEditQuoteLines ? (
+                          <InvoiceLineDragHandle
+                            disabled={!lineDrag.sortable}
+                            onDragStart={lineDrag.handleDragStart(it.id)}
+                            onDragEnd={lineDrag.handleDragEnd}
+                          />
+                        ) : null
+                      }
+                      rowProps={canEditQuoteLines ? lineDrag.rowProps(it.id) : undefined}
                     />
                   );
                 }
@@ -742,7 +785,12 @@ export default function InvoiceDetail() {
                 const price = Number(it.unit_price) || 0;
                 if (canEditQuoteLines && editingItemId === it.id) {
                   return (
-                    <tr key={it.id}>
+                    <tr key={it.id} {...lineDrag.rowProps(it.id)}>
+                      <InvoiceLineDragHandle
+                        disabled={!lineDrag.sortable}
+                        onDragStart={lineDrag.handleDragStart(it.id)}
+                        onDragEnd={lineDrag.handleDragEnd}
+                      />
                       <td>
                         {labour ? (
                           <span style={{ fontWeight: 600 }}>Labour</span>
@@ -834,7 +882,14 @@ export default function InvoiceDetail() {
                   );
                 }
                 return (
-                  <tr key={it.id}>
+                  <tr key={it.id} {...(canEditQuoteLines ? lineDrag.rowProps(it.id) : {})}>
+                    {canEditQuoteLines && (
+                      <InvoiceLineDragHandle
+                        disabled={!lineDrag.sortable}
+                        onDragStart={lineDrag.handleDragStart(it.id)}
+                        onDragEnd={lineDrag.handleDragEnd}
+                      />
+                    )}
                     <td>
                       {labour ? <strong>Labour</strong> : it.description}
                       {!isQuote && Number(it.lpo_line_count) > 0 && (

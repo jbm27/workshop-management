@@ -782,6 +782,34 @@ invoicesRouter.post('/:id/items', (req, res) => {
   res.json(inserted);
 });
 
+invoicesRouter.put('/:id/items/reorder', (req, res) => {
+  const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  const { item_ids } = req.body || {};
+  if (!Array.isArray(item_ids) || item_ids.length === 0) {
+    return res.status(400).json({ error: 'item_ids array is required' });
+  }
+  const existing = db
+    .prepare('SELECT id FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
+    .all(req.params.id)
+    .map((r) => Number(r.id));
+  if (item_ids.length !== existing.length) {
+    return res.status(400).json({ error: 'item_ids must include every line on the document' });
+  }
+  const seen = new Set();
+  for (const raw of item_ids) {
+    const id = Number(raw);
+    if (!Number.isFinite(id) || !existing.includes(id)) {
+      return res.status(400).json({ error: 'Invalid item id in item_ids' });
+    }
+    if (seen.has(id)) return res.status(400).json({ error: 'Duplicate item id in item_ids' });
+    seen.add(id);
+  }
+  const upd = db.prepare('UPDATE invoice_items SET sort_order = ? WHERE id = ? AND invoice_id = ?');
+  item_ids.forEach((rawId, idx) => upd.run(idx, Number(rawId), req.params.id));
+  res.json(fullInvoicePayload(req.params.id));
+});
+
 invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);

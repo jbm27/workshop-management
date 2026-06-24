@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
@@ -15,6 +15,8 @@ import {
 } from '../utils/invoiceLineVat';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
+import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
+import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
 const JOB_STATUS_LABEL = {
@@ -901,6 +903,61 @@ export default function JobDetail() {
 
   const jobReport = !invoiceLoading && invoice ? computeJobReport(invoice) : null;
 
+  const quoteLineDragDisabled =
+    !quote || !!editingItemId || addQuoteItem || addQuoteHeader;
+  const invoiceLineDragDisabled =
+    !invoice || !!editingInvoiceItemId || addInvoiceItem || addInvoiceHeader;
+
+  const persistQuoteReorder = useCallback(
+    async (reordered) => {
+      if (!quote?.id) return;
+      setQuote((q) => (q ? { ...q, items: reordered } : q));
+      try {
+        const updated = await api.invoices.reorderItems(
+          quote.id,
+          reordered.map((i) => i.id),
+        );
+        setQuote(updated);
+      } catch (err) {
+        const refreshed = await api.invoices.get(quote.id);
+        setQuote(refreshed);
+        alert(err.message);
+      }
+    },
+    [quote?.id],
+  );
+
+  const persistInvoiceReorder = useCallback(
+    async (reordered) => {
+      if (!invoice?.id) return;
+      setInvoice((inv) => (inv ? { ...inv, items: reordered } : inv));
+      try {
+        const updated = await api.invoices.reorderItems(
+          invoice.id,
+          reordered.map((i) => i.id),
+        );
+        setInvoice(updated);
+      } catch (err) {
+        const refreshed = await api.invoices.get(invoice.id);
+        setInvoice(refreshed);
+        alert(err.message);
+      }
+    },
+    [invoice?.id],
+  );
+
+  const quoteLineDrag = useInvoiceLineDragReorder({
+    items: quote?.items || [],
+    disabled: quoteLineDragDisabled,
+    onReorder: persistQuoteReorder,
+  });
+
+  const invoiceLineDrag = useInvoiceLineDragReorder({
+    items: invoice?.items || [],
+    disabled: invoiceLineDragDisabled,
+    onReorder: persistInvoiceReorder,
+  });
+
   if (loading) return <div className="page-title">Loading…</div>;
   if (!job) return <div className="page-title">Job not found. <Link to="/jobs">Back to jobs</Link></div>;
 
@@ -1729,6 +1786,7 @@ export default function JobDetail() {
               <strong>Labour</strong> line is fixed at quantity 1: enter the labour <strong>sale (ex VAT)</strong> as the unit price;
               internal <strong>cost</strong> follows logged hours × the average labour cost rate (Team members).
               Choose VAT per sale line below. Link lines to <strong>store items</strong> via search — stock is deducted when the job is completed or the invoice is fully paid.
+              Drag the <strong>⋮⋮</strong> handle to reorder lines and section headers.
             </p>
             {addInvoiceItem && (
               <form onSubmit={submitInvoiceItem} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
@@ -1832,6 +1890,7 @@ export default function JobDetail() {
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width: '1.75rem' }} aria-label="Reorder" />
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Purchase (unit cost)</th>
@@ -1843,7 +1902,7 @@ export default function JobDetail() {
                 </thead>
                 <tbody>
                   {(!invoice.items || invoice.items.length === 0) && (
-                    <tr><td colSpan={7} className="empty">No invoice lines yet. Add items above.</td></tr>
+                    <tr><td colSpan={8} className="empty">No invoice lines yet. Add items above.</td></tr>
                   )}
                   {enrichItemsWithSectionTotals(invoice.items).map((row) => {
                     if (row.kind === 'header') {
@@ -1873,6 +1932,15 @@ export default function JobDetail() {
                             setEditingInvoiceHeaderTitle('');
                           }}
                           onRemove={() => removeInvoiceItem(it.id)}
+                          sortable={invoiceLineDrag.sortable}
+                          dragHandle={
+                            <InvoiceLineDragHandle
+                              disabled={!invoiceLineDrag.sortable}
+                              onDragStart={invoiceLineDrag.handleDragStart(it.id)}
+                              onDragEnd={invoiceLineDrag.handleDragEnd}
+                            />
+                          }
+                          rowProps={invoiceLineDrag.rowProps(it.id)}
                         />
                       );
                     }
@@ -1881,7 +1949,12 @@ export default function JobDetail() {
                       Number(it.lpo_line_count) > 0 || Number(it.ipr_line_count) > 0;
                     const labour = isLabourLine(it);
                     return (
-                    <tr key={it.id}>
+                    <tr key={it.id} {...invoiceLineDrag.rowProps(it.id)}>
+                      <InvoiceLineDragHandle
+                        disabled={!invoiceLineDrag.sortable}
+                        onDragStart={invoiceLineDrag.handleDragStart(it.id)}
+                        onDragEnd={invoiceLineDrag.handleDragEnd}
+                      />
                       {editingInvoiceItemId === it.id ? (
                         <>
                           <td>
@@ -2201,7 +2274,7 @@ export default function JobDetail() {
           <>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
               The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour{' '}
-              <strong>sale (ex VAT)</strong> as the unit price. Choose VAT per line below.
+              <strong>sale (ex VAT)</strong> as the unit price. Choose VAT per line below. Drag the <strong>⋮⋮</strong> handle to reorder lines and section headers.
             </p>
             {addQuoteItem && (
               <form onSubmit={submitQuoteItem} style={{ marginBottom: '1rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}>
@@ -2282,6 +2355,7 @@ export default function JobDetail() {
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width: '1.75rem' }} aria-label="Reorder" />
                     <th>Approved</th>
                     <th>Item</th>
                     <th>Qty</th>
@@ -2293,7 +2367,7 @@ export default function JobDetail() {
                 </thead>
                 <tbody>
                   {(!quote.items || quote.items.length === 0) && (
-                    <tr><td colSpan={7} className="empty">No quote lines yet. Add items above.</td></tr>
+                    <tr><td colSpan={8} className="empty">No quote lines yet. Add items above.</td></tr>
                   )}
                   {enrichItemsWithSectionTotals(quote.items).map((row) => {
                     if (row.kind === 'header') {
@@ -2323,13 +2397,27 @@ export default function JobDetail() {
                             setEditingHeaderTitle('');
                           }}
                           onRemove={() => removeQuoteItem(it.id)}
+                          sortable={quoteLineDrag.sortable}
+                          dragHandle={
+                            <InvoiceLineDragHandle
+                              disabled={!quoteLineDrag.sortable}
+                              onDragStart={quoteLineDrag.handleDragStart(it.id)}
+                              onDragEnd={quoteLineDrag.handleDragEnd}
+                            />
+                          }
+                          rowProps={quoteLineDrag.rowProps(it.id)}
                         />
                       );
                     }
                     const it = row.item;
                     const labour = isLabourLine(it);
                     return (
-                    <tr key={it.id}>
+                    <tr key={it.id} {...quoteLineDrag.rowProps(it.id)}>
+                      <InvoiceLineDragHandle
+                        disabled={!quoteLineDrag.sortable}
+                        onDragStart={quoteLineDrag.handleDragStart(it.id)}
+                        onDragEnd={quoteLineDrag.handleDragEnd}
+                      />
                       {editingItemId === it.id ? (
                         <>
                           <td>{/* approval is read-only from customer side */}</td>
