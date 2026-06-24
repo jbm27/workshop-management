@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { applyAutoClockOuts } from './attendanceService.js';
 
 export function resolveAdminUserIdFromDevicePin(pin) {
   const raw = String(pin ?? '').trim();
@@ -37,6 +38,7 @@ export function mapZkStatusToEventType(statusCode) {
 }
 
 export function getClockedInAdminUserIds() {
+  applyAutoClockOuts();
   const rows = db
     .prepare(
       `

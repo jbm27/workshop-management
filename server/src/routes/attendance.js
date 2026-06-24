@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
+import { applyAutoClockOuts } from '../services/attendanceService.js';
 
 export const attendanceRouter = Router();
 
 attendanceRouter.get('/events', requireAdminAuth, (req, res) => {
+  applyAutoClockOuts();
   const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 5000);
   const fromDate = req.query.from ? String(req.query.from).trim() : null;
   const toDate = req.query.to ? String(req.query.to).trim() : null;
@@ -60,6 +62,7 @@ attendanceRouter.get('/events', requireAdminAuth, (req, res) => {
 });
 
 attendanceRouter.get('/clocked-in', requireAdminPermission('can_manage_team_members'), (_req, res) => {
+  applyAutoClockOuts();
   const rows = db
     .prepare(
       `

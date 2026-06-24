@@ -15,6 +15,7 @@ import { adminRouter } from './routes/admin.js';
 import { publicLpoVerifyRouter } from './routes/publicLpoVerify.js';
 import { iclockRouter } from './routes/iclock.js';
 import { attendanceRouter } from './routes/attendance.js';
+import { applyAutoClockOuts } from './services/attendanceService.js';
 import { config } from './config.js';
 
 const app = express();
@@ -80,6 +81,24 @@ initDb().then(() => {
         '[workshop-db] Lists are empty in this process. If you ran an import, restart the API or POST /api/reload-db with ALLOW_DB_RELOAD=1.',
       );
     }
+
+    try {
+      const applied = applyAutoClockOuts();
+      if (applied.length) {
+        console.log(`[attendance] Applied ${applied.length} auto clock-out(s) on startup`);
+      }
+    } catch (e) {
+      console.error('[attendance] Auto clock-out on startup failed:', e);
+    }
+
+    const autoClockOutIntervalMs = 15 * 60 * 1000;
+    setInterval(() => {
+      try {
+        applyAutoClockOuts();
+      } catch (e) {
+        console.error('[attendance] Auto clock-out check failed:', e);
+      }
+    }, autoClockOutIntervalMs).unref?.();
   });
 }).catch((err) => {
   console.error('Failed to initialise database:', err);
