@@ -10,6 +10,7 @@ import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, vatFromFormData, vatFr
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
+import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
@@ -226,6 +227,7 @@ export default function InvoiceDetail() {
         description,
         quantity,
         unit_price,
+        subtext: String(fd.get('subtext') || '').trim() || undefined,
         stock_item_id: quoteLineDraft.stockItemId || undefined,
         type: quoteLineDraft.stockItemId ? 'part' : undefined,
         ...vat,
@@ -683,6 +685,7 @@ export default function InvoiceDetail() {
                 <button type="button" className="btn" onClick={() => { setAddQuoteItem(false); setQuoteLineDraft(emptyStockLineDraft()); }}>Cancel</button>
               </div>
             </div>
+            <InvoiceLineSubtextField />
           </form>
         )}
         {canEditQuoteLines && addQuoteHeader && (
@@ -808,6 +811,7 @@ export default function InvoiceDetail() {
                             placeholder="Search store or type description…"
                           />
                         )}
+                        <InvoiceLineSubtextField id={`item-subtext-${it.id}`} defaultValue={it.subtext} />
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {isQuoteLineApproved(it) ? (
@@ -857,8 +861,10 @@ export default function InvoiceDetail() {
                               return;
                             }
                             const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
+                            const subtextVal = String(document.getElementById(`item-subtext-${it.id}`)?.value || '').trim();
+                            const subtextPayload = subtextVal ? subtextVal : null;
                             if (labour) {
-                              updateQuoteItem(it.id, { unit_price: sale, ...vat });
+                              updateQuoteItem(it.id, { unit_price: sale, subtext: subtextPayload, ...vat });
                               return;
                             }
                             const desc = quoteEditStock.query.trim();
@@ -869,6 +875,7 @@ export default function InvoiceDetail() {
                                 quantity: itemQty,
                                 unit_price: sale,
                                 stock_item_id: quoteEditStock.stockItemId,
+                                subtext: subtextPayload,
                                 ...vat,
                               });
                             }
@@ -892,6 +899,7 @@ export default function InvoiceDetail() {
                     )}
                     <td>
                       {labour ? <strong>Labour</strong> : it.description}
+                      <InvoiceLineSubtextView subtext={it.subtext} />
                       {!isQuote && Number(it.lpo_line_count) > 0 && (
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
                           LPO net: {kes(Number(it.lpo_allocated_cost) || 0)}

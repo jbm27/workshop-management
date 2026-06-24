@@ -274,6 +274,9 @@ function migrate(db) {
       db.run('ALTER TABLE invoice_items ADD COLUMN sort_order INTEGER DEFAULT 0');
       db.run('UPDATE invoice_items SET sort_order = id WHERE sort_order IS NULL OR sort_order = 0');
     }
+    if (iiCols.length && !iiCols.includes('subtext')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN subtext TEXT');
+    }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
       db.run('UPDATE invoice_items SET vat_exempt = 0 WHERE vat_exempt IS NULL');

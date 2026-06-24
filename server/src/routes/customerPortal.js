@@ -60,10 +60,10 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
     : [];
   const out = {
     id: job.id,
@@ -118,11 +118,11 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const isQuote = docType === 'quote';
   const items = isQuote
     ? db
-        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
+        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
         .all(inv.id)
     : db
         .prepare(
-          'SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id',
+          'SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id',
         )
         .all(inv.id);
   const quote = isQuote ? portalDocumentForCustomer(inv, items) : null;

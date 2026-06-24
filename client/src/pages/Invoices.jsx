@@ -83,6 +83,7 @@ export default function Invoices() {
           unit_price: Number(it.unit_price) || 0,
           type: it.stock_item_id ? 'part' : it.type || 'other',
           stock_item_id: it.stock_item_id || undefined,
+          subtext: String(it.subtext || '').trim() || undefined,
           vat_rate: vat.vat_rate,
           vat_exempt: vat.vat_exempt,
         };
@@ -268,6 +269,12 @@ export default function Invoices() {
                         ...f,
                         items: f.items.map((row, j) => (j === i ? { ...row, ...vat } : row)),
                       }))}
+                    />
+                    <input
+                      placeholder="Subtext (optional)"
+                      value={it.subtext || ''}
+                      onChange={(e) => updateLine(i, 'subtext', e.target.value)}
+                      style={{ flex: '1 1 140px', minWidth: '8rem' }}
                     />
                       </>
                     )}

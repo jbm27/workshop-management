@@ -16,6 +16,7 @@ import {
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
+import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
@@ -484,6 +485,7 @@ export default function JobDetail() {
         description,
         quantity,
         unit_price,
+        subtext: String(fd.get('subtext') || '').trim() || undefined,
         stock_item_id: quoteLineDraft.stockItemId || undefined,
         type: quoteLineDraft.stockItemId ? 'part' : undefined,
         ...vat,
@@ -576,6 +578,7 @@ export default function JobDetail() {
         quantity,
         unit_price,
         purchase_price,
+        subtext: String(fd.get('subtext') || '').trim() || undefined,
         stock_item_id: invoiceLineDraft.stockItemId || undefined,
         type: invoiceLineDraft.stockItemId ? 'part' : undefined,
         ...vat,
@@ -655,6 +658,7 @@ export default function JobDetail() {
         unit_price: line.unit_price ?? 0,
         stock_item_id: line.stock_item_id || undefined,
         type: line.stock_item_id ? 'part' : line.type,
+        subtext: line.subtext || undefined,
         vat_rate: line.vat_rate,
         vat_exempt: line.vat_exempt,
       });
@@ -732,6 +736,7 @@ export default function JobDetail() {
           unit_price: it.unit_price ?? 0,
           stock_item_id: it.stock_item_id || undefined,
           type: it.stock_item_id ? 'part' : it.type,
+          subtext: it.subtext || undefined,
           vat_rate: it.vat_rate,
           vat_exempt: it.vat_exempt,
         });
@@ -1847,6 +1852,7 @@ export default function JobDetail() {
                     <button type="button" className="btn" onClick={() => { setAddInvoiceItem(false); setInvoiceLineDraft(emptyStockLineDraft()); }}>Cancel</button>
                   </div>
                 </div>
+                <InvoiceLineSubtextField />
               </form>
             )}
             {addInvoiceHeader && (
@@ -1974,6 +1980,7 @@ export default function JobDetail() {
                                 placeholder="Search store or type description…"
                               />
                             )}
+                            <InvoiceLineSubtextField id={`inv-subtext-${it.id}`} defaultValue={it.subtext} />
                           </td>
                           <td>
                             {labour ? <span>1</span> : (
@@ -2015,8 +2022,10 @@ export default function JobDetail() {
                                   return;
                                 }
                                 const sale = Number(document.getElementById(`inv-sale-${it.id}`)?.value) ?? it.unit_price;
+                                const subtextVal = String(document.getElementById(`inv-subtext-${it.id}`)?.value || '').trim();
+                                const subtextPayload = subtextVal ? subtextVal : null;
                                 if (labour) {
-                                  updateInvoiceItem(it.id, { unit_price: sale, ...vat });
+                                  updateInvoiceItem(it.id, { unit_price: sale, subtext: subtextPayload, ...vat });
                                   return;
                                 }
                                 const desc = invoiceEditStock.query.trim();
@@ -2032,6 +2041,7 @@ export default function JobDetail() {
                                     purchase_price: purchase,
                                     unit_price: sale,
                                     stock_item_id: invoiceEditStock.stockItemId,
+                                    subtext: subtextPayload,
                                     ...vat,
                                   });
                                 }
@@ -2044,7 +2054,10 @@ export default function JobDetail() {
                         </>
                       ) : (
                         <>
-                          <td>{labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}</td>
+                          <td>
+                            {labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}
+                            <InvoiceLineSubtextView subtext={it.subtext} />
+                          </td>
                           <td>{labour ? 1 : it.quantity}</td>
                           <td>
                             {labour ? (
@@ -2323,6 +2336,7 @@ export default function JobDetail() {
                     <button type="button" className="btn" onClick={() => { setAddQuoteItem(false); setQuoteLineDraft(emptyStockLineDraft()); }}>Cancel</button>
                   </div>
                 </div>
+                <InvoiceLineSubtextField />
               </form>
             )}
             {addQuoteHeader && (
@@ -2438,6 +2452,7 @@ export default function JobDetail() {
                                 placeholder="Search store or type description…"
                               />
                             )}
+                            <InvoiceLineSubtextField id={`qty-subtext-${it.id}`} defaultValue={it.subtext} />
                           </td>
                           <td>{labour ? <span>1</span> : <input type="number" id={`qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />}</td>
                           <td><input type="number" id={`sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} /></td>
@@ -2455,8 +2470,10 @@ export default function JobDetail() {
                                 return;
                               }
                               const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
+                              const subtextVal = String(document.getElementById(`qty-subtext-${it.id}`)?.value || '').trim();
+                              const subtextPayload = subtextVal ? subtextVal : null;
                               if (labour) {
-                                updateQuoteItem(it.id, { unit_price: sale, ...vat });
+                                updateQuoteItem(it.id, { unit_price: sale, subtext: subtextPayload, ...vat });
                                 return;
                               }
                               const desc = quoteEditStock.query.trim();
@@ -2467,6 +2484,7 @@ export default function JobDetail() {
                                   quantity: qty,
                                   unit_price: sale,
                                   stock_item_id: quoteEditStock.stockItemId,
+                                  subtext: subtextPayload,
                                   ...vat,
                                 });
                               }
@@ -2479,7 +2497,10 @@ export default function JobDetail() {
                           <td style={{ textAlign: 'center' }}>
                             {isQuoteLineApproved(it) ? <span style={{ color: 'green', fontWeight: 600 }}>✔</span> : ''}
                           </td>
-                          <td>{labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}</td>
+                          <td>
+                            {labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}
+                            <InvoiceLineSubtextView subtext={it.subtext} />
+                          </td>
                           <td>{labour ? 1 : it.quantity}</td>
                           <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
                           <td>{invoiceVatLabel(it)}</td>

@@ -251,6 +251,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   vat_rate REAL DEFAULT 16,
   vat_exempt INTEGER DEFAULT 0,
   sort_order INTEGER DEFAULT 0,
+  subtext TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

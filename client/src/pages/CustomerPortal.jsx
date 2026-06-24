@@ -3,6 +3,7 @@ import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
+import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -613,7 +614,10 @@ function PortalLineItemsTable({ items }) {
             const price = Number(item.unit_price) || 0;
             return (
               <tr key={item.id}>
-                <td>{item.description}</td>
+                <td>
+                  {item.description}
+                  <InvoiceLineSubtextView subtext={item.subtext} />
+                </td>
                 <td style={{ textAlign: 'right' }}>{qty}</td>
                 <td style={{ textAlign: 'right' }}>{kes(price)}</td>
                 <td style={{ textAlign: 'right' }}>{kes(qty * price)}</td>
@@ -765,7 +769,10 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
                       <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Pending</span>
                     )}
                   </td>
-                  <td>{item.description}</td>
+                  <td>
+                    {item.description}
+                    <InvoiceLineSubtextView subtext={item.subtext} />
+                  </td>
                   <td style={{ textAlign: 'right' }}>{qty}</td>
                   <td style={{ textAlign: 'right' }}>{kes(price)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(qty * price)}</td>

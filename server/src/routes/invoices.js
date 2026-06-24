@@ -32,6 +32,12 @@ import {
 
 export const invoicesRouter = Router();
 
+function normalizeLineSubtext(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s || null;
+}
+
 /** Internal cost invoice on a repeat job — LPO lines may omit invoice_item_id (no customer sale lines). */
 function invoiceBelongsToRepeatJob(invoiceId) {
   const invId = parseInt(invoiceId, 10);
@@ -555,8 +561,8 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
 
   const srcItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(src.id);
   const ins = db.prepare(
-    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved, sort_order)
-     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?)`,
+    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved, sort_order, subtext)
+     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?, ?)`,
   );
   for (const it of srcItems) {
     const lineType = String(it.type || 'other');
@@ -570,6 +576,7 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
       it.vat_rate ?? 16,
       it.vat_exempt ?? 0,
       it.sort_order ?? 0,
+      lineType === 'header' ? null : normalizeLineSubtext(it.subtext),
     );
   }
   ensureStandaloneLabourLineIfMissing(newId);
@@ -592,7 +599,7 @@ invoicesRouter.post('/', (req, res) => {
   const invId = result.lastInsertRowid;
   if (Array.isArray(items) && items.length) {
     const ins = db.prepare(
-      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order, subtext) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
     let sortOrder = 0;
     for (const it of items) {
@@ -611,6 +618,7 @@ invoicesRouter.post('/', (req, res) => {
           0,
           1,
           sortOrder++,
+          null,
         );
         continue;
       }
@@ -625,6 +633,7 @@ invoicesRouter.post('/', (req, res) => {
         vat_rate,
         vat_exempt,
         sortOrder++,
+        normalizeLineSubtext(it.subtext),
       );
     }
   }
@@ -705,7 +714,7 @@ invoicesRouter.delete('/:id/payments/:paymentId', requireAdminPermission('can_re
 });
 
 invoicesRouter.post('/:id/items', (req, res) => {
-  const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt } = req.body;
+  const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, subtext } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
 
@@ -756,10 +765,11 @@ invoicesRouter.post('/:id/items', (req, res) => {
     pp = computeJobLabourTotalUnitCost(inv.job_id);
   }
   const vat = normalizeInvoiceLineVat({ vat_rate, vat_exempt });
+  const lineSubtext = normalizeLineSubtext(subtext);
   const sortOrder = nextInvoiceItemSortOrder(db, req.params.id);
   db.prepare(`
-    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order, subtext)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.params.id,
     resolved.description,
@@ -771,6 +781,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
     vat.vat_rate,
     vat.vat_exempt,
     sortOrder,
+    lineSubtext,
   );
   if (inv.job_id) syncLabourLinesForJob(inv.job_id);
   else refreshInvoiceTotalsFromLineItems(req.params.id);
@@ -811,7 +822,7 @@ invoicesRouter.put('/:id/items/reorder', (req, res) => {
 });
 
 invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
-  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id } = req.body;
+  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id, subtext } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
@@ -864,8 +875,9 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
       ? { vat_rate: vat_rate ?? item.vat_rate, vat_exempt: vat_exempt ?? item.vat_exempt }
       : { vat_rate: item.vat_rate, vat_exempt: item.vat_exempt };
   const vat = normalizeInvoiceLineVat(vatInput);
+  const nextSubtext = subtext !== undefined ? normalizeLineSubtext(subtext) : item.subtext ?? null;
   db.prepare(`
-    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, type = ?, stock_item_id = ?, vat_rate = ?, vat_exempt = ?, created_at = created_at
+    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, type = ?, stock_item_id = ?, vat_rate = ?, vat_exempt = ?, subtext = ?, created_at = created_at
     WHERE id = ? AND invoice_id = ?
   `).run(
     nextDesc,
@@ -876,6 +888,7 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
     nextStockId,
     vat.vat_rate,
     vat.vat_exempt,
+    nextSubtext,
     req.params.itemId,
     req.params.id
   );
@@ -1907,12 +1920,16 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
 
     const item = row.item;
     const desc = item.description || '';
+    const subtext = String(item.subtext || '').trim();
     const qty = item.quantity || 1;
     const unitPrice = item.unit_price || 0;
     const amount = qty * unitPrice;
-    
+
     const descHeight = doc.heightOfString(desc, { width: colWidths.desc });
-    const actualRowHeight = Math.max(rowHeight, descHeight + 4);
+    const subtextHeight = subtext
+      ? doc.heightOfString(subtext, { width: colWidths.desc }) + 2
+      : 0;
+    const actualRowHeight = Math.max(rowHeight, descHeight + subtextHeight + 4);
 
     if (yPos + actualRowHeight > pageBottom) {
       doc.addPage();
@@ -1920,8 +1937,13 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
       drawItemsHeader(margin);
       doc.fontSize(9).font('Helvetica');
     }
-    
+
     doc.text(desc, margin, yPos, { width: colWidths.desc });
+    if (subtext) {
+      doc.fontSize(8).fillColor('#555555');
+      doc.text(subtext, margin, doc.y + 1, { width: colWidths.desc });
+      doc.fontSize(9).fillColor('#000000');
+    }
     doc.text(qty.toFixed(1), margin + colWidths.desc, yPos, { width: colWidths.qty, align: 'right' });
     const unitPriceRounded = Math.round(unitPrice || 0);
     const amountRounded = Math.round(amount || 0);
