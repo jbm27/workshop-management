@@ -2,12 +2,16 @@ import { Router } from 'express';
 import { db, transactionSync } from '../db.js';
 import { config } from '../config.js';
 import { nextSequenceRef, JOB_INVOICE_SEQUENCE_BASELINE, QUOTE_SEQUENCE_BASELINE } from '../sequences.js';
-import { drawWorkshopDocumentHeader, kshFormat } from '../workshopPdf.js';
+import {
+  drawWorkshopDocumentHeader,
+  drawLetterheadLogo,
+  drawCompanyContactBlock,
+  letterheadDetailsTop,
+  LETTERHEAD_LOGO_FIT,
+  kshFormat,
+} from '../workshopPdf.js';
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
 import PDFDocument from 'pdfkit';
-import { readFileSync, existsSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
 import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
 import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
@@ -19,8 +23,6 @@ import {
   syncLabourLinesForJob,
 } from '../jobInvoiceLabour.js';
 import { normalizeInvoiceLineVat } from '../invoiceLineTotals.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const invoicesRouter = Router();
 
@@ -1549,89 +1551,47 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const margin = 50;
   const contentWidth = pageWidth - (margin * 2);
   
-  // Try to load logo - prefer logo1.png, then fall back to logo.png (absolute paths)
-  let logoPath = null;
-  const possibleLogoPaths = [
-    // logo1.png (new combined logo+text)
-    path.resolve(__dirname, '..', 'logo1.png'), // server/logo1.png
-    path.resolve(__dirname, '..', '..', 'logo1.png'), // project-root/logo1.png
-    path.resolve(process.cwd(), 'server', 'logo1.png'),
-    path.resolve(process.cwd(), 'logo1.png'),
-    // fallback to old logo.png if logo1.png not found
-    path.resolve(__dirname, '..', 'logo.png'),
-    path.resolve(__dirname, '..', '..', 'logo.png'),
-    path.resolve(process.cwd(), 'server', 'logo.png'),
-    path.resolve(process.cwd(), 'logo.png'),
-  ];
-  
-  for (const logoLoc of possibleLogoPaths) {
-    try {
-      const absPath = path.resolve(logoLoc);
-      if (existsSync(absPath)) {
-        logoPath = absPath;
-        console.log('Found logo at:', absPath);
-        break;
-      }
-    } catch (e) {
-      // Continue checking other paths
-    }
-  }
-  
-  // Header - Logo on left (logo1.png already includes text)
+  // Header — logo, contact details, document box
   let headerY = margin;
-  const logoWidth = 260; // Twice as large as before
-  const logoHeight = 200;
-  const logoX = margin;
-  
-  if (logoPath) {
-    try {
-      const logoBuffer = readFileSync(logoPath);
-      // Add logo image on left - larger size
-      doc.image(logoBuffer, logoX, headerY, { 
-        fit: [logoWidth, logoHeight]
-      });
-      console.log('Logo added successfully to PDF');
-    } catch (err) {
-      console.error('Failed to add logo to PDF:', err.message);
-    }
-  }
-  
-  // Company contact details (top right, aligned with header)
+  const leftBottom = drawLetterheadLogo(
+    doc,
+    margin,
+    headerY,
+    LETTERHEAD_LOGO_FIT.width,
+    LETTERHEAD_LOGO_FIT.height,
+  );
+
   const contactX = pageWidth - margin - 200;
-  let contactY = headerY;
-  doc.fontSize(9).font('Helvetica');
-  doc.text(company.name, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(company.address, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`VAT Registration No.: ${company.vatRegistration}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`Licence: PIN: ${company.pin}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  // Format phone with space: +254733 514965
-  const phoneFormatted = company.phone.replace(/(\+254)(\d{3})(\d{6})/, '$1$2 $3');
-  doc.text(`Tel: ${phoneFormatted}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`Email: ${company.email}`, contactX, contactY, { width: 200, align: 'left' });
-  
-  // Document box (quote or invoice) below contact info, right-aligned with contact details
-  const docBoxWidth = 200; // Match width of contact details
-  const docBoxX = contactX; // Align left edge with contact details
-  const docBoxY = contactY + 15;
-  doc.rect(docBoxX, docBoxY, docBoxWidth, 50).stroke();
+  const contactEndY = drawCompanyContactBlock(doc, company, contactX, headerY);
+
+  const docBoxWidth = 200;
+  const docBoxX = contactX;
+  const docBoxY = contactEndY + 8;
+  const docBoxPad = 10;
+  const docBoxInnerW = docBoxWidth - 2 * docBoxPad;
   const numberPart = inv.invoice_number.replace(/^QUO-/, '').replace(/^INV-/, '');
   const title = inv.type === 'invoice' ? 'INVOICE' : 'QUOTE';
   const dateLabel = inv.type === 'invoice' ? 'Invoice Date' : 'Issue Date';
-  doc.fontSize(16).font('Helvetica-Bold').text(`${title} #${numberPart}`, docBoxX + 10, docBoxY + 8, { width: docBoxWidth - 20, align: 'left' });
   const issueDate = new Date(inv.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  doc.fontSize(9).font('Helvetica').text(`${dateLabel}: ${issueDate}`, docBoxX + 10, docBoxY + 30, { width: docBoxWidth - 20, align: 'left' });
-  
-  // Customer and vehicle details in two columns below the header
-  const headerBottom = headerY + logoHeight;
-  const detailsTop = headerBottom + 4; // tight spacing below logo block
-  const colWidth = contentWidth * 0.45;
-  const rightColX = margin + colWidth + 20; // small gap between columns
+  const titleLine = `${title} #${numberPart}`;
+  const dateLine = `${dateLabel}: ${issueDate}`;
 
+  doc.fontSize(16).font('Helvetica-Bold');
+  const invTitleH = doc.heightOfString(titleLine, { width: docBoxInnerW });
+  doc.fontSize(9).font('Helvetica');
+  const invDateH = doc.heightOfString(dateLine, { width: docBoxInnerW });
+  const invBoxGap = 4;
+  const docBoxHeight = docBoxPad + invTitleH + invBoxGap + invDateH + docBoxPad;
+  doc.rect(docBoxX, docBoxY, docBoxWidth, docBoxHeight).stroke();
+
+  let invBoxY = docBoxY + docBoxPad;
+  doc.fontSize(16).font('Helvetica-Bold').text(titleLine, docBoxX + docBoxPad, invBoxY, { width: docBoxInnerW, align: 'left' });
+  invBoxY += invTitleH + invBoxGap;
+  doc.fontSize(9).font('Helvetica').text(dateLine, docBoxX + docBoxPad, invBoxY, { width: docBoxInnerW, align: 'left' });
+
+  const detailsTop = letterheadDetailsTop(leftBottom, docBoxY + docBoxHeight);
+  const colWidth = contentWidth * 0.45;
+  const rightColX = margin + colWidth + 20;
   // Left column – "PREPARED FOR" (customer)
   let leftY = detailsTop;
   doc.fontSize(10).font('Helvetica-Bold').text('PREPARED FOR:', margin, leftY);
@@ -1711,7 +1671,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   }
 
   // Continue below whichever column is taller
-  let yPos = Math.max(leftY, rightY) + 16;
+  let yPos = Math.max(leftY, rightY) + 10;
 
   // Items table
   const tableTop = yPos;

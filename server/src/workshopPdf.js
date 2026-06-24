@@ -28,6 +28,49 @@ function resolveLogoPath() {
   return null;
 }
 
+/** Default logo fit box on letterhead PDFs. */
+export const LETTERHEAD_LOGO_FIT = { width: 260, height: 200 };
+
+/**
+ * Draw workshop logo and return the Y coordinate of its bottom edge (actual scaled height, not fit box).
+ */
+export function drawLetterheadLogo(doc, margin, headerY, fitWidth = LETTERHEAD_LOGO_FIT.width, fitHeight = LETTERHEAD_LOGO_FIT.height) {
+  const logoPath = resolveLogoPath();
+  if (!logoPath) return headerY;
+  try {
+    const logoBuffer = readFileSync(logoPath);
+    const img = doc.openImage(logoBuffer);
+    const scale = Math.min(fitWidth / img.width, fitHeight / img.height);
+    const scaledH = img.height * scale;
+    doc.image(logoBuffer, margin, headerY, { fit: [fitWidth, fitHeight] });
+    return headerY + scaledH;
+  } catch (_) {
+    return headerY;
+  }
+}
+
+/** Y position for content below letterhead — uses the taller of logo vs right-column blocks. */
+export function letterheadDetailsTop(leftBottom, rightBottom, gap = 4) {
+  return Math.max(leftBottom, rightBottom) + gap;
+}
+
+export function drawCompanyContactBlock(doc, company, contactX, contactY, width = 200) {
+  doc.fontSize(9).font('Helvetica');
+  doc.text(company.name, contactX, contactY, { width, align: 'left' });
+  contactY += 12;
+  doc.text(company.address, contactX, contactY, { width, align: 'left' });
+  contactY += 12;
+  doc.text(`VAT Registration No.: ${company.vatRegistration}`, contactX, contactY, { width, align: 'left' });
+  contactY += 12;
+  doc.text(`Licence: PIN: ${company.pin}`, contactX, contactY, { width, align: 'left' });
+  contactY += 12;
+  const phoneFormatted = String(company.phone || '').replace(/(\+254)(\d{3})(\d{6})/, '$1$2 $3');
+  doc.text(`Tel: ${phoneFormatted}`, contactX, contactY, { width, align: 'left' });
+  contactY += 12;
+  doc.text(`Email: ${company.email}`, contactX, contactY, { width, align: 'left' });
+  return contactY;
+}
+
 /**
  * Workshop letterhead + document box; below that either customer/vehicle (quotes/invoices) or job-only (LPO).
  * @param {object} options
@@ -45,34 +88,17 @@ export function drawWorkshopDocumentHeader(
   const contentWidth = pageWidth - margin * 2;
 
   let headerY = margin;
-  const logoWidth = 260;
-  const logoHeight = 200;
-  const logoPath = resolveLogoPath();
-  if (logoPath) {
-    try {
-      doc.image(readFileSync(logoPath), margin, headerY, { fit: [logoWidth, logoHeight] });
-    } catch (_) {}
-  }
+  const logoWidth = LETTERHEAD_LOGO_FIT.width;
+  const logoHeight = LETTERHEAD_LOGO_FIT.height;
+  const leftBottom = drawLetterheadLogo(doc, margin, headerY, logoWidth, logoHeight);
 
   const contactX = pageWidth - margin - 200;
-  let contactY = headerY;
-  doc.fontSize(9).font('Helvetica');
-  doc.text(company.name, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(company.address, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`VAT Registration No.: ${company.vatRegistration}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`Licence: PIN: ${company.pin}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  const phoneFormatted = String(company.phone || '').replace(/(\+254)(\d{3})(\d{6})/, '$1$2 $3');
-  doc.text(`Tel: ${phoneFormatted}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`Email: ${company.email}`, contactX, contactY, { width: 200, align: 'left' });
+  const contactY = headerY;
+  const contactEndY = drawCompanyContactBlock(doc, company, contactX, contactY);
 
   const docBoxWidth = 200;
   const docBoxX = contactX;
-  const docBoxY = contactY + 15;
+  const docBoxY = contactEndY + 8;
   const boxPad = 10;
   const innerW = docBoxWidth - 2 * boxPad;
   const boxGap = 4;
@@ -95,8 +121,8 @@ export function drawWorkshopDocumentHeader(
   ty += hNumber + boxGap;
   doc.fontSize(9).font('Helvetica').text(`${dateLabel}: ${dateValue}`, docBoxX + boxPad, ty, { width: innerW, align: 'left' });
 
-  const headerBottom = headerY + logoHeight;
-  const detailsTop = headerBottom + 4;
+  const rightBottom = docBoxY + boxHeight;
+  const detailsTop = letterheadDetailsTop(leftBottom, rightBottom);
 
   let yContent;
   if (!showCustomerAndVehicle) {
@@ -155,7 +181,7 @@ export function drawWorkshopDocumentHeader(
       rightY = doc.y + 4;
     }
 
-    yContent = Math.max(leftY, rightY) + 16;
+    yContent = Math.max(leftY, rightY) + 10;
   }
   return { margin, contentWidth, pageWidth, yContent };
 }
@@ -170,34 +196,16 @@ export function drawStockStoreLpoHeader(doc, company, { docBoxTitle, docBoxNumbe
   const contentWidth = pageWidth - margin * 2;
 
   let headerY = margin;
-  const logoWidth = 260;
-  const logoHeight = 200;
-  const logoPath = resolveLogoPath();
-  if (logoPath) {
-    try {
-      doc.image(readFileSync(logoPath), margin, headerY, { fit: [logoWidth, logoHeight] });
-    } catch (_) {}
-  }
+  const logoWidth = LETTERHEAD_LOGO_FIT.width;
+  const logoHeight = LETTERHEAD_LOGO_FIT.height;
+  const leftBottom = drawLetterheadLogo(doc, margin, headerY, logoWidth, logoHeight);
 
   const contactX = pageWidth - margin - 200;
-  let contactY = headerY;
-  doc.fontSize(9).font('Helvetica');
-  doc.text(company.name, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(company.address, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`VAT Registration No.: ${company.vatRegistration}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`Licence: PIN: ${company.pin}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  const phoneFormatted = String(company.phone || '').replace(/(\+254)(\d{3})(\d{6})/, '$1$2 $3');
-  doc.text(`Tel: ${phoneFormatted}`, contactX, contactY, { width: 200, align: 'left' });
-  contactY += 12;
-  doc.text(`Email: ${company.email}`, contactX, contactY, { width: 200, align: 'left' });
+  const contactEndY = drawCompanyContactBlock(doc, company, contactX, headerY);
 
   const docBoxWidth = 200;
   const docBoxX = contactX;
-  const docBoxY = contactY + 15;
+  const docBoxY = contactEndY + 8;
   const boxPad = 10;
   const innerW = docBoxWidth - 2 * boxPad;
   const boxGap = 4;
@@ -219,8 +227,7 @@ export function drawStockStoreLpoHeader(doc, company, { docBoxTitle, docBoxNumbe
   ty += hNumber + boxGap;
   doc.fontSize(9).font('Helvetica').text(`${dateLabel}: ${dateValue}`, docBoxX + boxPad, ty, { width: innerW, align: 'left' });
 
-  const headerBottom = headerY + logoHeight;
-  const detailsTop = headerBottom + 4;
+  const detailsTop = letterheadDetailsTop(leftBottom, docBoxY + boxHeight);
   let y = detailsTop;
   doc.fontSize(10).font('Helvetica-Bold').text('Purpose: Receive stock into stores', margin, y, { width: contentWidth });
   y = doc.y + 4;
