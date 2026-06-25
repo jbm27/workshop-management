@@ -640,7 +640,6 @@ function PortalDocumentTotals({ doc }) {
   const total = Number(doc.total || 0);
   const breakdown = computeInvoiceTotalsFromLines(doc.items || [], {
     discount_percent: doc.discount_percent,
-    discount_amount: doc.discount_amount,
   });
   const hasInvoicePaymentSummary = doc.balance != null && doc.balance !== undefined;
   const paid = Number(doc.amount_paid ?? 0);

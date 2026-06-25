@@ -7,24 +7,20 @@ function formatKes(n) {
   return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
-/** Document-level discount (% and/or fixed amount ex VAT) with save. */
+/** Document-level percentage discount with save. */
 export default function InvoiceDocumentDiscountPanel({ document, onSave, title = 'Document discount' }) {
   const [discountPercent, setDiscountPercent] = useState('');
-  const [discountAmount, setDiscountAmount] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const pct = Number(document?.discount_percent) || 0;
-    const amt = Number(document?.discount_amount) || 0;
     setDiscountPercent(pct > 0 ? String(pct) : '');
-    setDiscountAmount(amt > 0 ? String(amt) : '');
-  }, [document?.discount_percent, document?.discount_amount, document?.id]);
+  }, [document?.discount_percent, document?.id]);
 
   if (!document) return null;
 
   const breakdown = computeInvoiceTotalsFromLines(document.items || [], {
     discount_percent: document.discount_percent,
-    discount_amount: document.discount_amount,
   });
 
   const handleSave = async () => {
@@ -32,7 +28,6 @@ export default function InvoiceDocumentDiscountPanel({ document, onSave, title =
     try {
       await onSave({
         discount_percent: discountPercent.trim() === '' ? 0 : Number(discountPercent),
-        discount_amount: discountAmount.trim() === '' ? 0 : Number(discountAmount),
       });
     } finally {
       setBusy(false);
@@ -40,8 +35,7 @@ export default function InvoiceDocumentDiscountPanel({ document, onSave, title =
   };
 
   const dirty =
-    (discountPercent.trim() === '' ? 0 : Number(discountPercent) || 0) !== (Number(document.discount_percent) || 0) ||
-    (discountAmount.trim() === '' ? 0 : Number(discountAmount) || 0) !== (Number(document.discount_amount) || 0);
+    (discountPercent.trim() === '' ? 0 : Number(discountPercent) || 0) !== (Number(document.discount_percent) || 0);
 
   return (
     <div
@@ -55,8 +49,8 @@ export default function InvoiceDocumentDiscountPanel({ document, onSave, title =
     >
       <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.95rem' }}>{title}</h4>
       <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-        Apply a percentage and/or fixed amount (ex VAT) off the whole {document.type === 'quote' ? 'quote' : 'invoice'}.
-        Line discounts are applied first.
+        Apply a percentage off the whole {document.type === 'quote' ? 'quote' : 'invoice'}. Line discounts are applied
+        first.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'end', marginBottom: '0.75rem' }}>
         <div className="form-group" style={{ margin: 0 }}>
@@ -74,18 +68,6 @@ export default function InvoiceDocumentDiscountPanel({ document, onSave, title =
             />
             <span>%</span>
           </div>
-        </div>
-        <div className="form-group" style={{ margin: 0 }}>
-          <label>Fixed discount (ex VAT)</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={discountAmount}
-            onChange={(e) => setDiscountAmount(e.target.value)}
-            placeholder="0"
-            style={{ width: '7rem' }}
-          />
         </div>
         <button type="button" className="btn primary" onClick={handleSave} disabled={busy || !dirty}>
           {busy ? 'Saving…' : 'Apply discount'}

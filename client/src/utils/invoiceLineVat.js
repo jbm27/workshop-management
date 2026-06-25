@@ -6,12 +6,6 @@ export function normalizeDiscountPercent(value) {
   return Math.min(100, n);
 }
 
-export function normalizeDiscountAmount(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  return n;
-}
-
 export function isHeaderLineType(type) {
   return String(type || '').toLowerCase() === 'header';
 }
@@ -63,19 +57,10 @@ export function computeInvoiceTotalsFromLines(lines, docDiscount = {}) {
   const docPct = normalizeDiscountPercent(docDiscount.discount_percent);
   if (docPct > 0) {
     const removed = Math.round(subtotal * (docPct / 100) * 100) / 100;
-    documentDiscountTotal += removed;
+    documentDiscountTotal = removed;
     const factor = 1 - docPct / 100;
     subtotal = Math.round(subtotal * factor * 100) / 100;
     tax_amount = Math.round(tax_amount * factor * 100) / 100;
-  }
-
-  const docAmt = normalizeDiscountAmount(docDiscount.discount_amount);
-  if (docAmt > 0 && subtotal > 0) {
-    const removed = Math.min(docAmt, subtotal);
-    documentDiscountTotal += removed;
-    const ratio = (subtotal - removed) / subtotal;
-    subtotal = Math.round((subtotal - removed) * 100) / 100;
-    tax_amount = Math.round(tax_amount * ratio * 100) / 100;
   }
 
   documentDiscountTotal = Math.round(documentDiscountTotal * 100) / 100;

@@ -27,14 +27,13 @@ function syncInvoicePaymentStatusAfterTotalChange(invoiceId) {
 }
 
 export function refreshInvoiceTotalsFromLineItems(invoiceId) {
-  const inv = db.prepare('SELECT type, discount_percent, discount_amount FROM invoices WHERE id = ?').get(invoiceId);
+  const inv = db.prepare('SELECT type, discount_percent FROM invoices WHERE id = ?').get(invoiceId);
   if (!inv) return;
   const lines = db
     .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt, type, discount_percent FROM invoice_items WHERE invoice_id = ?')
     .all(invoiceId);
   const totals = computeInvoiceTotalsFromLines(lines, {
     discount_percent: inv.discount_percent,
-    discount_amount: inv.discount_amount,
   });
   db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ?, updated_at = datetime(\'now\') WHERE id = ?').run(
     totals.subtotal,

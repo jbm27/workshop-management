@@ -23,7 +23,7 @@ import {
   refreshInvoiceTotalsFromLineItems,
   syncLabourLinesForJob,
 } from '../jobInvoiceLabour.js';
-import { normalizeInvoiceLineVat, normalizeDiscountPercent, normalizeDiscountAmount, invoiceLineNet, computeInvoiceTotalsFromLines } from '../invoiceLineTotals.js';
+import { normalizeInvoiceLineVat, normalizeDiscountPercent, invoiceLineNet, computeInvoiceTotalsFromLines } from '../invoiceLineTotals.js';
 import { isHeaderLine, enrichItemsWithSectionTotals, nextInvoiceItemSortOrder } from '../invoiceLineSections.js';
 import {
   deductOutstandingStockForInvoice,
@@ -556,7 +556,7 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
   const result = db.prepare(`
     INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate, discount_percent, discount_amount)
     VALUES (?, NULL, ?, ?, 'quote', ?, ?, ?, ?, ?)
-  `).run(invoice_number, customer_id, vehicle_id, src.due_date || null, copyNotes, taxRate, src.discount_percent ?? 0, src.discount_amount ?? 0);
+  `).run(invoice_number, customer_id, vehicle_id, src.due_date || null, copyNotes, taxRate, src.discount_percent ?? 0, 0);
   const newId = result.lastInsertRowid;
 
   const srcItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(src.id);
@@ -588,16 +588,15 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
 });
 
 invoicesRouter.post('/', (req, res) => {
-  const { job_id, customer_id, vehicle_id, type, due_date, notes, items, discount_percent, discount_amount } = req.body;
+  const { job_id, customer_id, vehicle_id, type, due_date, notes, items, discount_percent } = req.body;
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
   const resolvedType = type || 'invoice';
   const invoice_number = resolvedType === 'quote' ? nextQuoteNumber() : nextInvoiceNumber();
   const taxRate = 0.16; // 16% VAT Kenya – make configurable
   const docDiscountPercent = normalizeDiscountPercent(discount_percent);
-  const docDiscountAmount = normalizeDiscountAmount(discount_amount);
   const result = db.prepare(`
     INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate, discount_percent, discount_amount)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
   `).run(
     invoice_number,
     job_id || null,
@@ -608,7 +607,6 @@ invoicesRouter.post('/', (req, res) => {
     notes || null,
     taxRate,
     docDiscountPercent,
-    docDiscountAmount,
   );
   const invId = result.lastInsertRowid;
   if (Array.isArray(items) && items.length) {
@@ -682,7 +680,7 @@ invoicesRouter.post('/', (req, res) => {
 invoicesRouter.patch('/:id', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  const { status, paid_at, due_date, notes, discount_percent, discount_amount } = req.body;
+  const { status, paid_at, due_date, notes, discount_percent } = req.body;
   const nextStatus = status ?? inv.status;
   if (nextStatus === 'paid' && inv.status !== 'paid' && inv.type === 'invoice') {
     try {
@@ -693,10 +691,8 @@ invoicesRouter.patch('/:id', (req, res) => {
   }
   const nextDiscountPercent =
     discount_percent !== undefined ? normalizeDiscountPercent(discount_percent) : Number(inv.discount_percent) || 0;
-  const nextDiscountAmount =
-    discount_amount !== undefined ? normalizeDiscountAmount(discount_amount) : Number(inv.discount_amount) || 0;
   db.prepare(`
-    UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, discount_percent = ?, discount_amount = ?, updated_at = datetime('now')
+    UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, discount_percent = ?, discount_amount = 0, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     nextStatus,
@@ -704,7 +700,6 @@ invoicesRouter.patch('/:id', (req, res) => {
     due_date ?? inv.due_date,
     notes ?? inv.notes,
     nextDiscountPercent,
-    nextDiscountAmount,
     req.params.id,
   );
   refreshInvoiceTotalsFromLineItems(req.params.id);
@@ -1996,7 +1991,6 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
 
   const totalsBreakdown = computeInvoiceTotalsFromLines(items, {
     discount_percent: inv.discount_percent,
-    discount_amount: inv.discount_amount,
   });
   const documentDiscountRows = totalsBreakdown.document_discount_total > 0 ? 1 : 0;
 
