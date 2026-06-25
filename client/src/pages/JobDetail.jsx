@@ -17,6 +17,8 @@ import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLine
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
 import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
+import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
+import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
@@ -486,6 +488,7 @@ export default function JobDetail() {
         quantity,
         unit_price,
         subtext: String(fd.get('subtext') || '').trim() || undefined,
+        discount_percent: readLineDiscountPercent(null) || Number(fd.get('discount_percent')) || 0,
         stock_item_id: quoteLineDraft.stockItemId || undefined,
         type: quoteLineDraft.stockItemId ? 'part' : undefined,
         ...vat,
@@ -579,6 +582,7 @@ export default function JobDetail() {
         unit_price,
         purchase_price,
         subtext: String(fd.get('subtext') || '').trim() || undefined,
+        discount_percent: readLineDiscountPercent(null) || Number(fd.get('discount_percent')) || 0,
         stock_item_id: invoiceLineDraft.stockItemId || undefined,
         type: invoiceLineDraft.stockItemId ? 'part' : undefined,
         ...vat,
@@ -659,6 +663,7 @@ export default function JobDetail() {
         stock_item_id: line.stock_item_id || undefined,
         type: line.stock_item_id ? 'part' : line.type,
         subtext: line.subtext || undefined,
+        discount_percent: line.discount_percent || 0,
         vat_rate: line.vat_rate,
         vat_exempt: line.vat_exempt,
       });
@@ -696,6 +701,28 @@ export default function JobDetail() {
       alert(err.message);
     } finally {
       setAddingPay(false);
+    }
+  };
+
+  const saveInvoiceDocumentDiscount = async (fields) => {
+    if (!invoice) return;
+    try {
+      const updated = await api.invoices.update(invoice.id, fields);
+      setInvoice(updated);
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
+  };
+
+  const saveQuoteDocumentDiscount = async (fields) => {
+    if (!quote) return;
+    try {
+      const updated = await api.invoices.update(quote.id, fields);
+      setQuote(updated);
+    } catch (err) {
+      alert(err.message);
+      throw err;
     }
   };
 
@@ -737,6 +764,7 @@ export default function JobDetail() {
           stock_item_id: it.stock_item_id || undefined,
           type: it.stock_item_id ? 'part' : it.type,
           subtext: it.subtext || undefined,
+          discount_percent: it.discount_percent || 0,
           vat_rate: it.vat_rate,
           vat_exempt: it.vat_exempt,
         });
@@ -1842,6 +1870,7 @@ export default function JobDetail() {
                       onChange={(e) => setInvoiceLineDraft((d) => ({ ...d, unitPrice: e.target.value }))}
                       placeholder="0"
                     />
+                    <InvoiceLineDiscountField />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>VAT</label>
@@ -2004,7 +2033,10 @@ export default function JobDetail() {
                               <input type="number" id={`inv-purchase-${it.id}`} min="0" step="0.01" defaultValue={it.purchase_price ?? 0} style={{ width: '5rem' }} />
                             )}
                           </td>
-                          <td><input type="number" id={`inv-sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} /></td>
+                          <td>
+                            <input type="number" id={`inv-sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} />
+                            <InvoiceLineDiscountField id={`inv-discount-${it.id}`} defaultValue={it.discount_percent} />
+                          </td>
                           <td>
                             <InvoiceLineVatSelect idPrefix={`inv-item-${it.id}`} defaultFields={vatModeFromLine(it)} />
                           </td>
@@ -2024,8 +2056,9 @@ export default function JobDetail() {
                                 const sale = Number(document.getElementById(`inv-sale-${it.id}`)?.value) ?? it.unit_price;
                                 const subtextVal = String(document.getElementById(`inv-subtext-${it.id}`)?.value || '').trim();
                                 const subtextPayload = subtextVal ? subtextVal : null;
+                                const lineDiscount = readLineDiscountPercent(`inv-discount-${it.id}`);
                                 if (labour) {
-                                  updateInvoiceItem(it.id, { unit_price: sale, subtext: subtextPayload, ...vat });
+                                  updateInvoiceItem(it.id, { unit_price: sale, subtext: subtextPayload, discount_percent: lineDiscount, ...vat });
                                   return;
                                 }
                                 const desc = invoiceEditStock.query.trim();
@@ -2042,6 +2075,7 @@ export default function JobDetail() {
                                     unit_price: sale,
                                     stock_item_id: invoiceEditStock.stockItemId,
                                     subtext: subtextPayload,
+                                    discount_percent: lineDiscount,
                                     ...vat,
                                   });
                                 }
@@ -2083,7 +2117,10 @@ export default function JobDetail() {
                               </>
                             )}
                           </td>
-                          <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
+                          <td>
+                            {it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}
+                            <InvoiceLineDiscountView discountPercent={it.discount_percent} />
+                          </td>
                           <td>{invoiceVatLabel(it)}</td>
                           <td><strong>KES {invoiceLineNet(it).toLocaleString()}</strong></td>
                           <td>
@@ -2124,7 +2161,13 @@ export default function JobDetail() {
               </table>
             </div>
             {invoice.items?.length > 0 && (
-              <div style={{ marginTop: '1rem' }}>
+              <>
+                <InvoiceDocumentDiscountPanel
+                  document={invoice}
+                  title="Invoice discount"
+                  onSave={saveInvoiceDocumentDiscount}
+                />
+                <div style={{ marginTop: '1rem' }}>
                 <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>
                   Invoice total (inc VAT): {formatKes(invoice.total ?? 0)}
                 </p>
@@ -2143,6 +2186,7 @@ export default function JobDetail() {
                   <strong>{formatKes(invoiceBalance)}</strong>
                 </p>
               </div>
+              </>
             )}
 
             <div
@@ -2326,6 +2370,7 @@ export default function JobDetail() {
                       onChange={(e) => setQuoteLineDraft((d) => ({ ...d, unitPrice: e.target.value }))}
                       placeholder="0"
                     />
+                    <InvoiceLineDiscountField />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>VAT</label>
@@ -2455,7 +2500,10 @@ export default function JobDetail() {
                             <InvoiceLineSubtextField id={`qty-subtext-${it.id}`} defaultValue={it.subtext} />
                           </td>
                           <td>{labour ? <span>1</span> : <input type="number" id={`qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />}</td>
-                          <td><input type="number" id={`sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} /></td>
+                          <td>
+                            <input type="number" id={`sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} />
+                            <InvoiceLineDiscountField id={`qty-discount-${it.id}`} defaultValue={it.discount_percent} />
+                          </td>
                           <td>
                             <InvoiceLineVatSelect idPrefix={`item-${it.id}`} defaultFields={vatModeFromLine(it)} />
                           </td>
@@ -2472,8 +2520,9 @@ export default function JobDetail() {
                               const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
                               const subtextVal = String(document.getElementById(`qty-subtext-${it.id}`)?.value || '').trim();
                               const subtextPayload = subtextVal ? subtextVal : null;
+                              const lineDiscount = readLineDiscountPercent(`qty-discount-${it.id}`);
                               if (labour) {
-                                updateQuoteItem(it.id, { unit_price: sale, subtext: subtextPayload, ...vat });
+                                updateQuoteItem(it.id, { unit_price: sale, subtext: subtextPayload, discount_percent: lineDiscount, ...vat });
                                 return;
                               }
                               const desc = quoteEditStock.query.trim();
@@ -2485,6 +2534,7 @@ export default function JobDetail() {
                                   unit_price: sale,
                                   stock_item_id: quoteEditStock.stockItemId,
                                   subtext: subtextPayload,
+                                  discount_percent: lineDiscount,
                                   ...vat,
                                 });
                               }
@@ -2502,7 +2552,10 @@ export default function JobDetail() {
                             <InvoiceLineSubtextView subtext={it.subtext} />
                           </td>
                           <td>{labour ? 1 : it.quantity}</td>
-                          <td>{it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}</td>
+                          <td>
+                            {it.unit_price != null ? 'KES ' + Number(it.unit_price).toLocaleString() : '—'}
+                            <InvoiceLineDiscountView discountPercent={it.discount_percent} />
+                          </td>
                           <td>{invoiceVatLabel(it)}</td>
                           <td><strong>KES {invoiceLineNet(it).toLocaleString()}</strong></td>
                           <td>
@@ -2536,15 +2589,22 @@ export default function JobDetail() {
               </table>
             </div>
             {quote.items?.length > 0 && (
-              <p style={{ marginTop: '1rem', fontWeight: 600 }}>
-                Quote total (inc VAT): KES {(quote.total ?? 0).toLocaleString()}
-                {quote.tax_amount != null && quote.tax_amount > 0 && (
-                  <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                    {' '}
-                    · ex VAT {Number(quote.subtotal ?? 0).toLocaleString()} · VAT {Number(quote.tax_amount).toLocaleString()}
-                  </span>
-                )}
-              </p>
+              <>
+                <InvoiceDocumentDiscountPanel
+                  document={quote}
+                  title="Quote discount"
+                  onSave={saveQuoteDocumentDiscount}
+                />
+                <p style={{ marginTop: '1rem', fontWeight: 600 }}>
+                  Quote total (inc VAT): KES {(quote.total ?? 0).toLocaleString()}
+                  {quote.tax_amount != null && quote.tax_amount > 0 && (
+                    <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+                      {' '}
+                      · ex VAT {Number(quote.subtotal ?? 0).toLocaleString()} · VAT {Number(quote.tax_amount).toLocaleString()}
+                    </span>
+                  )}
+                </p>
+              </>
             )}
           </>
         )}

@@ -277,6 +277,10 @@ function migrate(db) {
     if (iiCols.length && !iiCols.includes('subtext')) {
       db.run('ALTER TABLE invoice_items ADD COLUMN subtext TEXT');
     }
+    if (iiCols.length && !iiCols.includes('discount_percent')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN discount_percent REAL DEFAULT 0');
+      db.run('UPDATE invoice_items SET discount_percent = 0 WHERE discount_percent IS NULL');
+    }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
       db.run('UPDATE invoice_items SET vat_exempt = 0 WHERE vat_exempt IS NULL');
@@ -290,6 +294,20 @@ function migrate(db) {
             (SELECT COALESCE(SUM(quantity * unit_price), 0) FROM invoice_items WHERE invoice_id = invoices.id) +
             (SELECT COALESCE(SUM(${vatExpr}), 0) FROM invoice_items WHERE invoice_id = invoices.id)
       `);
+    }
+  } catch (e) {
+    if (!e.message?.includes('duplicate column')) throw e;
+  }
+  try {
+    const invInfo = db.exec('PRAGMA table_info(invoices)');
+    const invCols = (invInfo[0]?.values || []).map((row) => row[1]);
+    if (invCols.length && !invCols.includes('discount_percent')) {
+      db.run('ALTER TABLE invoices ADD COLUMN discount_percent REAL DEFAULT 0');
+      db.run('UPDATE invoices SET discount_percent = 0 WHERE discount_percent IS NULL');
+    }
+    if (invCols.length && !invCols.includes('discount_amount')) {
+      db.run('ALTER TABLE invoices ADD COLUMN discount_amount REAL DEFAULT 0');
+      db.run('UPDATE invoices SET discount_amount = 0 WHERE discount_amount IS NULL');
     }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;

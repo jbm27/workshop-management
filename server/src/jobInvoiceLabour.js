@@ -1,6 +1,6 @@
 import { db } from './db.js';
 import { getAverageLabourCostPerHour } from './workshopSettings.js';
-import { invoiceLineNet, invoiceLineVat } from './invoiceLineTotals.js';
+import { computeInvoiceTotalsFromLines } from './invoiceLineTotals.js';
 
 function syncInvoicePaymentStatusAfterTotalChange(invoiceId) {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(invoiceId);
@@ -27,25 +27,19 @@ function syncInvoicePaymentStatusAfterTotalChange(invoiceId) {
 }
 
 export function refreshInvoiceTotalsFromLineItems(invoiceId) {
-  const inv = db.prepare('SELECT type FROM invoices WHERE id = ?').get(invoiceId);
+  const inv = db.prepare('SELECT type, discount_percent, discount_amount FROM invoices WHERE id = ?').get(invoiceId);
   if (!inv) return;
   const lines = db
-    .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt, type FROM invoice_items WHERE invoice_id = ?')
+    .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt, type, discount_percent FROM invoice_items WHERE invoice_id = ?')
     .all(invoiceId);
-  let subtotal = 0;
-  let tax_amount = 0;
-  for (const line of lines) {
-    if (String(line.type || '').toLowerCase() === 'header') continue;
-    subtotal += invoiceLineNet(line);
-    tax_amount += invoiceLineVat(line);
-  }
-  subtotal = Math.round(subtotal * 100) / 100;
-  tax_amount = Math.round(tax_amount * 100) / 100;
-  const total = Math.round((subtotal + tax_amount) * 100) / 100;
+  const totals = computeInvoiceTotalsFromLines(lines, {
+    discount_percent: inv.discount_percent,
+    discount_amount: inv.discount_amount,
+  });
   db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ?, updated_at = datetime(\'now\') WHERE id = ?').run(
-    subtotal,
-    tax_amount,
-    total,
+    totals.subtotal,
+    totals.tax_amount,
+    totals.total,
     invoiceId,
   );
   if (inv.type === 'invoice') syncInvoicePaymentStatusAfterTotalChange(invoiceId);

@@ -11,6 +11,8 @@ import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLine
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
 import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
+import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
+import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
@@ -152,6 +154,16 @@ export default function InvoiceDetail() {
     }
   };
 
+  const saveDocumentDiscount = async (fields) => {
+    try {
+      const updated = await api.invoices.update(id, fields);
+      setInv(updated);
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
+  };
+
   const addPayment = async (e) => {
     e.preventDefault();
     if (!canRecordInvoicePayments) return alert('You do not have permission to record payments');
@@ -228,6 +240,7 @@ export default function InvoiceDetail() {
         quantity,
         unit_price,
         subtext: String(fd.get('subtext') || '').trim() || undefined,
+        discount_percent: readLineDiscountPercent(null) || Number(fd.get('discount_percent')) || 0,
         stock_item_id: quoteLineDraft.stockItemId || undefined,
         type: quoteLineDraft.stockItemId ? 'part' : undefined,
         ...vat,
@@ -675,6 +688,7 @@ export default function InvoiceDetail() {
                   onChange={(e) => setQuoteLineDraft((d) => ({ ...d, unitPrice: e.target.value }))}
                   placeholder="0"
                 />
+                <InvoiceLineDiscountField />
               </div>
               <div className="form-group" style={{ margin: 0 }}>
                 <label>VAT</label>
@@ -843,6 +857,7 @@ export default function InvoiceDetail() {
                           defaultValue={it.unit_price}
                           style={{ width: '5rem' }}
                         />
+                        <InvoiceLineDiscountField id={`item-discount-${it.id}`} defaultValue={it.discount_percent} />
                       </td>
                       <td>
                         <InvoiceLineVatSelect idPrefix={`item-${it.id}`} defaultFields={vatModeFromLine(it)} />
@@ -863,8 +878,9 @@ export default function InvoiceDetail() {
                             const sale = Number(document.getElementById(`sale-${it.id}`)?.value) ?? it.unit_price;
                             const subtextVal = String(document.getElementById(`item-subtext-${it.id}`)?.value || '').trim();
                             const subtextPayload = subtextVal ? subtextVal : null;
+                            const lineDiscount = readLineDiscountPercent(`item-discount-${it.id}`);
                             if (labour) {
-                              updateQuoteItem(it.id, { unit_price: sale, subtext: subtextPayload, ...vat });
+                              updateQuoteItem(it.id, { unit_price: sale, subtext: subtextPayload, discount_percent: lineDiscount, ...vat });
                               return;
                             }
                             const desc = quoteEditStock.query.trim();
@@ -876,6 +892,7 @@ export default function InvoiceDetail() {
                                 unit_price: sale,
                                 stock_item_id: quoteEditStock.stockItemId,
                                 subtext: subtextPayload,
+                                discount_percent: lineDiscount,
                                 ...vat,
                               });
                             }
@@ -942,7 +959,10 @@ export default function InvoiceDetail() {
                         )}
                       </td>
                     )}
-                    <td>{kes(price)}</td>
+                    <td>
+                      {kes(price)}
+                      <InvoiceLineDiscountView discountPercent={it.discount_percent} />
+                    </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{invoiceVatLabel(it)}</td>
                     <td>{kes(invoiceLineNet(it))}</td>
                     {canEditQuoteLines && (
@@ -963,6 +983,13 @@ export default function InvoiceDetail() {
             </tbody>
           </table>
         </div>
+        {items.length > 0 && (
+          <InvoiceDocumentDiscountPanel
+            document={inv}
+            title={isQuote ? 'Quote discount' : 'Invoice discount'}
+            onSave={saveDocumentDiscount}
+          />
+        )}
         <div style={{ marginTop: '1rem', textAlign: 'right', maxWidth: '280px', marginLeft: 'auto' }}>
           <p style={{ margin: '0.25rem 0' }}>Subtotal (ex VAT) <strong>{kes(subtotal)}</strong></p>
           <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)' }}>

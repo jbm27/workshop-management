@@ -16,7 +16,8 @@ export default function Invoices() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState({
     customer_id: '', vehicle_id: '', type: 'invoice', due_date: '', notes: '',
-    items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour', itemQuery: 'Labour', stock_item_id: null, ...defaultInvoiceLineVatFields() }],
+    discount_percent: '', discount_amount: '',
+    items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour', itemQuery: 'Labour', stock_item_id: null, discount_percent: 0, ...defaultInvoiceLineVatFields() }],
   });
 
   const load = () =>
@@ -40,14 +41,15 @@ export default function Invoices() {
   const openCreate = () => {
     setForm({
       customer_id: '', vehicle_id: '', type: 'invoice', due_date: '', notes: '',
-      items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour', itemQuery: 'Labour', stock_item_id: null, ...defaultInvoiceLineVatFields() }],
+      discount_percent: '', discount_amount: '',
+      items: [{ description: 'Labour', quantity: 1, unit_price: 0, type: 'labour', itemQuery: 'Labour', stock_item_id: null, discount_percent: 0, ...defaultInvoiceLineVatFields() }],
     });
     setModal('create');
   };
   const addLine = () =>
     setForm((f) => ({
       ...f,
-      items: [...f.items, { description: '', itemQuery: '', stock_item_id: null, quantity: 1, unit_price: 0, type: 'other', ...defaultInvoiceLineVatFields() }],
+      items: [...f.items, { description: '', itemQuery: '', stock_item_id: null, quantity: 1, unit_price: 0, type: 'other', discount_percent: 0, ...defaultInvoiceLineVatFields() }],
     }));
   const addHeaderLine = () =>
     setForm((f) => ({
@@ -84,6 +86,7 @@ export default function Invoices() {
           type: it.stock_item_id ? 'part' : it.type || 'other',
           stock_item_id: it.stock_item_id || undefined,
           subtext: String(it.subtext || '').trim() || undefined,
+          discount_percent: Number(it.discount_percent) || 0,
           vat_rate: vat.vat_rate,
           vat_exempt: vat.vat_exempt,
         };
@@ -97,6 +100,8 @@ export default function Invoices() {
         type: form.type,
         due_date: form.due_date || null,
         notes: form.notes || null,
+        discount_percent: form.discount_percent.trim() === '' ? 0 : Number(form.discount_percent),
+        discount_amount: form.discount_amount.trim() === '' ? 0 : Number(form.discount_amount),
         items,
       });
       setModal(null);
@@ -263,6 +268,7 @@ export default function Invoices() {
                       <>
                     <input type="number" placeholder="Qty" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} style={{ width: '60px' }} min="0" step="0.01" />
                     <input type="number" placeholder="Price ex VAT" value={it.unit_price} onChange={(e) => updateLine(i, 'unit_price', e.target.value)} style={{ width: '100px' }} min="0" step="0.01" />
+                    <input type="number" placeholder="Disc %" value={it.discount_percent || ''} onChange={(e) => updateLine(i, 'discount_percent', e.target.value)} style={{ width: '70px' }} min="0" max="100" step="0.01" title="Line discount %" />
                     <InvoiceLineVatSelect
                       value={{ vat_mode: it.vat_mode, vat_rate_custom: it.vat_rate_custom }}
                       onChange={(vat) => setForm((f) => ({
@@ -284,6 +290,39 @@ export default function Invoices() {
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <button type="button" className="btn" onClick={addLine}>Add line</button>
                   <button type="button" className="btn" onClick={addHeaderLine}>Add header</button>
+                </div>
+              </div>
+              <div className="form-group">
+                <label>Document discount (optional)</label>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                  Percentage and/or fixed amount (ex VAT) off the whole document. Line discounts are applied first.
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                  <div>
+                    <label style={{ fontSize: '0.85rem' }}>Discount %</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={form.discount_percent}
+                      onChange={(e) => setForm((f) => ({ ...f, discount_percent: e.target.value }))}
+                      placeholder="0"
+                      style={{ width: '5rem', display: 'block' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.85rem' }}>Fixed discount (ex VAT)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.discount_amount}
+                      onChange={(e) => setForm((f) => ({ ...f, discount_amount: e.target.value }))}
+                      placeholder="0"
+                      style={{ width: '7rem', display: 'block' }}
+                    />
+                  </div>
                 </div>
               </div>
               <div className="form-group">

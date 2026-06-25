@@ -3,7 +3,9 @@ import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
+import { invoiceLineNet, computeInvoiceTotalsFromLines } from '../utils/invoiceLineVat';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
+import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -617,10 +619,11 @@ function PortalLineItemsTable({ items }) {
                 <td>
                   {item.description}
                   <InvoiceLineSubtextView subtext={item.subtext} />
+                  <InvoiceLineDiscountView discountPercent={item.discount_percent} />
                 </td>
                 <td style={{ textAlign: 'right' }}>{qty}</td>
                 <td style={{ textAlign: 'right' }}>{kes(price)}</td>
-                <td style={{ textAlign: 'right' }}>{kes(qty * price)}</td>
+                <td style={{ textAlign: 'right' }}>{kes(invoiceLineNet(item))}</td>
               </tr>
             );
           })}
@@ -635,12 +638,26 @@ function PortalDocumentTotals({ doc }) {
   const subtotal = Number(doc.subtotal || 0);
   const tax = Number(doc.tax_amount || 0);
   const total = Number(doc.total || 0);
+  const breakdown = computeInvoiceTotalsFromLines(doc.items || [], {
+    discount_percent: doc.discount_percent,
+    discount_amount: doc.discount_amount,
+  });
   const hasInvoicePaymentSummary = doc.balance != null && doc.balance !== undefined;
   const paid = Number(doc.amount_paid ?? 0);
   const balance = Number(doc.balance);
 
   return (
     <div style={{ marginTop: '1rem', textAlign: 'right', maxWidth: '320px', marginLeft: 'auto' }}>
+      {breakdown.line_discount_total > 0 && (
+        <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+          Line discounts <strong>-{kes(breakdown.line_discount_total)}</strong>
+        </p>
+      )}
+      {breakdown.document_discount_total > 0 && (
+        <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+          Document discount <strong>-{kes(breakdown.document_discount_total)}</strong>
+        </p>
+      )}
       <p style={{ margin: '0.25rem 0' }}>
         Subtotal (ex VAT) <strong>{kes(subtotal)}</strong>
       </p>

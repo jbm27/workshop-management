@@ -226,6 +226,8 @@ CREATE TABLE IF NOT EXISTS invoices (
   tax_rate REAL DEFAULT 0,
   tax_amount REAL DEFAULT 0,
   total REAL DEFAULT 0,
+  discount_percent REAL DEFAULT 0,
+  discount_amount REAL DEFAULT 0,
   due_date TEXT,
   paid_at TEXT,
   notes TEXT,
@@ -252,6 +254,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   vat_exempt INTEGER DEFAULT 0,
   sort_order INTEGER DEFAULT 0,
   subtext TEXT,
+  discount_percent REAL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

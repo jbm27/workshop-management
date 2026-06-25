@@ -23,7 +23,7 @@ import {
   refreshInvoiceTotalsFromLineItems,
   syncLabourLinesForJob,
 } from '../jobInvoiceLabour.js';
-import { normalizeInvoiceLineVat } from '../invoiceLineTotals.js';
+import { normalizeInvoiceLineVat, normalizeDiscountPercent, normalizeDiscountAmount, invoiceLineNet, computeInvoiceTotalsFromLines } from '../invoiceLineTotals.js';
 import { isHeaderLine, enrichItemsWithSectionTotals, nextInvoiceItemSortOrder } from '../invoiceLineSections.js';
 import {
   deductOutstandingStockForInvoice,
@@ -554,15 +554,15 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
   const copyNotes = req.body?.notes !== undefined ? (req.body.notes?.trim() || null) : src.notes || null;
 
   const result = db.prepare(`
-    INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate)
-    VALUES (?, NULL, ?, ?, 'quote', ?, ?, ?)
-  `).run(invoice_number, customer_id, vehicle_id, src.due_date || null, copyNotes, taxRate);
+    INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate, discount_percent, discount_amount)
+    VALUES (?, NULL, ?, ?, 'quote', ?, ?, ?, ?, ?)
+  `).run(invoice_number, customer_id, vehicle_id, src.due_date || null, copyNotes, taxRate, src.discount_percent ?? 0, src.discount_amount ?? 0);
   const newId = result.lastInsertRowid;
 
   const srcItems = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(src.id);
   const ins = db.prepare(
-    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved, sort_order, subtext)
-     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?, ?)`,
+    `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, approved, sort_order, subtext, discount_percent)
+     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 0, ?, ?, ?)`,
   );
   for (const it of srcItems) {
     const lineType = String(it.type || 'other');
@@ -576,7 +576,8 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
       it.vat_rate ?? 16,
       it.vat_exempt ?? 0,
       it.sort_order ?? 0,
-      lineType === 'header' ? null : normalizeLineSubtext(it.subtext),
+      lineType === 'header' ? null : it.subtext ?? null,
+      lineType === 'header' ? 0 : normalizeDiscountPercent(it.discount_percent),
     );
   }
   ensureStandaloneLabourLineIfMissing(newId);
@@ -587,19 +588,32 @@ invoicesRouter.post('/:id/copy-to-quote', requireAdminAuth, (req, res) => {
 });
 
 invoicesRouter.post('/', (req, res) => {
-  const { job_id, customer_id, vehicle_id, type, due_date, notes, items } = req.body;
+  const { job_id, customer_id, vehicle_id, type, due_date, notes, items, discount_percent, discount_amount } = req.body;
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
   const resolvedType = type || 'invoice';
   const invoice_number = resolvedType === 'quote' ? nextQuoteNumber() : nextInvoiceNumber();
   const taxRate = 0.16; // 16% VAT Kenya – make configurable
+  const docDiscountPercent = normalizeDiscountPercent(discount_percent);
+  const docDiscountAmount = normalizeDiscountAmount(discount_amount);
   const result = db.prepare(`
-    INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(invoice_number, job_id || null, customer_id, vehicle_id || null, resolvedType, due_date || null, notes || null, taxRate);
+    INSERT INTO invoices (invoice_number, job_id, customer_id, vehicle_id, type, due_date, notes, tax_rate, discount_percent, discount_amount)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    invoice_number,
+    job_id || null,
+    customer_id,
+    vehicle_id || null,
+    resolvedType,
+    due_date || null,
+    notes || null,
+    taxRate,
+    docDiscountPercent,
+    docDiscountAmount,
+  );
   const invId = result.lastInsertRowid;
   if (Array.isArray(items) && items.length) {
     const ins = db.prepare(
-      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order, subtext) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order, subtext, discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
     let sortOrder = 0;
     for (const it of items) {
@@ -619,6 +633,7 @@ invoicesRouter.post('/', (req, res) => {
           1,
           sortOrder++,
           null,
+          0,
         );
         continue;
       }
@@ -634,6 +649,7 @@ invoicesRouter.post('/', (req, res) => {
         vat_exempt,
         sortOrder++,
         normalizeLineSubtext(it.subtext),
+        normalizeDiscountPercent(it.discount_percent),
       );
     }
   }
@@ -666,7 +682,7 @@ invoicesRouter.post('/', (req, res) => {
 invoicesRouter.patch('/:id', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  const { status, paid_at, due_date, notes } = req.body;
+  const { status, paid_at, due_date, notes, discount_percent, discount_amount } = req.body;
   const nextStatus = status ?? inv.status;
   if (nextStatus === 'paid' && inv.status !== 'paid' && inv.type === 'invoice') {
     try {
@@ -675,10 +691,23 @@ invoicesRouter.patch('/:id', (req, res) => {
       return res.status(400).json({ error: e.message || 'Insufficient stock to mark invoice paid' });
     }
   }
+  const nextDiscountPercent =
+    discount_percent !== undefined ? normalizeDiscountPercent(discount_percent) : Number(inv.discount_percent) || 0;
+  const nextDiscountAmount =
+    discount_amount !== undefined ? normalizeDiscountAmount(discount_amount) : Number(inv.discount_amount) || 0;
   db.prepare(`
-    UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, updated_at = datetime('now')
+    UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, discount_percent = ?, discount_amount = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(nextStatus, paid_at ?? inv.paid_at, due_date ?? inv.due_date, notes ?? inv.notes, req.params.id);
+  `).run(
+    nextStatus,
+    paid_at ?? inv.paid_at,
+    due_date ?? inv.due_date,
+    notes ?? inv.notes,
+    nextDiscountPercent,
+    nextDiscountAmount,
+    req.params.id,
+  );
+  refreshInvoiceTotalsFromLineItems(req.params.id);
   const payload = fullInvoicePayload(req.params.id);
   res.json(payload);
 });
@@ -714,7 +743,7 @@ invoicesRouter.delete('/:id/payments/:paymentId', requireAdminPermission('can_re
 });
 
 invoicesRouter.post('/:id/items', (req, res) => {
-  const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, subtext } = req.body;
+  const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, subtext, discount_percent } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
 
@@ -766,10 +795,11 @@ invoicesRouter.post('/:id/items', (req, res) => {
   }
   const vat = normalizeInvoiceLineVat({ vat_rate, vat_exempt });
   const lineSubtext = normalizeLineSubtext(subtext);
+  const lineDiscount = normalizeDiscountPercent(discount_percent);
   const sortOrder = nextInvoiceItemSortOrder(db, req.params.id);
   db.prepare(`
-    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order, subtext)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, sort_order, subtext, discount_percent)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     req.params.id,
     resolved.description,
@@ -782,6 +812,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
     vat.vat_exempt,
     sortOrder,
     lineSubtext,
+    lineDiscount,
   );
   if (inv.job_id) syncLabourLinesForJob(inv.job_id);
   else refreshInvoiceTotalsFromLineItems(req.params.id);
@@ -822,7 +853,7 @@ invoicesRouter.put('/:id/items/reorder', (req, res) => {
 });
 
 invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
-  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id, subtext } = req.body;
+  const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id, subtext, discount_percent } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
@@ -876,8 +907,10 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
       : { vat_rate: item.vat_rate, vat_exempt: item.vat_exempt };
   const vat = normalizeInvoiceLineVat(vatInput);
   const nextSubtext = subtext !== undefined ? normalizeLineSubtext(subtext) : item.subtext ?? null;
+  const nextDiscount =
+    discount_percent !== undefined ? normalizeDiscountPercent(discount_percent) : normalizeDiscountPercent(item.discount_percent);
   db.prepare(`
-    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, type = ?, stock_item_id = ?, vat_rate = ?, vat_exempt = ?, subtext = ?, created_at = created_at
+    UPDATE invoice_items SET description = ?, quantity = ?, unit_price = ?, purchase_price = ?, type = ?, stock_item_id = ?, vat_rate = ?, vat_exempt = ?, subtext = ?, discount_percent = ?, created_at = created_at
     WHERE id = ? AND invoice_id = ?
   `).run(
     nextDesc,
@@ -889,6 +922,7 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
     vat.vat_rate,
     vat.vat_exempt,
     nextSubtext,
+    nextDiscount,
     req.params.itemId,
     req.params.id
   );
@@ -1923,13 +1957,15 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     const subtext = String(item.subtext || '').trim();
     const qty = item.quantity || 1;
     const unitPrice = item.unit_price || 0;
-    const amount = qty * unitPrice;
+    const amount = invoiceLineNet(item);
+    const lineDisc = normalizeDiscountPercent(item.discount_percent);
 
     const descHeight = doc.heightOfString(desc, { width: colWidths.desc });
     const subtextHeight = subtext
       ? doc.heightOfString(subtext, { width: colWidths.desc }) + 2
       : 0;
-    const actualRowHeight = Math.max(rowHeight, descHeight + subtextHeight + 4);
+    const discountNoteHeight = lineDisc > 0 ? 10 : 0;
+    const actualRowHeight = Math.max(rowHeight, descHeight + subtextHeight + discountNoteHeight + 4);
 
     if (yPos + actualRowHeight > pageBottom) {
       doc.addPage();
@@ -1944,6 +1980,11 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
       doc.text(subtext, margin, doc.y + 1, { width: colWidths.desc });
       doc.fontSize(9).fillColor('#000000');
     }
+    if (lineDisc > 0) {
+      doc.fontSize(7).fillColor('#555555');
+      doc.text(`${lineDisc}% discount`, margin, doc.y + 1, { width: colWidths.desc });
+      doc.fontSize(9).fillColor('#000000');
+    }
     doc.text(qty.toFixed(1), margin + colWidths.desc, yPos, { width: colWidths.qty, align: 'right' });
     const unitPriceRounded = Math.round(unitPrice || 0);
     const amountRounded = Math.round(amount || 0);
@@ -1952,13 +1993,19 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     
     yPos += actualRowHeight;
   });
-  
+
+  const totalsBreakdown = computeInvoiceTotalsFromLines(items, {
+    discount_percent: inv.discount_percent,
+    discount_amount: inv.discount_amount,
+  });
+  const documentDiscountRows = totalsBreakdown.document_discount_total > 0 ? 1 : 0;
+
   // Summary row: payment details & terms (left) beside totals box (right).
   let summaryY = yPos + 10;
   const totalsBoxWidth = 180;
   const totalsBoxX = pageWidth - margin - totalsBoxWidth;
-  const totalsBoxHeight = isInvoiceDoc ? 96 : 60;
   const isQuoteDoc = inv.type === 'quote';
+  const totalsBoxHeight = (isInvoiceDoc ? 96 : 60) + documentDiscountRows * 12;
   const paymentAreaGap = 12;
   const paymentAreaWidth = totalsBoxX - margin - paymentAreaGap;
   const paymentDetailsWidth = paymentAreaWidth * 0.52;
@@ -2026,10 +2073,26 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const subtotalRounded = Math.round(inv.subtotal || 0);
   const taxRounded = Math.round(inv.tax_amount || 0);
   const totalRounded = Math.round(inv.total || 0);
+  const preDocSubtotal = Math.round(subtotalRounded + totalsBreakdown.document_discount_total);
 
-  doc.text('Subtotal', totalsBoxX + 10, totalsYPos);
-  doc.text(formatKsh(subtotalRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
-  totalsYPos += 12;
+  if (totalsBreakdown.document_discount_total > 0) {
+    doc.text('Subtotal (ex VAT)', totalsBoxX + 10, totalsYPos);
+    doc.text(formatKsh(preDocSubtotal), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
+    totalsYPos += 12;
+    const docDiscLabel = normalizeDiscountPercent(inv.discount_percent)
+      ? `Discount (${normalizeDiscountPercent(inv.discount_percent)}%)`
+      : 'Discount';
+    doc.text(docDiscLabel, totalsBoxX + 10, totalsYPos);
+    doc.text(`-${formatKsh(Math.round(totalsBreakdown.document_discount_total))}`, totalsBoxX + 10, totalsYPos, {
+      width: totalsBoxWidth - 20,
+      align: 'right',
+    });
+    totalsYPos += 12;
+  } else {
+    doc.text('Subtotal (ex VAT)', totalsBoxX + 10, totalsYPos);
+    doc.text(formatKsh(subtotalRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
+    totalsYPos += 12;
+  }
 
   doc.text('VAT', totalsBoxX + 10, totalsYPos);
   doc.text(formatKsh(taxRounded), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
