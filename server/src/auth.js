@@ -60,6 +60,7 @@ function toAdminPayload(row) {
       can_view_lpo_ipr: Number(row.can_view_lpo_ipr) === 1,
       can_view_stores: Number(row.can_view_stores) === 1,
       can_log_test_drives: Number(row.can_log_test_drives) === 1,
+      can_reopen_completed_jobs: Number(row.can_reopen_completed_jobs) === 1,
     },
   };
 }

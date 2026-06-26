@@ -49,6 +49,7 @@ function adminUserRowToPayload(row) {
       can_view_lpo_ipr: Number(row.can_view_lpo_ipr) === 1,
       can_view_stores: Number(row.can_view_stores) === 1,
       can_log_test_drives: Number(row.can_log_test_drives) === 1,
+      can_reopen_completed_jobs: Number(row.can_reopen_completed_jobs) === 1,
     },
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -211,6 +212,13 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
     : p.can_log_test_drives === false || Number(p.can_log_test_drives) === 0
       ? 0
       : 1;
+  const canReopen = mechanic
+    ? 0
+    : Number(p.can_reopen_completed_jobs) === 1
+      ? 1
+      : Number(p.can_reopen_completed_jobs)
+        ? 1
+        : 0;
 
   const row = db.prepare(
     `
@@ -220,12 +228,12 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
          can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
          can_record_invoice_payments, can_record_supplier_payments,
          can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
-         can_log_test_drives)
+         can_log_test_drives, can_reopen_completed_jobs)
       VALUES (?, ?, ?, ?, 1, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?)
+        ?, ?)
     `,
   ).run(
     usernameClean,
@@ -247,6 +255,7 @@ adminRouter.post('/users', requireAdminPermission('can_manage_team_members'), (r
     z11,
     z12,
     canLogTd,
+    canReopen,
   );
   const id = row.lastInsertRowid;
   const inserted = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(id);
@@ -303,6 +312,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
             p.can_log_test_drives !== undefined ? (p.can_log_test_drives ? 1 : 0) : Number(current.can_log_test_drives) === 1
               ? 1
               : 0,
+          can_reopen_completed_jobs: 0,
         }
       : {
           can_create_lpos: p.can_create_lpos !== undefined ? (p.can_create_lpos ? 1 : 0) : current.can_create_lpos,
@@ -329,6 +339,10 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
             p.can_log_test_drives !== undefined ? (p.can_log_test_drives ? 1 : 0) : Number(current.can_log_test_drives) === 1
               ? 1
               : 0,
+          can_reopen_completed_jobs:
+            p.can_reopen_completed_jobs !== undefined
+              ? (p.can_reopen_completed_jobs ? 1 : 0)
+              : current.can_reopen_completed_jobs,
         };
 
   let newSalt = null;
@@ -363,6 +377,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
       can_view_lpo_ipr = ?,
       can_view_stores = ?,
       can_log_test_drives = ?,
+      can_reopen_completed_jobs = ?,
       updated_at = datetime('now')
     WHERE id = ?
   `;
@@ -388,6 +403,7 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
     next.can_view_lpo_ipr,
     next.can_view_stores,
     next.can_log_test_drives,
+    next.can_reopen_completed_jobs,
     adminId,
   );
 

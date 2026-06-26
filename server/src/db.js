@@ -676,6 +676,7 @@ function migrate(db) {
         can_view_lpo_ipr INTEGER NOT NULL DEFAULT 1,
         can_view_stores INTEGER NOT NULL DEFAULT 1,
         can_log_test_drives INTEGER NOT NULL DEFAULT 1,
+        can_reopen_completed_jobs INTEGER NOT NULL DEFAULT 0,
 
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
@@ -787,8 +788,13 @@ function migrate(db) {
       'can_log_test_drives',
       'ALTER TABLE admin_users ADD COLUMN can_log_test_drives INTEGER NOT NULL DEFAULT 1',
     );
+    ensureCol(
+      'can_reopen_completed_jobs',
+      'ALTER TABLE admin_users ADD COLUMN can_reopen_completed_jobs INTEGER NOT NULL DEFAULT 0',
+    );
     ensureCol('biometric_pin', 'ALTER TABLE admin_users ADD COLUMN biometric_pin TEXT');
     db.run('UPDATE admin_users SET can_approve_lpo_ipr = 1 WHERE can_manage_team_members = 1');
+    db.run('UPDATE admin_users SET can_reopen_completed_jobs = 1 WHERE can_manage_team_members = 1');
   } catch (_) {}
 
   try {
@@ -832,8 +838,8 @@ function migrate(db) {
            can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
            can_record_invoice_payments, can_record_supplier_payments,
            can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
-           can_log_test_drives)
-        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+           can_log_test_drives, can_reopen_completed_jobs)
+        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
       `,
         [username, displayName, salt, hash],
       );
@@ -1002,8 +1008,8 @@ export async function initDb() {
            can_approve_lpo_ipr, can_assign_lpo_ipr_receivers,
            can_record_invoice_payments, can_record_supplier_payments,
            can_manage_team_members, can_view_statistics_reports, can_view_lpo_ipr, can_view_stores,
-           can_log_test_drives)
-        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+           can_log_test_drives, can_reopen_completed_jobs)
+        VALUES (?, ?, ?, ?, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
       `,
         [username, displayName, salt, hash],
       );

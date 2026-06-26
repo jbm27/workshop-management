@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
   can_view_lpo_ipr INTEGER NOT NULL DEFAULT 1,
   can_view_stores INTEGER NOT NULL DEFAULT 1,
   can_log_test_drives INTEGER NOT NULL DEFAULT 1,
+  can_reopen_completed_jobs INTEGER NOT NULL DEFAULT 0,
 
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

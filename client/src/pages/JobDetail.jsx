@@ -251,6 +251,7 @@ export default function JobDetail() {
   const { admin } = useAdmin();
   const isMechanic = Boolean(admin?.is_mechanic);
   const canLogTestDrives = Boolean(admin?.permissions?.can_log_test_drives);
+  const canReopenCompletedJobs = Boolean(admin?.permissions?.can_reopen_completed_jobs);
   const canRecordInvoicePayments = admin?.permissions?.can_record_invoice_payments;
 
   useEffect(() => {
@@ -328,6 +329,11 @@ export default function JobDetail() {
   }, [id, admin?.is_mechanic]);
 
   const updateStatus = async (newStatus) => {
+    if (job.status === 'completed' && newStatus !== 'completed' && !canReopenCompletedJobs) {
+      alert('You do not have permission to reopen a completed job.');
+      setStatusMenuKey((k) => k + 1);
+      return;
+    }
     if (newStatus === 'completed') {
       setCloseReadings({ odometer_out: job.odometer_out ?? '', fuel_out: job.fuel_out ?? '' });
       setCloseJobModal(true);
@@ -1054,7 +1060,7 @@ export default function JobDetail() {
             {' '}until that job is completed.
           </span>
         )}
-        {!isMechanic && (!isRepeatJob || showRepeatVisitHandover) && (
+        {!isMechanic && (!isRepeatJob || showRepeatVisitHandover) && (job.status !== 'completed' || canReopenCompletedJobs) && (
           <select
             key={`${job.id}-${job.status}-${statusMenuKey}`}
             aria-label="Change job status"
@@ -1062,15 +1068,26 @@ export default function JobDetail() {
             onChange={(e) => {
               const v = e.target.value;
               if (v) updateStatus(v);
+              setStatusMenuKey((k) => k + 1);
             }}
             className="btn"
             style={{ width: 'auto' }}
           >
             <option value="">Change status…</option>
-            <option value="in_progress">In progress</option>
-            <option value="vehicle_released">Vehicle released</option>
-            <option value="completed">Complete</option>
-            <option value="cancelled">Cancelled</option>
+            {job.status === 'completed' ? (
+              <>
+                <option value="in_progress">Reopen — In progress</option>
+                <option value="vehicle_released">Reopen — Vehicle released</option>
+                <option value="cancelled">Cancelled</option>
+              </>
+            ) : (
+              <>
+                <option value="in_progress">In progress</option>
+                <option value="vehicle_released">Vehicle released</option>
+                <option value="completed">Complete</option>
+                <option value="cancelled">Cancelled</option>
+              </>
+            )}
           </select>
         )}
       </div>

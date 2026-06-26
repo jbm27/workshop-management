@@ -930,6 +930,14 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     valuables_in_vehicle = undefined;
   }
   const nextStatus = status ?? row.status;
+  if (
+    String(row.status) === 'completed' &&
+    status !== undefined &&
+    String(nextStatus) !== 'completed' &&
+    !req.admin?.permissions?.can_reopen_completed_jobs
+  ) {
+    return res.status(403).json({ error: 'You do not have permission to reopen a completed job' });
+  }
   if (nextStatus === 'completed' && String(row.status) !== 'completed') {
     const jobIdsToClose = [Number(req.params.id)];
     if (Number(row.is_repeat_job) !== 1) {

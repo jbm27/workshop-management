@@ -197,6 +197,7 @@ export const api = {
     addPayment: (id, data) => api.post(`/invoices/${id}/payments`, data),
     deletePayment: (invId, paymentId) => api.delete(`/invoices/${invId}/payments/${paymentId}`),
     reorderItems: (id, item_ids) => api.put(`/invoices/${id}/items/reorder`, { item_ids }),
+    addItem: (invId, data) => api.post(`/invoices/${invId}/items`, data),
     updateItem: (invId, itemId, data) => api.patch(`/invoices/${invId}/items/${itemId}`, data),
     deleteItem: (invId, itemId) => api.delete(`/invoices/${invId}/items/${itemId}`),
     listLpos: (invoiceId) => api.get(`/invoices/${invoiceId}/lpos`),

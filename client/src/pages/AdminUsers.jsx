@@ -12,6 +12,7 @@ const PERMISSION_FIELDS = [
   { key: 'can_finalize_lpos', label: 'Finalise LPOs (stock intake)' },
   { key: 'can_finalize_iprs', label: 'Finalise IPRs' },
   { key: 'can_manage_team_members', label: 'Manage team members' },
+  { key: 'can_reopen_completed_jobs', label: 'Reopen completed jobs' },
   { key: 'can_view_statistics_reports', label: 'View statistics and reports' },
   { key: 'can_view_lpo_ipr', label: 'View LPO / IPR page' },
   { key: 'can_view_stores', label: 'View Stores page' },
