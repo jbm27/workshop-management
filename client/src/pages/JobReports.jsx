@@ -37,6 +37,13 @@ function defaultFromTo() {
   };
 }
 
+function formatReportDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString();
+}
+
 export default function JobReports() {
   const [{ from, to }, setRange] = useState(() => defaultFromTo());
   const [dateBasis, setDateBasis] = useState('created');
@@ -196,6 +203,8 @@ export default function JobReports() {
                   <th>P&amp;L group</th>
                   <th>Customer</th>
                   <th>Vehicle</th>
+                  <th>Entered</th>
+                  <th>Released / completed</th>
                   <th style={{ textAlign: 'right' }}>Time to quote</th>
                   <th style={{ textAlign: 'right' }}>KES / job hour</th>
                   <th style={{ textAlign: 'right' }}>Revenue</th>
@@ -234,6 +243,19 @@ export default function JobReports() {
                     </td>
                     <td>{r.customer_name || '—'}</td>
                     <td>{r.vehicle_label || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }} title={r.created_at || ''}>
+                      {formatReportDate(r.created_at)}
+                    </td>
+                    <td
+                      style={{ whiteSpace: 'nowrap' }}
+                      title={
+                        r.work_stopped_at
+                          ? 'Earlier of vehicle released or job completed'
+                          : 'Not yet released or completed'
+                      }
+                    >
+                      {formatReportDate(r.work_stopped_at)}
+                    </td>
                     <td
                       style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
                       title={r.quote_prepared_at ? `Quote sent: ${r.quote_prepared_at}` : ''}

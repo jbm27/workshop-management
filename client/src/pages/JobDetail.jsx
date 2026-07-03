@@ -41,7 +41,7 @@ const UNAPPROVED_QUOTE_WARNING =
 const INVOICE_EDIT_QUOTE_APPROVAL_WARNING =
   'Customer approval has not been sought for this item on the quote. Are you sure you want to continue?';
 const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
-const JOB_DESCRIPTION_MAX_LEN = 30;
+const JOB_DESCRIPTION_MAX_LEN = 60;
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '', purchasePrice: '' });
 
@@ -1861,7 +1861,7 @@ export default function JobDetail() {
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Qty</label>
-                    <input type="number" name="quantity" min="0.01" step="0.01" defaultValue="1" />
+                    <input type="number" name="quantity" min="1" step="1" defaultValue="1" />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Purchase (estimate)</label>
@@ -2030,7 +2030,7 @@ export default function JobDetail() {
                           </td>
                           <td>
                             {labour ? <span>1</span> : (
-                              <input type="number" id={`inv-qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />
+                              <input type="number" id={`inv-qty-${it.id}`} min="1" step="1" defaultValue={it.quantity} style={{ width: '4rem' }} />
                             )}
                           </td>
                           <td>
@@ -2373,7 +2373,7 @@ export default function JobDetail() {
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Qty</label>
-                    <input type="number" name="quantity" min="0.01" step="0.01" defaultValue="1" />
+                    <input type="number" name="quantity" min="1" step="1" defaultValue="1" />
                   </div>
                   <div className="form-group" style={{ margin: 0 }}>
                     <label>Sale (ex VAT)</label>
@@ -2516,7 +2516,7 @@ export default function JobDetail() {
                             )}
                             <InvoiceLineSubtextField id={`qty-subtext-${it.id}`} defaultValue={it.subtext} />
                           </td>
-                          <td>{labour ? <span>1</span> : <input type="number" id={`qty-${it.id}`} min="0.01" step="0.01" defaultValue={it.quantity} style={{ width: '4rem' }} />}</td>
+                          <td>{labour ? <span>1</span> : <input type="number" id={`qty-${it.id}`} min="1" step="1" defaultValue={it.quantity} style={{ width: '4rem' }} />}</td>
                           <td>
                             <input type="number" id={`sale-${it.id}`} min="0" step="0.01" defaultValue={it.unit_price} style={{ width: '5rem' }} />
                             <InvoiceLineDiscountField id={`qty-discount-${it.id}`} defaultValue={it.discount_percent} />

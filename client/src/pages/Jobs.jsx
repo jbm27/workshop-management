@@ -21,7 +21,7 @@ const EMPTY_CUSTOMER = { name: '', company_name: '', registration_number: '', em
 const EMPTY_VEHICLE = { registration: '', make: '', model: '', year: '', vin: '', notes: '' };
 const ADD_NEW = '__add_new__';
 const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
-const JOB_DESCRIPTION_MAX_LEN = 30;
+const JOB_DESCRIPTION_MAX_LEN = 60;
 
 function parseValuables(value) {
   const raw = String(value || '').trim();

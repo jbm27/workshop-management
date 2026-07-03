@@ -13,7 +13,7 @@ export const jobsRouter = Router();
 
 /** Workshop jobs mechanics may open (test drives, etc.). */
 const MECHANIC_ALLOWED_JOB_STATUSES = ['in_progress', 'vehicle_released'];
-const JOB_DESCRIPTION_MAX_LEN = 30;
+const JOB_DESCRIPTION_MAX_LEN = 60;
 
 function stripJobForMechanic(job) {
   if (!job) return job;

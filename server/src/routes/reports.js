@@ -129,6 +129,11 @@ function workStoppedInstantMs(vehicleReleasedAt, completedAt) {
   return Math.min(...parts);
 }
 
+function workStoppedAtIso(vehicleReleasedAt, completedAt) {
+  const ms = workStoppedInstantMs(vehicleReleasedAt, completedAt);
+  return ms != null ? new Date(ms).toISOString() : null;
+}
+
 /** Hours from job creation until work stopped (first of vehicle release or completion). */
 function jobBayHours(createdAt, vehicleReleasedAt, completedAt) {
   const t0 = parseSqlDateTime(createdAt);
@@ -305,6 +310,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       created_at: j.created_at,
       completed_at: j.completed_at,
       vehicle_released_at: j.vehicle_released_at ?? null,
+      work_stopped_at: workStoppedAtIso(j.vehicle_released_at, j.completed_at),
       quote_prepared_at: j.quote_prepared_at ?? null,
       time_to_quote_hours: timeToQuote,
       job_bay_hours: jobBayH != null ? Math.round(jobBayH * 100) / 100 : null,

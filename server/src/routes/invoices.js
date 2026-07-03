@@ -1816,88 +1816,94 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   doc.fontSize(9).font('Helvetica').text(dateLine, docBoxX + docBoxPad, invBoxY, { width: docBoxInnerW, align: 'left' });
 
   const detailsTop = letterheadDetailsTop(leftBottom, docBoxY + docBoxHeight);
-  const colWidth = contentWidth * 0.45;
-  const rightColX = margin + colWidth + 20;
+  const detailColGap = 12;
+  const detailColWidth = (contentWidth - 2 * detailColGap) / 3;
+  const customerColX = margin;
+  const vehicleColX = margin + detailColWidth + detailColGap;
+  const jobDescColX = margin + 2 * (detailColWidth + detailColGap);
   // Left column – "PREPARED FOR" (customer)
   let leftY = detailsTop;
-  doc.fontSize(10).font('Helvetica-Bold').text('PREPARED FOR:', margin, leftY);
+  doc.fontSize(10).font('Helvetica-Bold').text('PREPARED FOR:', customerColX, leftY);
   leftY = doc.y + 4;
   const companyName = inv.customer_company_name ? String(inv.customer_company_name).trim() : '';
   const customerName = inv.customer_name ? String(inv.customer_name).trim() : '';
   if (companyName) {
-    doc.fontSize(11).font('Helvetica-Bold').text(companyName, margin, leftY);
+    doc.fontSize(11).font('Helvetica-Bold').text(companyName, customerColX, leftY);
     leftY = doc.y + 4;
     if (inv.customer_registration_number) {
-      doc.fontSize(9).font('Helvetica').text(`Reg No: ${inv.customer_registration_number}`, margin, leftY, { width: colWidth });
+      doc.fontSize(9).font('Helvetica').text(`Reg No: ${inv.customer_registration_number}`, customerColX, leftY, { width: detailColWidth });
       leftY = doc.y + 4;
     }
     if (customerName && customerName.toLowerCase() !== companyName.toLowerCase()) {
-      doc.text(`Contact: ${customerName}`, margin, leftY, { width: colWidth });
+      doc.text(`Contact: ${customerName}`, customerColX, leftY, { width: detailColWidth });
       leftY = doc.y + 4;
     }
   } else {
-    doc.fontSize(11).font('Helvetica-Bold').text(customerName || '—', margin, leftY);
+    doc.fontSize(11).font('Helvetica-Bold').text(customerName || '—', customerColX, leftY);
     leftY = doc.y + 6;
   }
 
   doc.fontSize(9).font('Helvetica');
   if (inv.customer_address) {
-    doc.text(inv.customer_address, margin, leftY, { width: colWidth });
+    doc.text(inv.customer_address, customerColX, leftY, { width: detailColWidth });
     leftY = doc.y + 4;
   }
   if (inv.customer_phone) {
-    doc.text(`Tel: ${inv.customer_phone}`, margin, leftY, { width: colWidth });
+    doc.text(`Tel: ${inv.customer_phone}`, customerColX, leftY, { width: detailColWidth });
     leftY = doc.y + 4;
   }
   if (inv.customer_email) {
-    doc.text(`Email: ${inv.customer_email}`, margin, leftY, { width: colWidth });
-    leftY = doc.y + 4;
-  }
-  if (inv.job_description) {
-    doc.font('Helvetica-Bold').text('Job Description:', margin, leftY, { width: colWidth });
-    leftY = doc.y + 2;
-    doc.font('Helvetica').text(String(inv.job_description), margin, leftY, { width: colWidth });
+    doc.text(`Email: ${inv.customer_email}`, customerColX, leftY, { width: detailColWidth });
     leftY = doc.y + 4;
   }
   if (isInvoiceDoc && inv.job_order_number) {
-    doc.font('Helvetica-Bold').text('Order No:', margin, leftY, { width: colWidth });
+    doc.font('Helvetica-Bold').text('Order No:', customerColX, leftY, { width: detailColWidth });
     leftY = doc.y + 2;
-    doc.font('Helvetica').text(String(inv.job_order_number), margin, leftY, { width: colWidth });
+    doc.font('Helvetica').text(String(inv.job_order_number), customerColX, leftY, { width: detailColWidth });
     leftY = doc.y + 4;
   }
 
-  // Right column – VEHICLE section
+  // Middle column – VEHICLE section
   let rightY = detailsTop;
-  doc.fontSize(10).font('Helvetica-Bold').text('VEHICLE:', rightColX, rightY);
+  doc.fontSize(10).font('Helvetica-Bold').text('VEHICLE:', vehicleColX, rightY);
   rightY = doc.y + 4;
   doc.fontSize(9).font('Helvetica');
-  doc.text(`Vehicle Owner: ${inv.customer_name}`, rightColX, rightY, { width: colWidth });
+  doc.text(`Vehicle Owner: ${inv.customer_name}`, vehicleColX, rightY, { width: detailColWidth });
   rightY = doc.y + 4;
   if (inv.registration) {
-    doc.text(`Reg No: ${inv.registration}`, rightColX, rightY, { width: colWidth });
+    doc.text(`Reg No: ${inv.registration}`, vehicleColX, rightY, { width: detailColWidth });
     rightY = doc.y + 4;
   }
   if (inv.vin) {
-    doc.text(`VIN: ${inv.vin}`, rightColX, rightY, { width: colWidth });
+    doc.text(`VIN: ${inv.vin}`, vehicleColX, rightY, { width: detailColWidth });
     rightY = doc.y + 4;
   }
   if (inv.make || inv.model) {
     const modelText = [inv.make, inv.model].filter(Boolean).join(' ');
-    doc.text(`Model: ${modelText}`, rightColX, rightY, { width: colWidth });
+    doc.text(`Model: ${modelText}`, vehicleColX, rightY, { width: detailColWidth });
     rightY = doc.y + 4;
   }
   if (inv.year) {
-    doc.text(`Year: ${inv.year}`, rightColX, rightY, { width: colWidth });
+    doc.text(`Year: ${inv.year}`, vehicleColX, rightY, { width: detailColWidth });
     rightY = doc.y + 4;
   }
   const odometer = inv.odometer_out || inv.odometer_in || inv.odometer;
   if (odometer) {
-    doc.text(`Odometer: ${Number(odometer).toLocaleString()} Kms`, rightColX, rightY, { width: colWidth });
+    doc.text(`Odometer: ${Number(odometer).toLocaleString()} Kms`, vehicleColX, rightY, { width: detailColWidth });
     rightY = doc.y + 4;
   }
 
-  // Continue below whichever column is taller
-  let yPos = Math.max(leftY, rightY) + 10;
+  // Right column – job description (when linked to a job)
+  let jobDescY = detailsTop;
+  if (inv.job_description) {
+    doc.fontSize(10).font('Helvetica-Bold').text('JOB DESCRIPTION:', jobDescColX, jobDescY);
+    jobDescY = doc.y + 4;
+    doc.fontSize(9).font('Helvetica').text(String(inv.job_description), jobDescColX, jobDescY, { width: detailColWidth });
+    jobDescY = doc.y + 4;
+  }
+
+  // Continue below whichever column is tallest
+  let yPos = Math.max(leftY, rightY, jobDescY) + 10;
 
   // Items table
   const tableTop = yPos;
@@ -1987,6 +1993,9 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.text(`KSh ${amountRounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, margin + colWidths.desc + colWidths.qty + colWidths.unit, yPos, { width: colWidths.amount, align: 'right' });
     
     yPos += actualRowHeight;
+    doc.strokeColor('#cccccc').moveTo(margin, yPos).lineTo(margin + contentWidth, yPos).stroke();
+    doc.strokeColor('#000000');
+    yPos += 4;
   });
 
   const totalsBreakdown = computeInvoiceTotalsFromLines(items, {
@@ -2112,16 +2121,21 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const customerNotes = inv.notes != null ? String(inv.notes).trim() : '';
   let notesBlockY = summaryBottom + 14;
   if (customerNotes) {
-    const notesHeadingH = 14;
-    const notesBodyH = doc.heightOfString(customerNotes, { width: contentWidth * 0.9 });
-    if (notesBlockY + notesHeadingH + notesBodyH > pageBottom) {
+    const notesPad = 10;
+    doc.fontSize(9).font('Helvetica');
+    const notesBodyH = doc.heightOfString(customerNotes, { width: contentWidth - 2 * notesPad });
+    const notesHeadingH = 12;
+    const notesBoxH = notesPad + notesHeadingH + 4 + notesBodyH + notesPad;
+    if (notesBlockY + notesBoxH > pageBottom) {
       doc.addPage();
       notesBlockY = margin + 20;
     }
-    doc.fontSize(9).font('Helvetica-Bold').text('Notes:', margin, notesBlockY);
-    notesBlockY = doc.y + 4;
-    doc.font('Helvetica').text(customerNotes, margin, notesBlockY, { width: contentWidth * 0.9 });
-    notesBlockY = doc.y + 10;
+    doc.rect(margin, notesBlockY, contentWidth, notesBoxH).stroke();
+    doc.font('Helvetica-Bold').text('Notes:', margin + notesPad, notesBlockY + notesPad);
+    doc.font('Helvetica').text(customerNotes, margin + notesPad, notesBlockY + notesPad + notesHeadingH + 4, {
+      width: contentWidth - 2 * notesPad,
+    });
+    notesBlockY = notesBlockY + notesBoxH + 10;
   }
 
   let footerYPos = customerNotes ? notesBlockY : summaryBottom + 14;
