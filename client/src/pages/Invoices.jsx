@@ -311,8 +311,17 @@ export default function Invoices() {
                 </div>
               </div>
               <div className="form-group">
-                <label>Notes</label>
-                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} />
+                <label>Notes (optional)</label>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.5rem' }}>
+                  Customer-facing notes for the PDF — use line breaks or bullet points.
+                </p>
+                <textarea
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  rows={6}
+                  placeholder={'e.g.\n• Parts warranty: 12 months\n• Payment due within 14 days'}
+                  style={{ width: '100%', resize: 'vertical', minHeight: '6rem', lineHeight: 1.45 }}
+                />
               </div>
             </form>
             <footer>

@@ -13,6 +13,7 @@ import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
 import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
 import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
+import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
@@ -38,9 +39,7 @@ export default function InvoiceDetail() {
   const [inv, setInv] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dueDate, setDueDate] = useState('');
-  const [notes, setNotes] = useState('');
   const [savingMeta, setSavingMeta] = useState(false);
-  const [metaDirty, setMetaDirty] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [payNotes, setPayNotes] = useState('');
@@ -70,8 +69,6 @@ export default function InvoiceDetail() {
     api.invoices.get(id).then((data) => {
       setInv(data);
       setDueDate(data.due_date ? String(data.due_date).slice(0, 10) : '');
-      setNotes(data.notes || '');
-      setMetaDirty(false);
     });
 
   useEffect(() => {
@@ -81,8 +78,6 @@ export default function InvoiceDetail() {
       .then((data) => {
         setInv(data);
         setDueDate(data.due_date ? String(data.due_date).slice(0, 10) : '');
-        setNotes(data.notes || '');
-        setMetaDirty(false);
       })
       .catch(() => setInv(null))
       .finally(() => setLoading(false));
@@ -112,12 +107,6 @@ export default function InvoiceDetail() {
     else setFromQuoteVehicleId('');
   }, [inv?.vehicle_id, inv?.id]);
 
-  useEffect(() => {
-    if (!inv) return;
-    const d =
-      (inv.due_date ? String(inv.due_date).slice(0, 10) : '') !== dueDate || (inv.notes || '') !== notes;
-    setMetaDirty(d);
-  }, [inv, dueDate, notes]);
 
   /** When the customer approves lines in the portal (another tab), reload this quote on return to the tab. */
   useEffect(() => {
@@ -129,8 +118,6 @@ export default function InvoiceDetail() {
         .then((data) => {
           setInv(data);
           setDueDate(data.due_date ? String(data.due_date).slice(0, 10) : '');
-          setNotes(data.notes || '');
-          setMetaDirty(false);
         })
         .catch(() => {});
     };
@@ -143,10 +130,8 @@ export default function InvoiceDetail() {
     try {
       const updated = await api.invoices.update(id, {
         due_date: dueDate || null,
-        notes: notes || null,
       });
       setInv((prev) => (prev ? { ...prev, ...updated } : prev));
-      setMetaDirty(false);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -155,6 +140,16 @@ export default function InvoiceDetail() {
   };
 
   const saveDocumentDiscount = async (fields) => {
+    try {
+      const updated = await api.invoices.update(id, fields);
+      setInv(updated);
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
+  };
+
+  const saveDocumentNotes = async (fields) => {
     try {
       const updated = await api.invoices.update(id, fields);
       setInv(updated);
@@ -376,7 +371,6 @@ export default function InvoiceDetail() {
   const quoteApprovedCount = isQuote ? items.filter((it) => !isHeaderLine(it) && isQuoteLineApproved(it)).length : 0;
   const quoteLineCount = isQuote ? items.filter((it) => !isHeaderLine(it)).length : 0;
   const dueDateDirty = (inv.due_date ? String(inv.due_date).slice(0, 10) : '') !== dueDate;
-  const notesDirty = (inv.notes || '') !== notes;
 
   return (
     <>
@@ -612,25 +606,11 @@ export default function InvoiceDetail() {
         )}
       </div>
 
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginTop: 0 }}>Customer notes</h3>
-        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
-          Additional information for the customer. Shown on the PDF and in the customer portal where applicable.
-        </p>
-        <div className="form-group" style={{ margin: 0 }}>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={4}
-            placeholder="e.g. Special instructions, warranty details, or payment references…"
-          />
-        </div>
-        {notesDirty && (
-          <button type="button" className="btn primary" style={{ marginTop: '1rem' }} onClick={saveMeta} disabled={savingMeta}>
-            {savingMeta ? 'Saving…' : 'Save notes'}
-          </button>
-        )}
-      </div>
+      <InvoiceDocumentNotesPanel
+        document={inv}
+        title={isQuote ? 'Quote notes' : 'Invoice notes'}
+        onSave={saveDocumentNotes}
+      />
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Line items</h3>

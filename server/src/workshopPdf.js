@@ -243,3 +243,62 @@ export function drawStockStoreLpoHeader(doc, company, { docBoxTitle, docBoxNumbe
   const yContent = doc.y + 12;
   return { margin, contentWidth, pageWidth, yContent };
 }
+
+/**
+ * Customer notes on invoice/quote PDF — full-width bordered box, preserves line breaks and bullets.
+ * Paginates long notes across pages when needed.
+ */
+export function drawInvoiceCustomerNotesBlock(doc, { margin, contentWidth, pageBottom, startY, text }) {
+  const notesText = String(text || '').trim();
+  if (!notesText) return startY;
+
+  const pad = 10;
+  const innerW = contentWidth - 2 * pad;
+  const lineGap = 4;
+  const headingH = 14;
+  let y = startY;
+  let showHeading = true;
+
+  doc.fontSize(9).font('Helvetica');
+
+  const measureBody = (block) => doc.heightOfString(block, { width: innerW, lineGap });
+
+  const drawChunk = (block) => {
+    const bodyH = measureBody(block);
+    const overhead = pad + (showHeading ? headingH + 6 : 0) + pad;
+    const boxH = overhead + bodyH;
+    if (y + boxH > pageBottom) {
+      doc.addPage();
+      y = margin + 20;
+    }
+    const boxTop = y;
+    doc.rect(margin, boxTop, contentWidth, boxH).stroke();
+    let textY = boxTop + pad;
+    if (showHeading) {
+      doc.font('Helvetica-Bold').text('Notes:', margin + pad, textY);
+      textY += headingH + 6;
+      doc.font('Helvetica');
+      showHeading = false;
+    }
+    doc.text(block, margin + pad, textY, { width: innerW, lineGap });
+    y = boxTop + boxH + 10;
+  };
+
+  const lines = notesText.split(/\r?\n/);
+  let chunk = [];
+
+  for (const line of lines) {
+    const trial = chunk.length ? `${chunk.join('\n')}\n${line}` : line;
+    const overhead = pad + (showHeading ? headingH + 6 : 0) + pad;
+    const trialH = measureBody(trial);
+    if (chunk.length && y + overhead + trialH > pageBottom) {
+      drawChunk(chunk.join('\n'));
+      chunk = [line];
+    } else {
+      chunk.push(line);
+    }
+  }
+  if (chunk.length) drawChunk(chunk.join('\n'));
+
+  return y;
+}

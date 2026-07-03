@@ -10,6 +10,7 @@ import {
   LETTERHEAD_LOGO_FIT,
   LETTERHEAD_LINE_GAP,
   kshFormat,
+  drawInvoiceCustomerNotesBlock,
 } from '../workshopPdf.js';
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
 import PDFDocument from 'pdfkit';
@@ -2118,27 +2119,15 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
 
   const summaryBottom = Math.max(totalsY + totalsBoxHeight, paymentLeftEndY, paymentRightEndY);
 
-  const customerNotes = inv.notes != null ? String(inv.notes).trim() : '';
-  let notesBlockY = summaryBottom + 14;
-  if (customerNotes) {
-    const notesPad = 10;
-    doc.fontSize(9).font('Helvetica');
-    const notesBodyH = doc.heightOfString(customerNotes, { width: contentWidth - 2 * notesPad });
-    const notesHeadingH = 12;
-    const notesBoxH = notesPad + notesHeadingH + 4 + notesBodyH + notesPad;
-    if (notesBlockY + notesBoxH > pageBottom) {
-      doc.addPage();
-      notesBlockY = margin + 20;
-    }
-    doc.rect(margin, notesBlockY, contentWidth, notesBoxH).stroke();
-    doc.font('Helvetica-Bold').text('Notes:', margin + notesPad, notesBlockY + notesPad);
-    doc.font('Helvetica').text(customerNotes, margin + notesPad, notesBlockY + notesPad + notesHeadingH + 4, {
-      width: contentWidth - 2 * notesPad,
-    });
-    notesBlockY = notesBlockY + notesBoxH + 10;
-  }
+  const notesBlockY = drawInvoiceCustomerNotesBlock(doc, {
+    margin,
+    contentWidth,
+    pageBottom,
+    startY: summaryBottom + 14,
+    text: inv.notes,
+  });
 
-  let footerYPos = customerNotes ? notesBlockY : summaryBottom + 14;
+  let footerYPos = inv.notes != null && String(inv.notes).trim() ? notesBlockY : summaryBottom + 14;
   if (footerYPos + 12 > pageBottom) {
     doc.addPage();
     footerYPos = margin + 20;

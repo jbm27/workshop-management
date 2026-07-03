@@ -19,6 +19,7 @@ import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
 import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
 import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
+import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
@@ -722,6 +723,28 @@ export default function JobDetail() {
   };
 
   const saveQuoteDocumentDiscount = async (fields) => {
+    if (!quote) return;
+    try {
+      const updated = await api.invoices.update(quote.id, fields);
+      setQuote(updated);
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
+  };
+
+  const saveInvoiceNotes = async (fields) => {
+    if (!invoice) return;
+    try {
+      const updated = await api.invoices.update(invoice.id, fields);
+      setInvoice(updated);
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
+  };
+
+  const saveQuoteNotes = async (fields) => {
     if (!quote) return;
     try {
       const updated = await api.invoices.update(quote.id, fields);
@@ -2177,6 +2200,11 @@ export default function JobDetail() {
                 </tbody>
               </table>
             </div>
+            <InvoiceDocumentNotesPanel
+              document={invoice}
+              title="Invoice notes"
+              onSave={saveInvoiceNotes}
+            />
             {invoice.items?.length > 0 && (
               <>
                 <InvoiceDocumentDiscountPanel
@@ -2605,6 +2633,11 @@ export default function JobDetail() {
                 </tbody>
               </table>
             </div>
+            <InvoiceDocumentNotesPanel
+              document={quote}
+              title="Quote notes"
+              onSave={saveQuoteNotes}
+            />
             {quote.items?.length > 0 && (
               <>
                 <InvoiceDocumentDiscountPanel
