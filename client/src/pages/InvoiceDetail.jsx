@@ -14,6 +14,7 @@ import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/I
 import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
 import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
+import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
@@ -64,6 +65,7 @@ export default function InvoiceDetail() {
   const [copyCustomerId, setCopyCustomerId] = useState('');
   const [copyVehicleId, setCopyVehicleId] = useState('');
   const [copyVehicles, setCopyVehicles] = useState([]);
+  const isMechanic = Boolean(admin?.is_mechanic);
 
   const refresh = () =>
     api.invoices.get(id).then((data) => {
@@ -157,6 +159,11 @@ export default function InvoiceDetail() {
       alert(err.message);
       throw err;
     }
+  };
+
+  const saveInvoiceNumber = async (invoice_number) => {
+    const updated = await api.invoices.update(id, { invoice_number });
+    setInv(updated);
   };
 
   const addPayment = async (e) => {
@@ -379,7 +386,15 @@ export default function InvoiceDetail() {
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.5rem' }}>
         <h1 className="page-title" style={{ margin: 0 }}>
-          {inv.invoice_number}{' '}
+          {isMechanic ? (
+            inv.invoice_number
+          ) : (
+            <EditableDocumentNumber
+              value={inv.invoice_number}
+              onSave={saveInvoiceNumber}
+              hint="Must be unique — match your physical booklet number if needed."
+            />
+          )}{' '}
           <span className={`badge ${inv.type}`} style={{ fontSize: '0.85rem', verticalAlign: 'middle' }}>
             {inv.type}
           </span>

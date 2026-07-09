@@ -1,7 +1,14 @@
 import { Router } from 'express';
 import { db, transactionSync } from '../db.js';
 import { config } from '../config.js';
-import { nextSequenceRef, JOB_INVOICE_SEQUENCE_BASELINE, QUOTE_SEQUENCE_BASELINE } from '../sequences.js';
+import {
+  nextSequenceRef,
+  JOB_INVOICE_SEQUENCE_BASELINE,
+  QUOTE_SEQUENCE_BASELINE,
+  normalizeDocumentNumber,
+  isInvoiceNumberTaken,
+  bumpSequenceFromInvoiceNumber,
+} from '../sequences.js';
 import {
   drawWorkshopDocumentHeader,
   drawLetterheadLogo,
@@ -681,7 +688,20 @@ invoicesRouter.post('/', (req, res) => {
 invoicesRouter.patch('/:id', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  const { status, paid_at, due_date, notes, discount_percent } = req.body;
+  let { status, paid_at, due_date, notes, discount_percent, invoice_number } = req.body;
+  if (invoice_number !== undefined) {
+    const normalizedInvoiceNumber = normalizeDocumentNumber(invoice_number);
+    if (!normalizedInvoiceNumber) {
+      return res.status(400).json({ error: 'Invoice/quote number is required' });
+    }
+    if (normalizedInvoiceNumber !== inv.invoice_number && isInvoiceNumberTaken(normalizedInvoiceNumber, req.params.id)) {
+      return res.status(409).json({ error: `Number "${normalizedInvoiceNumber}" is already in use` });
+    }
+    if (normalizedInvoiceNumber !== inv.invoice_number) {
+      bumpSequenceFromInvoiceNumber(normalizedInvoiceNumber);
+    }
+    invoice_number = normalizedInvoiceNumber;
+  }
   const nextStatus = status ?? inv.status;
   if (nextStatus === 'paid' && inv.status !== 'paid' && inv.type === 'invoice') {
     try {
@@ -692,8 +712,9 @@ invoicesRouter.patch('/:id', (req, res) => {
   }
   const nextDiscountPercent =
     discount_percent !== undefined ? normalizeDiscountPercent(discount_percent) : Number(inv.discount_percent) || 0;
-  db.prepare(`
-    UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, discount_percent = ?, discount_amount = 0, updated_at = datetime('now')
+  try {
+    db.prepare(`
+    UPDATE invoices SET status = ?, paid_at = ?, due_date = ?, notes = ?, discount_percent = ?, discount_amount = 0, invoice_number = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     nextStatus,
@@ -701,8 +722,15 @@ invoicesRouter.patch('/:id', (req, res) => {
     due_date ?? inv.due_date,
     notes ?? inv.notes,
     nextDiscountPercent,
+    invoice_number !== undefined ? invoice_number : inv.invoice_number,
     req.params.id,
   );
+  } catch (e) {
+    if (e?.code === 'SQLITE_CONSTRAINT_UNIQUE' || String(e?.message || '').toLowerCase().includes('unique')) {
+      return res.status(409).json({ error: 'That invoice/quote number is already in use' });
+    }
+    throw e;
+  }
   refreshInvoiceTotalsFromLineItems(req.params.id);
   const payload = fullInvoicePayload(req.params.id);
   res.json(payload);

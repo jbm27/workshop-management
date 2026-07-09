@@ -7,7 +7,13 @@ import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
 import { streamJobTasksPdf } from '../jobTasksPdf.js';
 import { deductOutstandingStockForJob } from '../invoiceStockDeduction.js';
-import { JOB_INVOICE_SEQUENCE_BASELINE, QUOTE_SEQUENCE_BASELINE } from '../sequences.js';
+import {
+  JOB_INVOICE_SEQUENCE_BASELINE,
+  QUOTE_SEQUENCE_BASELINE,
+  normalizeDocumentNumber,
+  isJobNumberTaken,
+  bumpSequenceFromJobNumber,
+} from '../sequences.js';
 
 export const jobsRouter = Router();
 
@@ -882,7 +888,20 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   const suppressRepeatVisitHandover =
     Number(row.is_repeat_job) === 1 && relatedJobStatus != null && relatedJobStatus !== 'completed';
 
-  let { status, customer_id, vehicle_id, description, notes, order_number, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  let { status, customer_id, vehicle_id, description, notes, order_number, job_number, odometer_in, odometer_out, fuel_in, fuel_out, valuables_in_vehicle, due_date, completed_at, tasks } = req.body;
+  if (job_number !== undefined) {
+    const normalizedJobNumber = normalizeDocumentNumber(job_number);
+    if (!normalizedJobNumber) {
+      return res.status(400).json({ error: 'Job number is required' });
+    }
+    if (normalizedJobNumber !== row.job_number && isJobNumberTaken(normalizedJobNumber, req.params.id)) {
+      return res.status(409).json({ error: `Job number "${normalizedJobNumber}" is already in use` });
+    }
+    if (normalizedJobNumber !== row.job_number) {
+      bumpSequenceFromJobNumber(normalizedJobNumber);
+    }
+    job_number = normalizedJobNumber;
+  }
   if (description !== undefined) {
     const normalizedDescription = description != null ? String(description).trim() : '';
     if (normalizedDescription.length > JOB_DESCRIPTION_MAX_LEN) {
@@ -954,13 +973,15 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
       return res.status(400).json({ error: e.message || 'Insufficient stock to complete this job' });
     }
   }
-  db.prepare(`
-    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, description = ?, notes = ?, order_number = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
+  try {
+    db.prepare(`
+    UPDATE jobs SET status = ?, customer_id = ?, vehicle_id = ?, job_number = ?, description = ?, notes = ?, order_number = ?, odometer_in = ?, odometer_out = ?, fuel_in = ?, fuel_out = ?, valuables_in_vehicle = ?, due_date = ?, completed_at = ?, updated_at = datetime('now')
     WHERE id = ?
   `).run(
     nextStatus,
     customer_id !== undefined ? customer_id : row.customer_id,
     vehicle_id !== undefined ? vehicle_id : row.vehicle_id,
+    job_number !== undefined ? job_number : row.job_number,
     description !== undefined ? (description || null) : row.description,
     notes ?? row.notes,
     order_number !== undefined ? (order_number != null && String(order_number).trim() !== '' ? String(order_number).trim() : null) : row.order_number,
@@ -973,6 +994,12 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     completed_at ?? row.completed_at,
     req.params.id
   );
+  } catch (e) {
+    if (e?.code === 'SQLITE_CONSTRAINT_UNIQUE' || String(e?.message || '').toLowerCase().includes('unique')) {
+      return res.status(409).json({ error: 'That job number is already in use' });
+    }
+    throw e;
+  }
   if (customer_id !== undefined || vehicle_id !== undefined) {
     const latest = db.prepare('SELECT customer_id, vehicle_id FROM jobs WHERE id = ?').get(req.params.id);
     db.prepare(

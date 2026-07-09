@@ -20,6 +20,7 @@ import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/I
 import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
 import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
+import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
@@ -870,6 +871,23 @@ export default function JobDetail() {
     setSendQuoteCopied(false);
   };
 
+  const saveJobNumber = async (job_number) => {
+    const updated = await api.jobs.update(id, { job_number });
+    setJob(updated);
+  };
+
+  const saveInvoiceNumber = async (invoice_number) => {
+    if (!invoice) return;
+    const updated = await api.invoices.update(invoice.id, { invoice_number });
+    setInvoice((prev) => (prev ? { ...prev, ...updated } : prev));
+  };
+
+  const saveQuoteNumber = async (invoice_number) => {
+    if (!quote) return;
+    const updated = await api.invoices.update(quote.id, { invoice_number });
+    setQuote((prev) => (prev ? { ...prev, ...updated } : prev));
+  };
+
   const saveJobDetails = async () => {
     if (!job || editDetailsBusy) return;
     if ((editDetailsForm.description || '').trim().length > JOB_DESCRIPTION_MAX_LEN) {
@@ -1058,7 +1076,17 @@ export default function JobDetail() {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        <h1 className="page-title" style={{ margin: 0 }}>{job.job_number}</h1>
+        {isMechanic ? (
+          <h1 className="page-title" style={{ margin: 0 }}>{job.job_number}</h1>
+        ) : (
+          <h1 className="page-title" style={{ margin: 0 }}>
+            <EditableDocumentNumber
+              value={job.job_number}
+              onSave={saveJobNumber}
+              hint="Must be unique — match your physical job card booklet if needed."
+            />
+          </h1>
+        )}
         <Link to="/jobs" className="btn">← Jobs</Link>
         {!isMechanic && job.status === 'completed' ? (
           <button
@@ -1836,7 +1864,16 @@ export default function JobDetail() {
           )}
           {invoice && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{invoice.invoice_number}</span>
+              {!isMechanic ? (
+                <EditableDocumentNumber
+                  value={invoice.invoice_number}
+                  onSave={saveInvoiceNumber}
+                  compact
+                  hint="Must be unique — match your physical invoice booklet if needed."
+                />
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{invoice.invoice_number}</span>
+              )}
               {quote && quote.items && quote.items.length > 0 && (
                 <button type="button" className="btn" onClick={copyQuoteToInvoice}>
                   Copy from quote
@@ -2359,7 +2396,16 @@ export default function JobDetail() {
           )}
           {quote && (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{quote.invoice_number}</span>
+              {!isMechanic ? (
+                <EditableDocumentNumber
+                  value={quote.invoice_number}
+                  onSave={saveQuoteNumber}
+                  compact
+                  hint="Must be unique — match your physical quote booklet if needed."
+                />
+              ) : (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{quote.invoice_number}</span>
+              )}
               <button type="button" className="btn" onClick={() => void openSendQuoteModal()}>
                 Send quote
               </button>
