@@ -23,6 +23,16 @@ import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
+import {
+  canUseJobBilling,
+  canDownloadJobInvoicePdf,
+  canSetVehicleReleased,
+  isJobInvoiceFullyPaid,
+  intakeHandoverBlockedMessage,
+  invoicePdfBlockedMessage,
+  vehicleReleasedBlockedMessage,
+  completeJobBlockedMessage,
+} from '../utils/jobCardRules';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -336,20 +346,35 @@ export default function JobDetail() {
       setStatusMenuKey((k) => k + 1);
       return;
     }
+    if (newStatus === 'vehicle_released' && !canSetVehicleReleased(job)) {
+      alert(vehicleReleasedBlockedMessage());
+      setStatusMenuKey((k) => k + 1);
+      return;
+    }
     if (newStatus === 'completed') {
+      if (!isJobInvoiceFullyPaid(job, invoice)) {
+        alert(completeJobBlockedMessage(invoice, invoiceBalance));
+        setStatusMenuKey((k) => k + 1);
+        return;
+      }
       setCloseReadings({ odometer_out: job.odometer_out ?? '', fuel_out: job.fuel_out ?? '' });
       setCloseJobModal(true);
       return;
     }
     try {
       await api.jobs.update(id, { status: newStatus, completed_at: null });
-      setJob((j) => ({ ...j, status: newStatus }));
+      const j = await api.jobs.get(id);
+      setJob(j);
     } catch (err) {
       alert(err.message);
     }
   };
 
   const submitCloseJob = async () => {
+    if (!isJobInvoiceFullyPaid(job, invoice)) {
+      alert(completeJobBlockedMessage(invoice, invoiceBalance));
+      return;
+    }
     try {
       await api.jobs.update(id, {
         status: 'completed',
@@ -365,6 +390,7 @@ export default function JobDetail() {
         fuel_out: closeReadings.fuel_out,
       }));
       setCloseJobModal(false);
+      void refreshJobCardRules();
     } catch (err) {
       alert(err.message);
     }
@@ -444,6 +470,7 @@ export default function JobDetail() {
         nextChecks[item] = parsedValuables.selected.has(item);
       });
       setJob(updated);
+      void refreshJobCardRules();
       setReadings({
         odometer_in: updated.odometer_in ?? '',
         odometer_out: updated.odometer_out ?? '',
@@ -459,7 +486,20 @@ export default function JobDetail() {
     }
   };
 
+  const refreshJobCardRules = useCallback(async () => {
+    try {
+      const j = await api.jobs.get(id);
+      setJob(j);
+    } catch {
+      /* ignore */
+    }
+  }, [id]);
+
   const createQuote = async () => {
+    if (!canUseJobBilling(job)) {
+      alert(intakeHandoverBlockedMessage());
+      return;
+    }
     try {
       const q = await api.jobs.createQuote(id);
       setQuote(q);
@@ -469,6 +509,10 @@ export default function JobDetail() {
   };
 
   const createInvoice = async () => {
+    if (!canUseJobBilling(job)) {
+      alert(intakeHandoverBlockedMessage());
+      return;
+    }
     try {
       const inv = await api.jobs.createInvoice(id);
       setInvoice(inv);
@@ -902,6 +946,7 @@ export default function JobDetail() {
         order_number: editDetailsForm.order_number.trim() || null,
       });
       setJob(updated);
+      void refreshJobCardRules();
       setEditDetailsModalOpen(false);
     } catch (err) {
       alert(String(err?.message || 'Could not save job details.'));
@@ -1061,6 +1106,22 @@ export default function JobDetail() {
       )
     : null;
 
+  const billingUnlocked = canUseJobBilling(job);
+  const canInvoicePdf = canDownloadJobInvoicePdf(job);
+  const billingLockMessage = intakeHandoverBlockedMessage();
+
+  const handleDownloadInvoicePdf = () => {
+    if (!canInvoicePdf) {
+      alert(invoicePdfBlockedMessage());
+      return;
+    }
+    api.invoices.downloadPDF(invoice.id);
+  };
+
+  const handleDownloadQuotePdf = () => {
+    api.invoices.downloadPDF(quote.id);
+  };
+
   const rowStyle = {
     display: 'flex',
     flexWrap: 'wrap',
@@ -1143,6 +1204,15 @@ export default function JobDetail() {
         )}
       </div>
 
+      {!isMechanic && !isRepeatJob && job.status !== 'completed' && job.status !== 'cancelled' && (
+        <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '48rem' }}>
+          {Number(job.unfinalized_lpo_ipr_count) > 0 ? vehicleReleasedBlockedMessage() : null}
+          {invoice && !isJobInvoiceFullyPaid(job, invoice) && Number(invoice.total) > 0
+            ? (Number(job.unfinalized_lpo_ipr_count) > 0 ? ' ' : '') + completeJobBlockedMessage(invoice, invoiceBalance)
+            : null}
+        </p>
+      )}
+
       {!isMechanic && sendQuoteModal && (
         <div className="modal-overlay" onClick={closeSendQuoteModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
@@ -1205,6 +1275,11 @@ export default function JobDetail() {
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1rem' }}>
                 Enter mileage and fuel level when returning the vehicle (after testing).
               </p>
+              {!isRepeatJob && invoice && !isJobInvoiceFullyPaid(job, invoice) && (
+                <p style={{ color: 'var(--warning)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                  {completeJobBlockedMessage(invoice, invoiceBalance)}
+                </p>
+              )}
               <div className="form-group">
                 <label>Odometer out (km)</label>
                 <input
@@ -1859,7 +1934,7 @@ export default function JobDetail() {
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <h3 style={{ margin: 0 }}>Invoice</h3>
-          {!invoiceLoading && !invoice && (
+          {!invoiceLoading && !invoice && billingUnlocked && (
             <button type="button" className="btn primary" onClick={createInvoice}>Create invoice</button>
           )}
           {invoice && (
@@ -1874,21 +1949,30 @@ export default function JobDetail() {
               ) : (
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{invoice.invoice_number}</span>
               )}
-              {quote && quote.items && quote.items.length > 0 && (
+              {billingUnlocked && quote && quote.items && quote.items.length > 0 && (
                 <button type="button" className="btn" onClick={copyQuoteToInvoice}>
                   Copy from quote
                 </button>
               )}
               {invoice.items && invoice.items.length > 0 && (
-                <button type="button" className="btn primary" onClick={() => api.invoices.downloadPDF(invoice.id)}>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={handleDownloadInvoicePdf}
+                  disabled={!canInvoicePdf}
+                  title={!canInvoicePdf ? invoicePdfBlockedMessage() : undefined}
+                >
                   Download PDF
                 </button>
               )}
             </div>
           )}
         </div>
+        {!billingUnlocked && !invoiceLoading && (
+          <p style={{ margin: '0 0 1rem', color: 'var(--warning)', fontSize: '0.9rem' }}>{billingLockMessage}</p>
+        )}
         {invoiceLoading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
-        {!invoiceLoading && invoice && (
+        {!invoiceLoading && invoice && billingUnlocked && (
           <>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
               <strong>Purchase</strong> (unit cost) can be an internal estimate. Use the <strong>LPO & IPR</strong> section
@@ -2391,7 +2475,7 @@ export default function JobDetail() {
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
           <h3 style={{ margin: 0 }}>Quote</h3>
-          {!quoteLoading && !quote && (
+          {!quoteLoading && !quote && billingUnlocked && (
             <button type="button" className="btn primary" onClick={createQuote}>Create quote</button>
           )}
           {quote && (
@@ -2406,19 +2490,24 @@ export default function JobDetail() {
               ) : (
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{quote.invoice_number}</span>
               )}
-              <button type="button" className="btn" onClick={() => void openSendQuoteModal()}>
-                Send quote
-              </button>
+              {billingUnlocked && (
+                <button type="button" className="btn" onClick={() => void openSendQuoteModal()}>
+                  Send quote
+                </button>
+              )}
               {quote.items && quote.items.length > 0 && (
-                <button type="button" className="btn primary" onClick={() => api.invoices.downloadPDF(quote.id)}>
+                <button type="button" className="btn primary" onClick={handleDownloadQuotePdf}>
                   Download PDF
                 </button>
               )}
             </div>
           )}
         </div>
+        {!billingUnlocked && !quoteLoading && (
+          <p style={{ margin: '0 0 1rem', color: 'var(--warning)', fontSize: '0.9rem' }}>{billingLockMessage}</p>
+        )}
         {quoteLoading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
-        {!quoteLoading && quote && (
+        {!quoteLoading && quote && billingUnlocked && (
           <>
             <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 0.75rem' }}>
               The <strong>Labour</strong> line is always quantity <strong>1</strong>; enter the quoted labour{' '}
@@ -2711,8 +2800,18 @@ export default function JobDetail() {
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>LPO & IPR</h3>
-        {!invoiceLoading && invoice && (
-          <JobInvoiceLpoIprPanel invoice={invoice} onInvoiceUpdated={setInvoice} repeatCostInvoice={isRepeatJob} />
+        {!billingUnlocked && !invoiceLoading && (
+          <p style={{ margin: '0 0 1rem', color: 'var(--warning)', fontSize: '0.9rem' }}>{billingLockMessage}</p>
+        )}
+        {!invoiceLoading && invoice && billingUnlocked && (
+          <JobInvoiceLpoIprPanel
+            invoice={invoice}
+            onInvoiceUpdated={(inv) => {
+              setInvoice(inv);
+              void refreshJobCardRules();
+            }}
+            repeatCostInvoice={isRepeatJob}
+          />
         )}
         {!invoiceLoading && !invoice && (
           <p style={{ color: 'var(--text-muted)', margin: 0 }}>

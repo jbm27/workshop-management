@@ -14,6 +14,13 @@ import {
   isJobNumberTaken,
   bumpSequenceFromJobNumber,
 } from '../sequences.js';
+import {
+  checkJobIntakeHandover,
+  checkAllLpoIprFinalizedForJob,
+  checkJobInvoiceFullyPaid,
+  countUnfinalizedLpoIprForJob,
+  loadJobForCardRules,
+} from '../jobCardRules.js';
 
 export const jobsRouter = Router();
 
@@ -193,6 +200,8 @@ function fullJob(jobId) {
       repeat_parent_completed: Number(out.is_repeat_job) === 1 ? String(out.related_job_status) === 'completed' : null,
     };
   }
+  out.intake_handover_complete = checkJobIntakeHandover(job).ok;
+  out.unfinalized_lpo_ipr_count = countUnfinalizedLpoIprForJob(jobId);
   return out;
 }
 
@@ -957,7 +966,17 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
   ) {
     return res.status(403).json({ error: 'You do not have permission to reopen a completed job' });
   }
+  if (
+    status !== undefined &&
+    String(nextStatus) === 'vehicle_released' &&
+    String(row.status) !== 'vehicle_released'
+  ) {
+    const lpoCheck = checkAllLpoIprFinalizedForJob(req.params.id);
+    if (!lpoCheck.ok) return res.status(400).json({ error: lpoCheck.error });
+  }
   if (nextStatus === 'completed' && String(row.status) !== 'completed') {
+    const payCheck = checkJobInvoiceFullyPaid(req.params.id, Number(row.is_repeat_job) === 1);
+    if (!payCheck.ok) return res.status(400).json({ error: payCheck.error });
     const jobIdsToClose = [Number(req.params.id)];
     if (Number(row.is_repeat_job) !== 1) {
       const children = db
@@ -1069,8 +1088,10 @@ function ensureRepeatJobCostInvoice(jobId, customerId, vehicleId) {
 
 jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
-  const job = db.prepare('SELECT id, customer_id, vehicle_id, is_repeat_job FROM jobs WHERE id = ?').get(req.params.id);
+  const job = loadJobForCardRules(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+  const intakeCheck = checkJobIntakeHandover(job);
+  if (!intakeCheck.ok) return res.status(400).json({ error: intakeCheck.error });
   if (Number(job.is_repeat_job) === 1) {
     return res.status(400).json({ error: 'Repeat jobs do not use customer quotes' });
   }
@@ -1096,8 +1117,10 @@ jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
 
 jobsRouter.post('/:id/invoice', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
-  const job = db.prepare('SELECT id, customer_id, vehicle_id, is_repeat_job FROM jobs WHERE id = ?').get(req.params.id);
+  const job = loadJobForCardRules(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
+  const intakeCheck = checkJobIntakeHandover(job);
+  if (!intakeCheck.ok) return res.status(400).json({ error: intakeCheck.error });
   if (Number(job.is_repeat_job) === 1) {
     return res.status(400).json({ error: 'Repeat jobs use the internal cost document created with the job' });
   }

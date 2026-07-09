@@ -37,8 +37,13 @@ import {
   deductOutstandingStockForInvoice,
   restoreStockDeductionForInvoiceItem,
 } from '../invoiceStockDeduction.js';
+import { assertJobIntakeHandoverForInvoiceId, checkInvoicePdfAllowedForJobStatus } from '../jobCardRules.js';
 
 export const invoicesRouter = Router();
+
+function requireJobIntakeHandover(req, res) {
+  return assertJobIntakeHandoverForInvoiceId(req.params.id, res);
+}
 
 function normalizeLineSubtext(value) {
   if (value == null) return null;
@@ -67,7 +72,7 @@ function fullInvoicePayload(invoiceId) {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
-      v.registration, v.make, v.model, v.vin, j.order_number as job_order_number
+      v.registration, v.make, v.model, v.vin, j.order_number as job_order_number, j.status as job_status
     FROM invoices i
     LEFT JOIN customers c ON i.customer_id = c.id
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
@@ -770,6 +775,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
   const { description, quantity, unit_price, purchase_price, type, stock_item_id, vat_rate, vat_exempt, subtext, discount_percent } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
 
   if (String(type || '').toLowerCase() === 'header') {
     const title = String(description || '').trim();
@@ -851,6 +857,7 @@ invoicesRouter.post('/:id/items', (req, res) => {
 invoicesRouter.put('/:id/items/reorder', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   const { item_ids } = req.body || {};
   if (!Array.isArray(item_ids) || item_ids.length === 0) {
     return res.status(400).json({ error: 'item_ids array is required' });
@@ -880,6 +887,7 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   const { description, quantity, unit_price, purchase_price: bodyPurchase, vat_rate, vat_exempt, stock_item_id, subtext, discount_percent } = req.body;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
   if (isHeaderLine(item)) {
@@ -966,6 +974,7 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
 invoicesRouter.delete('/:id/items/:itemId', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   const existing = db.prepare('SELECT id FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, req.params.id);
   if (!existing) return res.status(404).json({ error: 'Item not found' });
   restoreStockDeductionForInvoiceItem(req.params.itemId);
@@ -986,6 +995,7 @@ invoicesRouter.get('/:id/lpos', (req, res) => {
 invoicesRouter.post('/:id/lpos', requireAdminPermission('can_create_lpos'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'LPOs apply to invoices only' });
   const repeatCostDoc = invoiceBelongsToRepeatJob(req.params.id);
   const { supplier_id, notes, lines } = req.body;
@@ -1036,6 +1046,7 @@ invoicesRouter.post('/:id/lpos', requireAdminPermission('can_create_lpos'), (req
 invoicesRouter.patch('/:id/lpos/:lpoId', requireAdminPermission('can_create_lpos'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'LPOs apply to invoices only' });
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
@@ -1099,6 +1110,7 @@ invoicesRouter.patch('/:id/lpos/:lpoId', requireAdminPermission('can_create_lpos
 invoicesRouter.delete('/:id/lpos/:lpoId', requireAdminPermission('can_create_lpos'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'LPOs apply to invoices only' });
   const lpo = db.prepare('SELECT id FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
@@ -1114,6 +1126,7 @@ invoicesRouter.delete('/:id/lpos/:lpoId', requireAdminPermission('can_create_lpo
 });
 
 invoicesRouter.post('/:id/lpos/:lpoId/approve', requireAdminPermission('can_approve_lpo_ipr'), (req, res) => {
+  if (!requireJobIntakeHandover(req, res)) return;
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
   if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
@@ -1124,6 +1137,7 @@ invoicesRouter.post('/:id/lpos/:lpoId/approve', requireAdminPermission('can_appr
 });
 
 invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth, (req, res) => {
+  if (!requireJobIntakeHandover(req, res)) return;
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
   if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
@@ -1168,6 +1182,7 @@ invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth,
 });
 
 invoicesRouter.post('/:id/lpos/:lpoId/finalize', requireAdminPermission('can_finalize_lpos'), (req, res) => {
+  if (!requireJobIntakeHandover(req, res)) return;
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
   if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
@@ -1220,6 +1235,7 @@ invoicesRouter.get('/:id/iprs', (req, res) => {
 invoicesRouter.post('/:id/iprs', requireAdminPermission('can_create_iprs'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'IPRs apply to invoices only' });
   const { notes, lines } = req.body;
   if (!Array.isArray(lines) || lines.length === 0) return res.status(400).json({ error: 'At least one IPR line is required' });
@@ -1242,6 +1258,7 @@ invoicesRouter.post('/:id/iprs', requireAdminPermission('can_create_iprs'), (req
 invoicesRouter.patch('/:id/iprs/:iprId', requireAdminPermission('can_create_iprs'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'IPRs apply to invoices only' });
   const ipr = db.prepare('SELECT * FROM iprs WHERE id = ? AND invoice_id = ?').get(req.params.iprId, req.params.id);
   if (!ipr) return res.status(404).json({ error: 'IPR not found' });
@@ -1268,6 +1285,7 @@ invoicesRouter.patch('/:id/iprs/:iprId', requireAdminPermission('can_create_iprs
 invoicesRouter.delete('/:id/iprs/:iprId', requireAdminPermission('can_create_iprs'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!requireJobIntakeHandover(req, res)) return;
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'IPRs apply to invoices only' });
   const ipr = db.prepare('SELECT * FROM iprs WHERE id = ? AND invoice_id = ?').get(req.params.iprId, req.params.id);
   if (!ipr) return res.status(404).json({ error: 'IPR not found' });
@@ -1283,6 +1301,7 @@ invoicesRouter.delete('/:id/iprs/:iprId', requireAdminPermission('can_create_ipr
 });
 
 invoicesRouter.post('/:id/iprs/:iprId/approve', requireAdminPermission('can_approve_lpo_ipr'), (req, res) => {
+  if (!requireJobIntakeHandover(req, res)) return;
   const ipr = db.prepare('SELECT * FROM iprs WHERE id = ? AND invoice_id = ?').get(req.params.iprId, req.params.id);
   if (!ipr) return res.status(404).json({ error: 'IPR not found' });
   if (Number(ipr.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
@@ -1293,6 +1312,7 @@ invoicesRouter.post('/:id/iprs/:iprId/approve', requireAdminPermission('can_appr
 });
 
 invoicesRouter.patch('/:id/iprs/:iprId/lines/:lineId/receipt', requireAdminAuth, (req, res) => {
+  if (!requireJobIntakeHandover(req, res)) return;
   const ipr = db.prepare('SELECT * FROM iprs WHERE id = ? AND invoice_id = ?').get(req.params.iprId, req.params.id);
   if (!ipr) return res.status(404).json({ error: 'IPR not found' });
   if (Number(ipr.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
@@ -1337,6 +1357,7 @@ invoicesRouter.patch('/:id/iprs/:iprId/lines/:lineId/receipt', requireAdminAuth,
 });
 
 invoicesRouter.post('/:id/iprs/:iprId/finalize', requireAdminPermission('can_finalize_iprs'), (req, res) => {
+  if (!requireJobIntakeHandover(req, res)) return;
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (inv.type !== 'invoice') return res.status(400).json({ error: 'IPRs apply to invoices only' });
@@ -1769,7 +1790,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
       v.registration, v.make, v.model, v.vin, v.year, v.odometer, v.notes as vehicle_notes,
-      j.job_number, j.description as job_description, j.notes as job_notes, j.odometer_in, j.odometer_out, j.order_number as job_order_number
+      j.job_number, j.description as job_description, j.notes as job_notes, j.odometer_in, j.odometer_out, j.order_number as job_order_number, j.status as job_status
     FROM invoices i
     JOIN customers c ON i.customer_id = c.id
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
@@ -1777,7 +1798,11 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     WHERE i.id = ?
   `).get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  
+  if (inv.type === 'invoice' && inv.job_id) {
+    const pdfCheck = checkInvoicePdfAllowedForJobStatus(inv.job_status);
+    if (!pdfCheck.ok) return res.status(403).json({ error: pdfCheck.error });
+  }
+
   const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(req.params.id);
   const isInvoiceDoc = inv.type === 'invoice';
   let amountPaid = 0;

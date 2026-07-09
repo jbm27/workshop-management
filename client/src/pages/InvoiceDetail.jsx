@@ -16,6 +16,7 @@ import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountP
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
+import { canDownloadJobInvoicePdf, invoicePdfBlockedMessage } from '../utils/jobCardRules';
 
 const emptyStockLineDraft = () => ({ query: '', stockItemId: null, unitPrice: '' });
 
@@ -375,6 +376,8 @@ export default function InvoiceDetail() {
   const balance = inv.type === 'invoice' ? Number(inv.balance ?? total - amountPaid) : null;
   const isQuote = inv.type === 'quote';
   const canEditQuoteLines = isQuote && !inv.job_id;
+  const canJobInvoicePdf =
+    inv.type !== 'invoice' || !inv.job_id || canDownloadJobInvoicePdf({ status: inv.job_status });
   const quoteApprovedCount = isQuote ? items.filter((it) => !isHeaderLine(it) && isQuoteLineApproved(it)).length : 0;
   const quoteLineCount = isQuote ? items.filter((it) => !isHeaderLine(it)).length : 0;
   const dueDateDirty = (inv.due_date ? String(inv.due_date).slice(0, 10) : '') !== dueDate;
@@ -406,7 +409,19 @@ export default function InvoiceDetail() {
             </button>
           )}
           {items.length > 0 && (
-            <button type="button" className="btn primary" onClick={() => api.invoices.downloadPDF(inv.id)}>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf}
+              title={inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf ? invoicePdfBlockedMessage() : undefined}
+              onClick={() => {
+                if (inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf) {
+                  alert(invoicePdfBlockedMessage());
+                  return;
+                }
+                api.invoices.downloadPDF(inv.id);
+              }}
+            >
               Download PDF
             </button>
           )}
