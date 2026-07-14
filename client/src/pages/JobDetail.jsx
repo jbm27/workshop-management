@@ -1982,7 +1982,6 @@ export default function JobDetail() {
                   type="button"
                   className="btn primary"
                   onClick={handleDownloadInvoicePdf}
-                  disabled={!canInvoicePdf}
                   title={!canInvoicePdf ? invoicePdfBlockedMessage() : undefined}
                 >
                   Download PDF

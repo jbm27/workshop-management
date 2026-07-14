@@ -166,7 +166,7 @@ export function checkInvoicePdfAllowedForJobStatus(status) {
   if (s === 'vehicle_released' || s === 'completed') return { ok: true };
   return {
     ok: false,
-    error: 'Invoice PDF is only available after the job status is Vehicle released or Complete.',
+    error: 'Change the job status to Vehicle released before you can download the invoice PDF.',
   };
 }
 

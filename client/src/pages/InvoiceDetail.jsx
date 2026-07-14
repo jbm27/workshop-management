@@ -412,7 +412,6 @@ export default function InvoiceDetail() {
             <button
               type="button"
               className="btn primary"
-              disabled={inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf}
               title={inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf ? invoicePdfBlockedMessage() : undefined}
               onClick={() => {
                 if (inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf) {

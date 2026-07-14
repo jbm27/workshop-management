@@ -25,7 +25,7 @@ export function canDownloadJobInvoicePdf(job) {
 }
 
 export function invoicePdfBlockedMessage() {
-  return 'Invoice PDF is only available after the job status is Vehicle released or Complete.';
+  return 'Change the job status to Vehicle released before you can download the invoice PDF.';
 }
 
 export function countUnfinalizedLpoIpr(lpos = [], iprs = []) {
