@@ -31,6 +31,7 @@ import {
   intakeHandoverBlockedMessage,
   invoicePdfBlockedMessage,
   vehicleReleasedBlockedMessage,
+  vehicleReleasedBlockedReasons,
   completeJobBlockedMessage,
 } from '../utils/jobCardRules';
 
@@ -346,10 +347,22 @@ export default function JobDetail() {
       setStatusMenuKey((k) => k + 1);
       return;
     }
-    if (newStatus === 'vehicle_released' && !canSetVehicleReleased(job)) {
-      alert(vehicleReleasedBlockedMessage());
-      setStatusMenuKey((k) => k + 1);
-      return;
+    if (newStatus === 'vehicle_released') {
+      if (readingsDirty) {
+        alert('Save mileage out and fuel out in the Mileage & fuel section before the vehicle can be released.');
+        setStatusMenuKey((k) => k + 1);
+        return;
+      }
+      if (tasksDirty) {
+        alert('Save job tasks before the vehicle can be released.');
+        setStatusMenuKey((k) => k + 1);
+        return;
+      }
+      if (!canSetVehicleReleased(job, undefined, undefined, tasks)) {
+        alert(vehicleReleasedBlockedMessage(job, undefined, undefined, tasks));
+        setStatusMenuKey((k) => k + 1);
+        return;
+      }
     }
     if (newStatus === 'completed') {
       if (!isJobInvoiceFullyPaid(job, invoice)) {
@@ -1204,14 +1217,24 @@ export default function JobDetail() {
         )}
       </div>
 
-      {!isMechanic && !isRepeatJob && job.status !== 'completed' && job.status !== 'cancelled' && (
-        <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '48rem' }}>
-          {Number(job.unfinalized_lpo_ipr_count) > 0 ? vehicleReleasedBlockedMessage() : null}
-          {invoice && !isJobInvoiceFullyPaid(job, invoice) && Number(invoice.total) > 0
-            ? (Number(job.unfinalized_lpo_ipr_count) > 0 ? ' ' : '') + completeJobBlockedMessage(invoice, invoiceBalance)
-            : null}
-        </p>
-      )}
+      {!isMechanic && !isRepeatJob && job.status !== 'completed' && job.status !== 'cancelled' && (() => {
+        const releaseReasons =
+          job.status !== 'vehicle_released'
+            ? vehicleReleasedBlockedReasons(job, undefined, undefined, tasks)
+            : [];
+        const completeMsg =
+          invoice && !isJobInvoiceFullyPaid(job, invoice) && Number(invoice.total) > 0
+            ? completeJobBlockedMessage(invoice, invoiceBalance)
+            : null;
+        const parts = [...releaseReasons];
+        if (completeMsg) parts.push(completeMsg);
+        if (!parts.length) return null;
+        return (
+          <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '48rem' }}>
+            {parts.join(' ')}
+          </p>
+        );
+      })()}
 
       {!isMechanic && sendQuoteModal && (
         <div className="modal-overlay" onClick={closeSendQuoteModal}>

@@ -34,14 +34,52 @@ export function countUnfinalizedLpoIpr(lpos = [], iprs = []) {
   return unfinalizedLpos + unfinalizedIprs;
 }
 
-export function canSetVehicleReleased(job, lpos = [], iprs = []) {
-  if (job?.unfinalized_lpo_ipr_count != null) {
-    return Number(job.unfinalized_lpo_ipr_count) === 0;
-  }
-  return countUnfinalizedLpoIpr(lpos, iprs) === 0;
+export function jobExitReadingsComplete(job) {
+  const oo = job?.odometer_out != null && job.odometer_out !== '' ? Number(job.odometer_out) : NaN;
+  if (!Number.isFinite(oo) || oo < 0) return false;
+  if (!job?.fuel_out || !String(job.fuel_out).trim()) return false;
+  return true;
 }
 
-export function vehicleReleasedBlockedMessage() {
+export function jobTasksAllComplete(job, tasks) {
+  const list = Array.isArray(tasks) ? tasks : job?.tasks || [];
+  const real = list.filter((t) => {
+    if (typeof t === 'string') return Boolean(String(t).trim());
+    return Boolean(t?.description != null && String(t.description).trim());
+  });
+  if (!real.length) return true;
+  return real.every((t) => Number(t?.completed) === 1 || t?.completed === true);
+}
+
+export function vehicleReleasedBlockedReasons(job, lpos = [], iprs = [], tasks) {
+  const reasons = [];
+  const lpoOk =
+    job?.unfinalized_lpo_ipr_count != null
+      ? Number(job.unfinalized_lpo_ipr_count) === 0
+      : countUnfinalizedLpoIpr(lpos, iprs) === 0;
+  if (!lpoOk) {
+    reasons.push(
+      'All LPOs and IPRs must be finalised (with every part marked received) before the vehicle can be released.',
+    );
+  }
+  if (!jobExitReadingsComplete(job)) {
+    reasons.push(
+      'Record mileage out and fuel out in the Mileage & fuel section before the vehicle can be released.',
+    );
+  }
+  if (!jobTasksAllComplete(job, tasks)) {
+    reasons.push('Mark all job tasks as complete before the vehicle can be released.');
+  }
+  return reasons;
+}
+
+export function canSetVehicleReleased(job, lpos = [], iprs = [], tasks) {
+  return vehicleReleasedBlockedReasons(job, lpos, iprs, tasks).length === 0;
+}
+
+export function vehicleReleasedBlockedMessage(job, lpos = [], iprs = [], tasks) {
+  const reasons = vehicleReleasedBlockedReasons(job, lpos, iprs, tasks);
+  if (reasons.length) return reasons.join(' ');
   return 'All LPOs and IPRs must be finalised (with every part marked received) before the vehicle can be released.';
 }
 

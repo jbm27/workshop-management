@@ -76,6 +76,70 @@ export function checkAllLpoIprFinalizedForJob(jobId) {
   return { ok: true };
 }
 
+const EXIT_READINGS_MESSAGE =
+  'Record mileage out and fuel out in the Mileage & fuel section before the vehicle can be released.';
+const TASKS_COMPLETE_MESSAGE = 'Mark all job tasks as complete before the vehicle can be released.';
+
+export function checkJobExitReadingsForRelease(jobRow, overrides = {}) {
+  const odometer_out =
+    overrides.odometer_out !== undefined ? overrides.odometer_out : jobRow?.odometer_out;
+  const fuel_out = overrides.fuel_out !== undefined ? overrides.fuel_out : jobRow?.fuel_out;
+  const oo = odometer_out != null && odometer_out !== '' ? Number(odometer_out) : NaN;
+  if (!Number.isFinite(oo) || oo < 0) {
+    return { ok: false, error: EXIT_READINGS_MESSAGE };
+  }
+  if (!fuel_out || !String(fuel_out).trim()) {
+    return { ok: false, error: EXIT_READINGS_MESSAGE };
+  }
+  return { ok: true };
+}
+
+function taskMarkedComplete(t) {
+  if (typeof t === 'object' && t !== null) {
+    return Number(t.completed) === 1 || t.completed === true;
+  }
+  return false;
+}
+
+export function checkAllJobTasksCompleteForJob(jobId, pendingTasks) {
+  if (Array.isArray(pendingTasks)) {
+    const incomplete = pendingTasks.some((t) => {
+      if (typeof t === 'string') return true;
+      const desc = t?.description != null ? String(t.description).trim() : '';
+      if (!desc) return false;
+      return !taskMarkedComplete(t);
+    });
+    if (incomplete) return { ok: false, error: TASKS_COMPLETE_MESSAGE };
+    return { ok: true };
+  }
+  const incomplete =
+    Number(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS c FROM job_tasks WHERE job_id = ? AND COALESCE(completed, 0) = 0`,
+        )
+        .get(jobId)?.c,
+    ) || 0;
+  if (incomplete > 0) {
+    return { ok: false, error: TASKS_COMPLETE_MESSAGE };
+  }
+  return { ok: true };
+}
+
+/** Combined gates for transitioning a job to vehicle_released. */
+export function checkVehicleReleasedAllowed(jobId, overrides = {}) {
+  const reasons = [];
+  const lpoCheck = checkAllLpoIprFinalizedForJob(jobId);
+  if (!lpoCheck.ok) reasons.push(lpoCheck.error);
+  const job = loadJobForCardRules(jobId);
+  const exitCheck = checkJobExitReadingsForRelease(job, overrides);
+  if (!exitCheck.ok) reasons.push(exitCheck.error);
+  const tasksCheck = checkAllJobTasksCompleteForJob(jobId, overrides.tasks);
+  if (!tasksCheck.ok) reasons.push(tasksCheck.error);
+  if (reasons.length) return { ok: false, error: reasons.join(' ') };
+  return { ok: true };
+}
+
 export function checkJobInvoiceFullyPaid(jobId, isRepeatJob = false) {
   if (Number(isRepeatJob) === 1) return { ok: true };
   const inv = db.prepare(`SELECT id, total, type FROM invoices WHERE job_id = ? AND type = 'invoice'`).get(jobId);

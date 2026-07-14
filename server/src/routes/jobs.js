@@ -16,7 +16,7 @@ import {
 } from '../sequences.js';
 import {
   checkJobIntakeHandover,
-  checkAllLpoIprFinalizedForJob,
+  checkVehicleReleasedAllowed,
   checkJobInvoiceFullyPaid,
   countUnfinalizedLpoIprForJob,
   loadJobForCardRules,
@@ -971,8 +971,12 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     String(nextStatus) === 'vehicle_released' &&
     String(row.status) !== 'vehicle_released'
   ) {
-    const lpoCheck = checkAllLpoIprFinalizedForJob(req.params.id);
-    if (!lpoCheck.ok) return res.status(400).json({ error: lpoCheck.error });
+    const releaseCheck = checkVehicleReleasedAllowed(req.params.id, {
+      odometer_out: odometer_out !== undefined ? odometer_out : undefined,
+      fuel_out: fuel_out !== undefined ? fuel_out : undefined,
+      tasks: Array.isArray(tasks) ? tasks : undefined,
+    });
+    if (!releaseCheck.ok) return res.status(400).json({ error: releaseCheck.error });
   }
   if (nextStatus === 'completed' && String(row.status) !== 'completed') {
     const payCheck = checkJobInvoiceFullyPaid(req.params.id, Number(row.is_repeat_job) === 1);
