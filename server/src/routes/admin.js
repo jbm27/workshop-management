@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { denyMechanics, hashPassword, newSessionToken, requireAdminAuth, requireAdminPermission, verifyPassword } from '../auth.js';
 import { getAverageLabourCostPerHour, setAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
+import { hoursWorkedByAdminInRange } from '../services/attendanceService.js';
 
 export const adminRouter = Router();
 
@@ -517,6 +518,7 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
 
   const partsMap = new Map(partsRows.map((r) => [Number(r.admin_user_id), r]));
   const hoursMap = new Map(hoursRows.map((r) => [Number(r.admin_user_id), r]));
+  const hoursWorkedMap = hoursWorkedByAdminInRange(fromRaw, toRaw);
 
   const members = users.map((u) => {
     const id = Number(u.id);
@@ -544,6 +546,7 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
       is_mechanic: Number(u.is_mechanic) === 1,
       parts_quantity_total: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       parts_value_total: Math.round(val + Number.EPSILON),
+      hours_worked: Number(hoursWorkedMap.get(id) || 0),
       hours_logged: Math.round((Number(h?.hours_logged || 0) + Number.EPSILON) * 100) / 100,
       wasted_hours_waiting_spares: Math.round((wWait + Number.EPSILON) * 100) / 100,
       wasted_hours_no_work: Math.round((wNo + Number.EPSILON) * 100) / 100,

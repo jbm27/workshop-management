@@ -87,6 +87,7 @@ export default function TeamStats() {
     return {
       partsQty: Math.round((qty + Number.EPSILON) * 1000) / 1000,
       partsValue: Math.round(val + Number.EPSILON),
+      hoursWorked: Math.round(m.reduce((s, r) => s + Number(r.hours_worked || 0), 0) * 100) / 100,
       hours: Math.round(m.reduce((s, r) => s + r.hours_logged, 0) * 100) / 100,
       wastedHoursWaitingSpares: Math.round((wastedWait + Number.EPSILON) * 100) / 100,
       wastedHoursNoWork: Math.round((wastedNo + Number.EPSILON) * 100) / 100,
@@ -183,8 +184,8 @@ export default function TeamStats() {
         Use this report to review activity in a date range. <strong>Parts</strong> is the total quantity on LPO and IPR
         lines that person confirmed as received (combined). <strong>Parts value</strong> is the sum of (quantity ×
         invoice line sale unit price) for those lines — the customer-facing price on the invoice, not supplier cost.
-        Lines without a linked invoice item contribute quantity only (no sale value). <strong>Hours</strong> comes from
-        time logs on jobs.
+        Lines without a linked invoice item contribute quantity only (no sale value). <strong>Hours worked</strong> is
+        time clocked in on the biometric machine. <strong>Hours logged</strong> comes from time logs on jobs.
       </p>
 
       <form className="card" style={{ marginBottom: '1rem' }} onSubmit={applyFilters}>
@@ -241,6 +242,7 @@ export default function TeamStats() {
           Period <strong>{data.from}</strong> to <strong>{data.to}</strong> (all listed members) —{' '}
           <strong>{totals.partsQty.toLocaleString(undefined, { maximumFractionDigits: 3 })}</strong> parts,{' '}
           <strong>{kesWhole(totals.partsValue)}</strong> parts value,{' '}
+          <strong>{totals.hoursWorked.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> hours worked,{' '}
           <strong>{totals.hours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> hours logged,{' '}
           <strong>{totals.wastedHours.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> wasted hours
           (<strong>{totals.wastedHoursWaitingSpares.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
@@ -264,6 +266,7 @@ export default function TeamStats() {
                 <th>Role</th>
                 <th>Parts (qty)</th>
                 <th>Parts value</th>
+                <th>Hours worked</th>
                 <th>Hours logged</th>
                 <th>Waiting for spares</th>
                 <th>No work</th>
@@ -276,12 +279,12 @@ export default function TeamStats() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={11}>Loading…</td>
+                  <td colSpan={12}>Loading…</td>
                 </tr>
               )}
               {!loading && data && data.members.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="empty">
+                  <td colSpan={12} className="empty">
                     No team members match the filters.
                   </td>
                 </tr>
@@ -297,6 +300,7 @@ export default function TeamStats() {
                     <td>{r.is_mechanic ? 'Mechanic' : 'Staff'}</td>
                     <td>{Number(r.parts_quantity_total || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })}</td>
                     <td>{kesWhole(r.parts_value_total)}</td>
+                    <td>{Number(r.hours_worked || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                     <td>{r.hours_logged.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                     <td>
                       {Number(r.wasted_hours_waiting_spares || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
