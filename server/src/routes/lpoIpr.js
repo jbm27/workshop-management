@@ -6,6 +6,15 @@ const SQL_IPR_LINE_GROSS = SQL_LPO_LINE_GROSS.replace(/ll\./g, 'ilg.');
 
 export const lpoIprRouter = Router();
 
+function withLineTotals(ln) {
+  return {
+    ...ln,
+    line_net: lpoLineNet(ln),
+    line_vat: lpoLineVat(ln),
+    line_gross: lpoLineGross(ln),
+  };
+}
+
 function getSummaryLpoLines(lpoId, { stockIntake }) {
   if (stockIntake) {
     return db
@@ -20,12 +29,7 @@ function getSummaryLpoLines(lpoId, { stockIntake }) {
     `,
       )
       .all(lpoId)
-      .map((ln) => ({
-        ...ln,
-        line_net: lpoLineNet(ln),
-        line_vat: lpoLineVat(ln),
-        line_gross: lpoLineGross(ln),
-      }));
+      .map(withLineTotals);
   }
 
   return db
@@ -42,12 +46,25 @@ function getSummaryLpoLines(lpoId, { stockIntake }) {
   `,
     )
     .all(lpoId)
-    .map((ln) => ({
-      ...ln,
-      line_net: lpoLineNet(ln),
-      line_vat: lpoLineVat(ln),
-      line_gross: lpoLineGross(ln),
-    }));
+    .map(withLineTotals);
+}
+
+function getSummaryIprLines(iprId) {
+  return db
+    .prepare(
+      `
+    SELECT il.id AS line_id, il.quantity, il.unit_cost, il.vat_rate, il.vat_exempt, il.description,
+      ii.description AS invoice_line_description,
+      si.code AS stock_code, si.name AS stock_name
+    FROM ipr_lines il
+    LEFT JOIN invoice_items ii ON ii.id = il.invoice_item_id
+    LEFT JOIN stock_items si ON si.id = il.stock_item_id
+    WHERE il.ipr_id = ?
+    ORDER BY il.id
+  `,
+    )
+    .all(iprId)
+    .map(withLineTotals);
 }
 
 /** Summary of issued LPO documents and IPRs. */
@@ -125,7 +142,7 @@ lpoIprRouter.get('/summary', (req, res) => {
       ip.ref,
       ip.notes,
       COALESCE(ip.approved, 0) AS approved,
-      ip.finalized,
+      COALESCE(ip.finalized, 0) AS finalized,
       ip.created_at,
       i.id AS invoice_id,
       i.invoice_number,
@@ -141,7 +158,14 @@ lpoIprRouter.get('/summary', (req, res) => {
     ORDER BY ip.id DESC
   `,
     )
-    .all();
+    .all()
+    .map((row) => {
+      const pending = Number(row.approved) !== 1 && Number(row.finalized) !== 1;
+      return {
+        ...row,
+        lines: pending ? getSummaryIprLines(row.ipr_id) : undefined,
+      };
+    });
 
   res.json({ lpos: lpoRows, stock_lpos: stockLpos, iprs });
 });
