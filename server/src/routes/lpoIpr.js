@@ -1,10 +1,54 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { SQL_LPO_LINE_GROSS } from '../lpoLineTotals.js';
+import { SQL_LPO_LINE_GROSS, lpoLineNet, lpoLineVat, lpoLineGross } from '../lpoLineTotals.js';
 
 const SQL_IPR_LINE_GROSS = SQL_LPO_LINE_GROSS.replace(/ll\./g, 'ilg.');
 
 export const lpoIprRouter = Router();
+
+function getSummaryLpoLines(lpoId, { stockIntake }) {
+  if (stockIntake) {
+    return db
+      .prepare(
+        `
+      SELECT ll.id AS line_id, ll.stock_item_id, ll.quantity, ll.unit_cost, ll.vat_rate, ll.vat_exempt, ll.description,
+        si.code AS stock_code, si.name AS stock_name
+      FROM lpo_lines ll
+      LEFT JOIN stock_items si ON si.id = ll.stock_item_id
+      WHERE ll.lpo_id = ?
+      ORDER BY ll.id
+    `,
+      )
+      .all(lpoId)
+      .map((ln) => ({
+        ...ln,
+        line_net: lpoLineNet(ln),
+        line_vat: lpoLineVat(ln),
+        line_gross: lpoLineGross(ln),
+      }));
+  }
+
+  return db
+    .prepare(
+      `
+    SELECT ll.id AS line_id, ll.quantity, ll.unit_cost, ll.vat_rate, ll.vat_exempt, ll.description,
+      ii.description AS invoice_line_description,
+      si.code AS stock_code, si.name AS stock_name
+    FROM lpo_lines ll
+    LEFT JOIN invoice_items ii ON ii.id = ll.invoice_item_id
+    LEFT JOIN stock_items si ON si.id = ll.stock_item_id
+    WHERE ll.lpo_id = ?
+    ORDER BY ll.id
+  `,
+    )
+    .all(lpoId)
+    .map((ln) => ({
+      ...ln,
+      line_net: lpoLineNet(ln),
+      line_vat: lpoLineVat(ln),
+      line_gross: lpoLineGross(ln),
+    }));
+}
 
 /** Summary of issued LPO documents and IPRs. */
 lpoIprRouter.get('/summary', (req, res) => {
@@ -18,6 +62,7 @@ lpoIprRouter.get('/summary', (req, res) => {
       l.created_at,
       l.supplier_id,
       COALESCE(l.approved, 0) AS approved,
+      COALESCE(l.finalized, 0) AS finalized,
       sup.name AS supplier_name,
       l.invoice_id,
       i.invoice_number,
@@ -33,7 +78,15 @@ lpoIprRouter.get('/summary', (req, res) => {
     ORDER BY l.id DESC
   `,
     )
-    .all();
+    .all()
+    .map((row) => {
+      const pending = Number(row.approved) !== 1 && Number(row.finalized) !== 1;
+      return {
+        ...row,
+        kind: 'invoice',
+        lines: pending ? getSummaryLpoLines(row.lpo_id, { stockIntake: false }) : undefined,
+      };
+    });
 
   const stockLpos = db
     .prepare(
@@ -44,8 +97,9 @@ lpoIprRouter.get('/summary', (req, res) => {
       l.notes,
       l.created_at,
       l.supplier_id,
-      sup.name AS supplier_name,
+      COALESCE(l.approved, 0) AS approved,
       COALESCE(l.finalized, 0) AS finalized,
+      sup.name AS supplier_name,
       (SELECT COALESCE(SUM(${SQL_LPO_LINE_GROSS}), 0) FROM lpo_lines ll WHERE ll.lpo_id = l.id) AS document_total
     FROM lpos l
     JOIN suppliers sup ON sup.id = l.supplier_id
@@ -53,7 +107,15 @@ lpoIprRouter.get('/summary', (req, res) => {
     ORDER BY l.id DESC
   `,
     )
-    .all();
+    .all()
+    .map((row) => {
+      const pending = Number(row.approved) !== 1 && Number(row.finalized) !== 1;
+      return {
+        ...row,
+        kind: 'stock',
+        lines: pending ? getSummaryLpoLines(row.lpo_id, { stockIntake: true }) : undefined,
+      };
+    });
 
   const iprs = db
     .prepare(
