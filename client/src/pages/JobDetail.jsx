@@ -456,7 +456,8 @@ export default function JobDetail() {
   };
 
   const saveReadings = async () => {
-    const mileageInLocked = job.odometer_in != null;
+    const mileageInLocked =
+      job.status === 'vehicle_released' || job.status === 'completed';
     const fuelInLocked = job.fuel_in != null && String(job.fuel_in).trim() !== '';
     const showVH =
       !Number(job.is_repeat_job) ||
@@ -1105,9 +1106,11 @@ export default function JobDetail() {
     !isRepeatJob || (job.repeat_parent_completed ?? String(job.related_job_status) === 'completed');
 
   const testDrivesList = showRepeatVisitHandover ? job.test_drives || [] : [];
-  const mileageInLocked = showRepeatVisitHandover && job.odometer_in != null;
+  const mileageInLocked =
+    showRepeatVisitHandover &&
+    (job.status === 'vehicle_released' || job.status === 'completed');
   const fuelInLocked = showRepeatVisitHandover && job.fuel_in != null && String(job.fuel_in).trim() !== '';
-  const canAddTestDrive = showRepeatVisitHandover && mileageInLocked;
+  const canAddTestDrive = showRepeatVisitHandover && job.odometer_in != null;
   const tdComputed = testDriveComputedRows(testDrivesList, job.odometer_in, job.fuel_in);
   const ho = showRepeatVisitHandover
     ? handoverComputed(
@@ -1749,10 +1752,16 @@ export default function JobDetail() {
         <div style={{ marginBottom: '0.75rem' }}>
               <div style={rowStyle}>
                 <strong>Mileage in</strong>
-                {mileageInLocked ? (
-                  <span>{Number(job.odometer_in).toLocaleString()} km</span>
-                ) : isMechanic ? (
-                  <span style={{ color: 'var(--text-muted)' }}>Not set — office staff must save mileage in before test drives.</span>
+                {mileageInLocked || isMechanic ? (
+                  job.odometer_in != null ? (
+                    <span>{Number(job.odometer_in).toLocaleString()} km</span>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>
+                      {isMechanic && !mileageInLocked
+                        ? 'Not set — office staff must save mileage in before test drives.'
+                        : '—'}
+                    </span>
+                  )
                 ) : (
                   <>
                     <input

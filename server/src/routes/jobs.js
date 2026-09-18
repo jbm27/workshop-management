@@ -958,6 +958,24 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     valuables_in_vehicle = undefined;
   }
   const nextStatus = status ?? row.status;
+  if (odometer_in !== undefined) {
+    const prevOi = row.odometer_in;
+    const oiChanged =
+      (odometer_in == null && prevOi != null) ||
+      (odometer_in != null && prevOi == null) ||
+      (odometer_in != null && prevOi != null && Number(odometer_in) !== Number(prevOi));
+    if (
+      oiChanged &&
+      (String(row.status) === 'vehicle_released' ||
+        String(row.status) === 'completed' ||
+        String(nextStatus) === 'vehicle_released' ||
+        String(nextStatus) === 'completed')
+    ) {
+      return res.status(400).json({
+        error: 'Mileage in cannot be changed after the vehicle is released or the job card is closed',
+      });
+    }
+  }
   if (
     String(row.status) === 'completed' &&
     status !== undefined &&
