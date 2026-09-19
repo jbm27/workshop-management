@@ -28,6 +28,12 @@ function formatTimeToQuote(h) {
   return `${d}d ${rem.toFixed(1)} h`;
 }
 
+function formatDays(d) {
+  if (d == null || !Number.isFinite(d)) return '—';
+  if (d < 1) return `${(d * 24).toFixed(1)} h`;
+  return `${d.toFixed(1)} d`;
+}
+
 function defaultFromTo() {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -35,13 +41,6 @@ function defaultFromTo() {
     from: from.toISOString().slice(0, 10),
     to: now.toISOString().slice(0, 10),
   };
-}
-
-function formatReportDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString();
 }
 
 export default function JobReports() {
@@ -82,12 +81,10 @@ export default function JobReports() {
       <h1 className="page-title">Job reports</h1>
       <p style={{ color: 'var(--text-muted)', marginTop: '-0.5rem', marginBottom: '1rem', maxWidth: '52rem' }}>
         Financial figures match each job&apos;s invoice (ex-VAT subtotal vs internal costs: LPO/IPR allocations where set,
-        otherwise line purchase estimates; labour from time logs × rate).{' '}
-        <strong>Repeat job costs</strong> shows internal spend on repeat visits linked to that row: on the original (mother)
-        job it is the sum of costs from every repeat visit in the same family (same job number before the <code>-1</code>,{' '}
-        <code>-2</code>, … suffix), even when a visit was created from another visit in the chain — this reduces{' '}
-        <strong>Profit after repeat</strong> on the mother job. On a repeat row it is that visit&apos;s own internal cost lump.{' '}
-        Use <strong>P&amp;L group</strong> to roll visits into one bucket. Margins are undefined when the relevant revenue is zero.
+        otherwise line purchase estimates; labour from time logs × rate). Repeat visit costs are included in the mother
+        job&apos;s total cost and profit (shown separately under Repeat job cost). Time is days from job creation until
+        vehicle release or completion, or until now if the vehicle is still in. Margins are undefined when the relevant
+        revenue is zero.
       </p>
 
       <div className="card" style={{ marginBottom: '1rem' }}>
@@ -128,65 +125,62 @@ export default function JobReports() {
 
       {payload && !loading && (
         <div className="card" style={{ marginBottom: '1rem' }}>
-          <h3 style={{ marginTop: 0 }}>Period averages ({payload.date_basis === 'completed' ? 'completed date' : 'created date'})</h3>
+          <h3 style={{ marginTop: 0 }}>
+            Period summary ({payload.date_basis === 'completed' ? 'completed date' : 'created date'})
+          </h3>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: 0 }}>
-            {s.job_count} job{s.job_count === 1 ? '' : 's'} · {s.jobs_with_invoice} with an invoice · Averages are simple means across all jobs in the table (margins exclude rows where the value is not applicable).{' '}
-            <strong>Time to quote</strong> is from job creation to the first successful <em>Send quote</em> (portal link ready); jobs without that action show &quot;—&quot; and are omitted from the average.{' '}
-            <strong>KES / job hour</strong> is the same ex-VAT <strong>Revenue</strong> figure divided by hours from job creation until the earlier of vehicle release or job completion; jobs missing an invoice, a stop time, or with zero duration show &quot;—&quot; and are omitted from that average.
+            Money columns are period totals. Time, time to quote, spares/labour margins, and rating are averages across
+            jobs (rows without a value are omitted from that average). Profit margin is total profit ÷ total revenue.
           </p>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>Jobs</th>
-                  <th style={{ textAlign: 'right' }}>Avg revenue</th>
-                  <th style={{ textAlign: 'right' }}>Avg total cost</th>
-                  <th style={{ textAlign: 'right' }}>Avg profit</th>
-                  <th style={{ textAlign: 'right' }}>Avg profit margin</th>
-                  <th style={{ textAlign: 'right' }}>Avg labour margin</th>
-                  <th style={{ textAlign: 'right' }}>Avg spares margin</th>
-                  <th style={{ textAlign: 'right' }}>Avg rating</th>
-                  <th style={{ textAlign: 'right' }}>Avg time to quote</th>
-                  <th style={{ textAlign: 'right' }}>Avg KES / job hour</th>
-                  <th style={{ textAlign: 'right' }}>Σ revenue</th>
-                  <th style={{ textAlign: 'right' }}>Σ profit</th>
-                  <th style={{ textAlign: 'right' }}>Aggregate profit margin</th>
-                  <th style={{ textAlign: 'right' }}>Σ repeat costs</th>
-                  <th style={{ textAlign: 'right' }}>Σ profit after repeat</th>
-                  <th style={{ textAlign: 'right' }}>Agg. margin after repeat</th>
+                  <th style={{ textAlign: 'right' }}>Time</th>
+                  <th style={{ textAlign: 'right' }}>Time to quote</th>
+                  <th style={{ textAlign: 'right' }}>Revenue</th>
+                  <th style={{ textAlign: 'right' }}>Total Cost</th>
+                  <th style={{ textAlign: 'right' }}>Profit</th>
+                  <th style={{ textAlign: 'right' }}>Profit margin</th>
+                  <th style={{ textAlign: 'right' }}>Spares cost</th>
+                  <th style={{ textAlign: 'right' }}>Spares revenue</th>
+                  <th style={{ textAlign: 'right' }}>Spares margin</th>
+                  <th style={{ textAlign: 'right' }}>Labour cost</th>
+                  <th style={{ textAlign: 'right' }}>Labour revenue</th>
+                  <th style={{ textAlign: 'right' }}>Labour margin</th>
+                  <th style={{ textAlign: 'right' }}>Repeat job cost</th>
+                  <th style={{ textAlign: 'right' }}>Rating</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>{s.job_count}</td>
-                  <td style={{ textAlign: 'right' }}>{s.avg_revenue != null ? kes(s.avg_revenue) : '—'}</td>
-                  <td style={{ textAlign: 'right' }}>{s.avg_total_cost != null ? kes(s.avg_total_cost) : '—'}</td>
-                  <td style={{ textAlign: 'right' }}>{s.avg_profit != null ? kes(s.avg_profit) : '—'}</td>
-                  <td style={{ textAlign: 'right' }}>{pct(s.avg_profit_margin_pct)}</td>
-                  <td style={{ textAlign: 'right' }}>{pct(s.avg_labour_margin_pct)}</td>
+                  <td style={{ textAlign: 'right' }}>{formatDays(s.avg_job_bay_days)}</td>
+                  <td
+                    style={{ textAlign: 'right' }}
+                    title={s.avg_time_to_quote_hours != null ? `${s.avg_time_to_quote_hours} h` : ''}
+                  >
+                    {formatTimeToQuote(s.avg_time_to_quote_hours)}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_revenue)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_total_cost)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_profit)}</td>
+                  <td style={{ textAlign: 'right' }}>{pct(s.profit_margin_pct)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_spares_cost)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_spares_revenue)}</td>
                   <td style={{ textAlign: 'right' }}>{pct(s.avg_spares_margin_pct)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_labour_cost)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_labour_revenue)}</td>
+                  <td style={{ textAlign: 'right' }}>{pct(s.avg_labour_margin_pct)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(s.sum_repeat_job_costs ?? 0)}</td>
                   <td style={{ textAlign: 'right' }}>
                     {s.avg_customer_rating != null ? `${s.avg_customer_rating.toFixed(1)} / 5` : '—'}
                   </td>
-                  <td style={{ textAlign: 'right' }} title={s.avg_time_to_quote_hours != null ? `${s.avg_time_to_quote_hours} h` : ''}>
-                    {formatTimeToQuote(s.avg_time_to_quote_hours)}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>{s.avg_revenue_per_job_hour != null ? kes(s.avg_revenue_per_job_hour) : '—'}</td>
-                  <td style={{ textAlign: 'right' }}>{kes(s.sum_revenue)}</td>
-                  <td style={{ textAlign: 'right' }}>{kes(s.sum_profit)}</td>
-                  <td style={{ textAlign: 'right' }}>{pct(s.aggregate_profit_margin_pct)}</td>
-                  <td style={{ textAlign: 'right' }}>{kes(s.sum_repeat_job_costs ?? 0)}</td>
-                  <td style={{ textAlign: 'right' }}>{kes(s.sum_profit_after_repeat ?? 0)}</td>
-                  <td style={{ textAlign: 'right' }}>{pct(s.aggregate_profit_margin_after_repeat_pct)}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: 0 }}>
-            <strong>Aggregate profit margin</strong> is total profit ÷ total revenue for the period (not the same as the average of per-job margins).{' '}
-            <strong>Aggregate profit margin (after repeat)</strong> uses total profit after repeat ÷ total revenue — repeat
-            costs linked to billed jobs reduce profit without changing revenue.
-          </p>
         </div>
       )}
 
@@ -199,23 +193,20 @@ export default function JobReports() {
             <table>
               <thead>
                 <tr>
-                  <th>Job</th>
-                  <th>P&amp;L group</th>
-                  <th>Customer</th>
                   <th>Vehicle</th>
-                  <th>Entered</th>
-                  <th>Released / completed</th>
+                  <th style={{ textAlign: 'right' }}>Time</th>
                   <th style={{ textAlign: 'right' }}>Time to quote</th>
-                  <th style={{ textAlign: 'right' }}>KES / job hour</th>
                   <th style={{ textAlign: 'right' }}>Revenue</th>
-                  <th style={{ textAlign: 'right' }}>Total cost</th>
+                  <th style={{ textAlign: 'right' }}>Total Cost</th>
                   <th style={{ textAlign: 'right' }}>Profit</th>
                   <th style={{ textAlign: 'right' }}>Profit margin</th>
-                  <th style={{ textAlign: 'right' }}>Repeat job costs</th>
-                  <th style={{ textAlign: 'right' }}>Profit after repeat</th>
-                  <th style={{ textAlign: 'right' }}>Margin after repeat</th>
-                  <th style={{ textAlign: 'right' }}>Labour margin</th>
+                  <th style={{ textAlign: 'right' }}>Spares cost</th>
+                  <th style={{ textAlign: 'right' }}>Spares revenue</th>
                   <th style={{ textAlign: 'right' }}>Spares margin</th>
+                  <th style={{ textAlign: 'right' }}>Labour cost</th>
+                  <th style={{ textAlign: 'right' }}>Labour revenue</th>
+                  <th style={{ textAlign: 'right' }}>Labour margin</th>
+                  <th style={{ textAlign: 'right' }}>Repeat job cost</th>
                   <th>Rating</th>
                 </tr>
               </thead>
@@ -223,38 +214,23 @@ export default function JobReports() {
                 {rows.map((r) => (
                   <tr key={r.job_id}>
                     <td>
-                      <Link to={`/jobs/${r.job_id}`}>{r.job_number}</Link>
-                      {r.is_repeat_job ? (
-                        <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>Repeat</span>
-                      ) : null}
+                      <Link to={`/jobs/${r.job_id}`}>{r.vehicle_label || r.job_number || '—'}</Link>
                       {!r.has_invoice && (
                         <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No invoice</span>
                       )}
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap', fontSize: '0.88rem' }} title="Roll-up key for profit and loss (mother job number)">
-                      {r.repeat_root_job_id != null && r.repeat_root_job_id !== r.job_id ? (
-                        <>
-                          <Link to={`/jobs/${r.repeat_root_job_id}`}>{r.repeat_family_job_number || '—'}</Link>
-                          <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)' }}>mother job</span>
-                        </>
-                      ) : (
-                        <Link to={`/jobs/${r.job_id}`}>{r.repeat_family_job_number || r.job_number || '—'}</Link>
-                      )}
-                    </td>
-                    <td>{r.customer_name || '—'}</td>
-                    <td>{r.vehicle_label || '—'}</td>
-                    <td style={{ whiteSpace: 'nowrap' }} title={r.created_at || ''}>
-                      {formatReportDate(r.created_at)}
+                      {r.job_number ? (
+                        <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>{r.job_number}</span>
+                      ) : null}
                     </td>
                     <td
-                      style={{ whiteSpace: 'nowrap' }}
+                      style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
                       title={
                         r.work_stopped_at
-                          ? 'Earlier of vehicle released or job completed'
-                          : 'Not yet released or completed'
+                          ? 'Creation → earlier of vehicle release or completion'
+                          : 'Still in garage (creation → now)'
                       }
                     >
-                      {formatReportDate(r.work_stopped_at)}
+                      {formatDays(r.job_bay_days)}
                     </td>
                     <td
                       style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
@@ -262,38 +238,22 @@ export default function JobReports() {
                     >
                       {formatTimeToQuote(r.time_to_quote_hours)}
                     </td>
-                    <td
-                      style={{ textAlign: 'right', whiteSpace: 'nowrap' }}
-                      title={
-                        r.revenue_per_job_hour != null && r.job_bay_hours != null
-                          ? `Revenue (ex-VAT) ÷ ${r.job_bay_hours} h on job (creation → earlier of vehicle release or completion).`
-                          : r.job_bay_hours == null
-                            ? 'Set vehicle released or complete the job to record stop time.'
-                            : !r.has_invoice
-                              ? 'No invoice on this job.'
-                              : ''
-                      }
-                    >
-                      {r.revenue_per_job_hour != null ? kes(r.revenue_per_job_hour) : '—'}
-                    </td>
                     <td style={{ textAlign: 'right' }}>{kes(r.revenue)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.total_cost)}</td>
                     <td style={{ textAlign: 'right' }}>{kes(r.profit)}</td>
                     <td style={{ textAlign: 'right' }}>{pct(r.profit_margin_pct)}</td>
+                    <td style={{ textAlign: 'right' }}>{kes(r.spares_cost)}</td>
+                    <td style={{ textAlign: 'right' }}>{kes(r.spares_revenue)}</td>
+                    <td style={{ textAlign: 'right' }}>{pct(r.spares_margin_pct)}</td>
+                    <td style={{ textAlign: 'right' }}>{kes(r.labour_cost)}</td>
+                    <td style={{ textAlign: 'right' }}>{kes(r.labour_revenue)}</td>
+                    <td style={{ textAlign: 'right' }}>{pct(r.labour_margin_pct)}</td>
                     <td
                       style={{ textAlign: 'right' }}
-                      title={
-                        r.is_repeat_job
-                          ? 'This visit’s own LPO/IPR + labour cost lump'
-                          : 'Sum of internal costs on all repeat visits in this P&L group (same mother line)'
-                      }
+                      title="Internal costs on all repeat visits linked to this job"
                     >
                       {kes(r.repeat_job_costs)}
                     </td>
-                    <td style={{ textAlign: 'right' }}>{kes(r.profit_after_repeat)}</td>
-                    <td style={{ textAlign: 'right' }}>{pct(r.profit_margin_after_repeat_pct)}</td>
-                    <td style={{ textAlign: 'right' }}>{pct(r.labour_margin_pct)}</td>
-                    <td style={{ textAlign: 'right' }}>{pct(r.spares_margin_pct)}</td>
                     <td style={{ whiteSpace: 'nowrap' }} title={r.customer_rating != null ? `${r.customer_rating} / 5` : ''}>
                       {stars(r.customer_rating)}
                     </td>

@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminPermission } from '../auth.js';
 import { computeInvoiceFinancials, pct } from '../invoiceFinancials.js';
-import { findRepeatRootJobId, repeatNumberBaseFromJobNumber } from '../repeatJobFamily.js';
 
 export const reportsRouter = Router();
 
@@ -134,30 +133,90 @@ function workStoppedAtIso(vehicleReleasedAt, completedAt) {
   return ms != null ? new Date(ms).toISOString() : null;
 }
 
-/** Hours from job creation until work stopped (first of vehicle release or completion). */
-function jobBayHours(createdAt, vehicleReleasedAt, completedAt) {
+/**
+ * Days from job creation until work stopped (first of vehicle release or completion),
+ * or until now if the vehicle is still in the garage.
+ */
+function jobBayDays(createdAt, vehicleReleasedAt, completedAt) {
   const t0 = parseSqlDateTime(createdAt);
-  const t1 = workStoppedInstantMs(vehicleReleasedAt, completedAt);
-  if (t0 == null || t1 == null) return null;
+  if (t0 == null) return null;
+  const stopped = workStoppedInstantMs(vehicleReleasedAt, completedAt);
+  const t1 = stopped != null ? stopped : Date.now();
   const ms = t1 - t0;
-  if (!Number.isFinite(ms) || ms <= 0) return null;
-  return ms / 3600000;
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.round((ms / 86400000) * 100) / 100;
 }
 
-/** Invoiced amount for rate: same ex-VAT subtotal as the job report Revenue column (from invoice lines / subtotal). */
-function invoicedAmountForRateKes(inv, finRevenue) {
-  if (!inv) return null;
-  const r = Number(finRevenue);
-  if (Number.isFinite(r) && r > 0) return r;
-  return null;
+/** Collect all repeat-visit job ids under a mother (any depth). */
+function collectRepeatJobIdsUnderRoot(rootId) {
+  const ids = [];
+  const queue = [Number(rootId)];
+  const seen = new Set();
+  while (queue.length) {
+    const parent = queue.shift();
+    if (!Number.isFinite(parent) || parent <= 0 || seen.has(parent)) continue;
+    seen.add(parent);
+    const children = db
+      .prepare(`SELECT id FROM jobs WHERE related_job_id = ? AND is_repeat_job = 1`)
+      .all(parent);
+    for (const c of children) {
+      const cid = Number(c.id);
+      if (!Number.isFinite(cid) || seen.has(cid)) continue;
+      ids.push(cid);
+      queue.push(cid);
+    }
+  }
+  return ids;
 }
 
-/** Invoiced KES ÷ job bay hours (creation → first release or completion). */
-function revenuePerJobHourKes(inv, finRevenue, createdAt, vehicleReleasedAt, completedAt) {
-  const amt = invoicedAmountForRateKes(inv, finRevenue);
-  const hours = jobBayHours(createdAt, vehicleReleasedAt, completedAt);
-  if (amt == null || hours == null || hours <= 0) return null;
-  return Math.round((amt / hours) * 100) / 100;
+function emptyJobsFinancialSummary() {
+  return {
+    job_count: 0,
+    avg_job_bay_days: null,
+    avg_time_to_quote_hours: null,
+    sum_revenue: 0,
+    sum_total_cost: 0,
+    sum_profit: 0,
+    profit_margin_pct: null,
+    sum_spares_cost: 0,
+    sum_spares_revenue: 0,
+    avg_spares_margin_pct: null,
+    sum_labour_cost: 0,
+    sum_labour_revenue: 0,
+    avg_labour_margin_pct: null,
+    sum_repeat_job_costs: 0,
+    avg_customer_rating: null,
+  };
+}
+
+function loadInvoiceItemsByInvoiceIds(invIds) {
+  const itemsByInvoice = new Map();
+  if (!invIds.length) return itemsByInvoice;
+  const iph = invIds.map(() => '?').join(',');
+  const itemRows = db
+    .prepare(
+      `
+    SELECT
+      ii.id,
+      ii.invoice_id,
+      ii.description,
+      ii.quantity,
+      ii.unit_price,
+      ii.purchase_price,
+      ii.type,
+      (SELECT COALESCE(SUM(ll.quantity * ll.unit_cost), 0) FROM lpo_lines ll WHERE ll.invoice_item_id = ii.id) AS lpo_allocated_cost,
+      (SELECT COALESCE(SUM(il.quantity * il.unit_cost), 0) FROM ipr_lines il WHERE il.invoice_item_id = ii.id) AS ipr_allocated_cost
+    FROM invoice_items ii
+    WHERE ii.invoice_id IN (${iph})
+  `,
+    )
+    .all(...invIds);
+  for (const row of itemRows) {
+    const id = row.invoice_id;
+    if (!itemsByInvoice.has(id)) itemsByInvoice.set(id, []);
+    itemsByInvoice.get(id).push(row);
+  }
+  return itemsByInvoice;
 }
 
 /** Jobs in a date window with invoice P&L (same basis as the job card Job Report). */
@@ -206,106 +265,68 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     )
     .all(...params);
 
-  if (!jobs.length) {
+  /** Primary (non-repeat) jobs only — repeat visit costs roll into the mother row. */
+  const primaryJobs = jobs.filter((j) => Number(j.is_repeat_job) !== 1);
+
+  if (!primaryJobs.length) {
     return res.json({
       date_basis: basis,
       from,
       to,
       rows: [],
-      summary: {
-        job_count: 0,
-        jobs_with_invoice: 0,
-        avg_revenue: null,
-        avg_total_cost: null,
-        avg_profit: null,
-        avg_profit_margin_pct: null,
-        avg_labour_margin_pct: null,
-        avg_spares_margin_pct: null,
-        avg_customer_rating: null,
-        avg_time_to_quote_hours: null,
-        avg_revenue_per_job_hour: null,
-        sum_revenue: 0,
-        sum_profit: 0,
-        aggregate_profit_margin_pct: null,
-        sum_repeat_job_costs: 0,
-        sum_profit_after_repeat: 0,
-        aggregate_profit_margin_after_repeat_pct: null,
-      },
+      summary: emptyJobsFinancialSummary(),
     });
   }
 
-  const jobIds = jobs.map((j) => j.id);
-  const placeholders = jobIds.map(() => '?').join(',');
+  const primaryIds = primaryJobs.map((j) => j.id);
+  const repeatIds = [];
+  const repeatIdsByRoot = new Map();
+  for (const rootId of primaryIds) {
+    const childIds = collectRepeatJobIdsUnderRoot(rootId);
+    repeatIdsByRoot.set(rootId, childIds);
+    for (const cid of childIds) repeatIds.push(cid);
+  }
+
+  const allJobIdsForInvoices = [...new Set([...primaryIds, ...repeatIds])];
+  const placeholders = allJobIdsForInvoices.map(() => '?').join(',');
   const invoices = db
     .prepare(`SELECT * FROM invoices WHERE type = 'invoice' AND job_id IN (${placeholders})`)
-    .all(...jobIds);
+    .all(...allJobIdsForInvoices);
 
   const invByJob = new Map();
   for (const inv of invoices) {
     invByJob.set(inv.job_id, inv);
   }
 
-  const invIds = invoices.map((i) => i.id);
-  const itemsByInvoice = new Map();
-  if (invIds.length) {
-    const iph = invIds.map(() => '?').join(',');
-    const itemRows = db
-      .prepare(
-        `
-      SELECT
-        ii.id,
-        ii.invoice_id,
-        ii.description,
-        ii.quantity,
-        ii.unit_price,
-        ii.purchase_price,
-        ii.type,
-        (SELECT COALESCE(SUM(ll.quantity * ll.unit_cost), 0) FROM lpo_lines ll WHERE ll.invoice_item_id = ii.id) AS lpo_allocated_cost,
-        (SELECT COALESCE(SUM(il.quantity * il.unit_cost), 0) FROM ipr_lines il WHERE il.invoice_item_id = ii.id) AS ipr_allocated_cost
-      FROM invoice_items ii
-      WHERE ii.invoice_id IN (${iph})
-    `,
-      )
-      .all(...invIds);
-    for (const row of itemRows) {
-      const id = row.invoice_id;
-      if (!itemsByInvoice.has(id)) itemsByInvoice.set(id, []);
-      itemsByInvoice.get(id).push(row);
-    }
-  }
+  const itemsByInvoice = loadInvoiceItemsByInvoiceIds(invoices.map((i) => i.id));
 
-  /** Roll repeat-visit costs up to the mother job so J1001-1 + J1001-2 both sit on J1001 for P&L. */
   const linkedRepeatCostsByRoot = new Map();
-  for (const j of jobs) {
-    if (Number(j.is_repeat_job) !== 1 || !j.related_job_id) continue;
-    const rootId = findRepeatRootJobId(j.id);
-    if (!rootId) continue;
-    const inv = invByJob.get(j.id);
-    const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
-    const finChild = computeInvoiceFinancials(inv || null, items);
-    const c = Number(finChild.total_cost) || 0;
-    linkedRepeatCostsByRoot.set(rootId, (linkedRepeatCostsByRoot.get(rootId) || 0) + c);
+  for (const rootId of primaryIds) {
+    let sum = 0;
+    for (const cid of repeatIdsByRoot.get(rootId) || []) {
+      const inv = invByJob.get(cid);
+      const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
+      const finChild = computeInvoiceFinancials(inv || null, items);
+      sum += Number(finChild.total_cost) || 0;
+    }
+    linkedRepeatCostsByRoot.set(rootId, sum);
   }
 
-  const rows = jobs.map((j) => {
+  const rows = primaryJobs.map((j) => {
     const inv = invByJob.get(j.id);
     const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
     const fin = computeInvoiceFinancials(inv || null, items);
     const timeToQuote = timeToQuoteHours(j.created_at, j.quote_prepared_at);
-    const jobBayH = jobBayHours(j.created_at, j.vehicle_released_at, j.completed_at);
-    const revPerHour = revenuePerJobHourKes(inv || null, fin.revenue, j.created_at, j.vehicle_released_at, j.completed_at);
-    const isRepeat = Number(j.is_repeat_job) === 1;
-    const linkedFromChildren = !isRepeat ? Number(linkedRepeatCostsByRoot.get(j.id)) || 0 : 0;
-    const repeatJobCosts = isRepeat ? Number(fin.total_cost) || 0 : linkedFromChildren;
-    const profitAfterRepeat = (Number(fin.profit) || 0) - linkedFromChildren;
-    const profitMarginAfterRepeatPct = pct(profitAfterRepeat, fin.revenue);
-    const repeatFamilyJobNumber = repeatNumberBaseFromJobNumber(j.job_number);
-    const repeatRootJobId = findRepeatRootJobId(j.id);
+    const bayDays = jobBayDays(j.created_at, j.vehicle_released_at, j.completed_at);
+    const repeatJobCosts = Number(linkedRepeatCostsByRoot.get(j.id)) || 0;
+    const ownCost = Number(fin.total_cost) || 0;
+    const totalCost = ownCost + repeatJobCosts;
+    const revenue = Number(fin.revenue) || 0;
+    const profit = revenue - totalCost;
+    const profitMarginPct = pct(profit, revenue);
     return {
       job_id: j.id,
       job_number: j.job_number,
-      repeat_family_job_number: repeatFamilyJobNumber,
-      repeat_root_job_id: repeatRootJobId,
       status: j.status,
       created_at: j.created_at,
       completed_at: j.completed_at,
@@ -313,48 +334,51 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       work_stopped_at: workStoppedAtIso(j.vehicle_released_at, j.completed_at),
       quote_prepared_at: j.quote_prepared_at ?? null,
       time_to_quote_hours: timeToQuote,
-      job_bay_hours: jobBayH != null ? Math.round(jobBayH * 100) / 100 : null,
-      revenue_per_job_hour: revPerHour,
+      job_bay_days: bayDays,
       customer_name: j.customer_name,
       vehicle_label: [j.registration, j.make, j.model].filter(Boolean).join(' '),
       customer_rating: j.customer_rating != null ? Number(j.customer_rating) : null,
       has_invoice: Boolean(inv),
       invoice_number: inv?.invoice_number ?? null,
-      is_repeat_job: isRepeat,
-      related_job_id: j.related_job_id != null ? Number(j.related_job_id) : null,
-      related_job_number: j.related_job_number ?? null,
+      revenue,
+      labour_cost: Math.round((Number(fin.labour_cost) || 0) * 100) / 100,
+      labour_revenue: Math.round((Number(fin.labour_revenue) || 0) * 100) / 100,
+      labour_margin_pct: fin.labour_margin_pct,
+      spares_cost: Math.round((Number(fin.spares_cost) || 0) * 100) / 100,
+      spares_revenue: Math.round((Number(fin.spares_revenue) || 0) * 100) / 100,
+      spares_margin_pct: fin.spares_margin_pct,
       repeat_job_costs: Math.round(repeatJobCosts * 100) / 100,
-      linked_repeat_costs_from_children: Math.round(linkedFromChildren * 100) / 100,
-      profit_after_repeat: Math.round(profitAfterRepeat * 100) / 100,
-      profit_margin_after_repeat_pct: profitMarginAfterRepeatPct,
-      ...fin,
+      total_cost: Math.round(totalCost * 100) / 100,
+      profit: Math.round(profit * 100) / 100,
+      profit_margin_pct: profitMarginPct,
     };
   });
 
-  const withInv = rows.filter((r) => r.has_invoice);
   const sumRevenue = rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+  const sumTotalCost = rows.reduce((s, r) => s + (Number(r.total_cost) || 0), 0);
   const sumProfit = rows.reduce((s, r) => s + (Number(r.profit) || 0), 0);
+  const sumSparesCost = rows.reduce((s, r) => s + (Number(r.spares_cost) || 0), 0);
+  const sumSparesRevenue = rows.reduce((s, r) => s + (Number(r.spares_revenue) || 0), 0);
+  const sumLabourCost = rows.reduce((s, r) => s + (Number(r.labour_cost) || 0), 0);
+  const sumLabourRevenue = rows.reduce((s, r) => s + (Number(r.labour_revenue) || 0), 0);
   const sumRepeatJobCosts = rows.reduce((s, r) => s + (Number(r.repeat_job_costs) || 0), 0);
-  const sumProfitAfterRepeat = rows.reduce((s, r) => s + (Number(r.profit_after_repeat) || 0), 0);
+
   const summary = {
     job_count: rows.length,
-    jobs_with_invoice: withInv.length,
-    avg_revenue: meanFinite(rows.map((r) => r.revenue)),
-    avg_total_cost: meanFinite(rows.map((r) => r.total_cost)),
-    avg_profit: meanFinite(rows.map((r) => r.profit)),
-    avg_profit_margin_pct: meanFinite(rows.map((r) => r.profit_margin_pct)),
-    avg_labour_margin_pct: meanFinite(rows.map((r) => r.labour_margin_pct)),
-    avg_spares_margin_pct: meanFinite(rows.map((r) => r.spares_margin_pct)),
-    avg_customer_rating: meanFinite(rows.map((r) => r.customer_rating)),
+    avg_job_bay_days: meanFinite(rows.map((r) => r.job_bay_days)),
     avg_time_to_quote_hours: meanFinite(rows.map((r) => r.time_to_quote_hours)),
-    avg_revenue_per_job_hour: meanFinite(rows.map((r) => r.revenue_per_job_hour)),
     sum_revenue: Math.round(sumRevenue * 100) / 100,
+    sum_total_cost: Math.round(sumTotalCost * 100) / 100,
     sum_profit: Math.round(sumProfit * 100) / 100,
-    aggregate_profit_margin_pct: sumRevenue > 0 ? (sumProfit / sumRevenue) * 100 : null,
+    profit_margin_pct: sumRevenue > 0 ? (sumProfit / sumRevenue) * 100 : null,
+    sum_spares_cost: Math.round(sumSparesCost * 100) / 100,
+    sum_spares_revenue: Math.round(sumSparesRevenue * 100) / 100,
+    avg_spares_margin_pct: meanFinite(rows.map((r) => r.spares_margin_pct)),
+    sum_labour_cost: Math.round(sumLabourCost * 100) / 100,
+    sum_labour_revenue: Math.round(sumLabourRevenue * 100) / 100,
+    avg_labour_margin_pct: meanFinite(rows.map((r) => r.labour_margin_pct)),
     sum_repeat_job_costs: Math.round(sumRepeatJobCosts * 100) / 100,
-    sum_profit_after_repeat: Math.round(sumProfitAfterRepeat * 100) / 100,
-    aggregate_profit_margin_after_repeat_pct:
-      sumRevenue > 0 ? (sumProfitAfterRepeat / sumRevenue) * 100 : null,
+    avg_customer_rating: meanFinite(rows.map((r) => r.customer_rating)),
   };
 
   res.json({

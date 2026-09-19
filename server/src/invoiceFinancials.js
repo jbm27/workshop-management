@@ -12,7 +12,11 @@ export function computeInvoiceFinancials(inv, items) {
       total_cost: 0,
       profit: 0,
       profit_margin_pct: null,
+      labour_cost: 0,
+      labour_revenue: 0,
       labour_margin_pct: null,
+      spares_cost: 0,
+      spares_revenue: 0,
       spares_margin_pct: null,
     };
   }
@@ -44,7 +48,11 @@ export function computeInvoiceFinancials(inv, items) {
     total_cost: totalCost,
     profit,
     profit_margin_pct: pct(profit, revenue),
+    labour_cost: labourCost,
+    labour_revenue: labourRevenue,
     labour_margin_pct: pct(labourRevenue - labourCost, labourRevenue),
+    spares_cost: sparesCost,
+    spares_revenue: sparesRevenue,
     spares_margin_pct: pct(sparesRevenue - sparesCost, sparesRevenue),
   };
 }
