@@ -189,7 +189,7 @@ export default function JobReports() {
         {loading && <p style={{ color: 'var(--text-muted)' }}>Loading…</p>}
         {!loading && rows.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No jobs in this date range.</p>}
         {!loading && rows.length > 0 && (
-          <div className="table-wrap">
+          <div className="table-wrap job-reports-jobs-scroll">
             <table>
               <thead>
                 <tr>
