@@ -3,7 +3,8 @@ import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
-import { invoiceLineNet, computeInvoiceTotalsFromLines } from '../utils/invoiceLineVat';
+import { invoiceLineNet } from '../utils/invoiceLineVat';
+import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
 
@@ -635,57 +636,16 @@ function PortalLineItemsTable({ items }) {
 
 function PortalDocumentTotals({ doc }) {
   if (!doc) return null;
-  const subtotal = Number(doc.subtotal || 0);
-  const tax = Number(doc.tax_amount || 0);
-  const total = Number(doc.total || 0);
-  const breakdown = computeInvoiceTotalsFromLines(doc.items || [], {
-    discount_percent: doc.discount_percent,
-  });
   const hasInvoicePaymentSummary = doc.balance != null && doc.balance !== undefined;
   const paid = Number(doc.amount_paid ?? 0);
-  const balance = Number(doc.balance);
 
   return (
-    <div style={{ marginTop: '1rem', textAlign: 'right', maxWidth: '320px', marginLeft: 'auto' }}>
-      {breakdown.line_discount_total > 0 && (
-        <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          Line discounts <strong>-{kes(breakdown.line_discount_total)}</strong>
-        </p>
-      )}
-      {breakdown.document_discount_total > 0 && (
-        <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          Document discount <strong>-{kes(breakdown.document_discount_total)}</strong>
-        </p>
-      )}
-      <p style={{ margin: '0.25rem 0' }}>
-        Subtotal (ex VAT) <strong>{kes(subtotal)}</strong>
-      </p>
-      <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)' }}>
-        VAT <strong>{kes(tax)}</strong>
-      </p>
-      <p style={{ margin: '0.5rem 0 0', fontSize: '1.1rem' }}>
-        Total (inc VAT) <strong>{kes(total)}</strong>
-      </p>
-      {hasInvoicePaymentSummary && (
-        <>
-          <div
-            style={{
-              marginTop: '0.85rem',
-              paddingTop: '0.85rem',
-              borderTop: '1px solid var(--border)',
-            }}
-          />
-          <p style={{ margin: '0.25rem 0' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Paid to date</span>{' '}
-            <strong>{kes(paid)}</strong>
-          </p>
-          <p style={{ margin: '0.35rem 0 0', fontSize: '1.05rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Balance due</span>{' '}
-            <strong>{kes(balance)}</strong>
-          </p>
-        </>
-      )}
-    </div>
+    <InvoiceTotalsSummary
+      items={doc.items}
+      discountPercent={doc.discount_percent}
+      amountPaid={paid}
+      showPayments={hasInvoicePaymentSummary}
+    />
   );
 }
 

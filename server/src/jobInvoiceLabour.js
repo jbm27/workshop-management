@@ -26,15 +26,24 @@ function syncInvoicePaymentStatusAfterTotalChange(invoiceId) {
   db.prepare('UPDATE invoices SET status = ?, paid_at = ?, updated_at = datetime(\'now\') WHERE id = ?').run(status, paid_at, invoiceId);
 }
 
+function moneySame(a, b) {
+  return Math.round(Number(a) * 100) === Math.round(Number(b) * 100);
+}
+
 export function refreshInvoiceTotalsFromLineItems(invoiceId) {
-  const inv = db.prepare('SELECT type, discount_percent FROM invoices WHERE id = ?').get(invoiceId);
-  if (!inv) return;
+  const inv = db.prepare('SELECT type, discount_percent, subtotal, tax_amount, total FROM invoices WHERE id = ?').get(invoiceId);
+  if (!inv) return null;
   const lines = db
     .prepare('SELECT quantity, unit_price, vat_rate, vat_exempt, type, discount_percent FROM invoice_items WHERE invoice_id = ?')
     .all(invoiceId);
   const totals = computeInvoiceTotalsFromLines(lines, {
     discount_percent: inv.discount_percent,
   });
+  const unchanged =
+    moneySame(inv.subtotal, totals.subtotal) &&
+    moneySame(inv.tax_amount, totals.tax_amount) &&
+    moneySame(inv.total, totals.total);
+  if (unchanged) return totals;
   db.prepare('UPDATE invoices SET subtotal = ?, tax_amount = ?, total = ?, updated_at = datetime(\'now\') WHERE id = ?').run(
     totals.subtotal,
     totals.tax_amount,
@@ -42,6 +51,7 @@ export function refreshInvoiceTotalsFromLineItems(invoiceId) {
     invoiceId,
   );
   if (inv.type === 'invoice') syncInvoicePaymentStatusAfterTotalChange(invoiceId);
+  return totals;
 }
 
 /**

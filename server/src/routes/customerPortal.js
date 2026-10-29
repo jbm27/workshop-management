@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { isHeaderLine } from '../invoiceLineSections.js';
+import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
 
 export const customerPortalRouter = Router();
 
@@ -27,20 +28,22 @@ function assertQuoteApprovalAllowed(quote) {
 
 function portalDocumentForCustomer(inv, items) {
   if (!inv) return null;
+  const fresh = refreshInvoiceTotalsFromLineItems(inv.id);
   const payments = db
     .prepare('SELECT id, amount, paid_at, notes FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at ASC, id ASC')
     .all(inv.id);
   const amount_paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const total = Number(inv.total || 0);
+  const total = Number(fresh?.total ?? inv.total) || 0;
   const balance = inv.type === 'invoice' ? Math.round((total - amount_paid) * 100) / 100 : null;
   return {
     id: inv.id,
     invoice_number: inv.invoice_number,
     status: inv.status,
     tax_rate: inv.tax_rate,
-    subtotal: inv.subtotal,
-    tax_amount: inv.tax_amount,
-    total: inv.total,
+    subtotal: fresh?.subtotal ?? inv.subtotal,
+    tax_amount: fresh?.tax_amount ?? inv.tax_amount,
+    total,
+    discount_percent: inv.discount_percent,
     items,
     payments: inv.type === 'invoice' ? payments : [],
     amount_paid: inv.type === 'invoice' ? amount_paid : 0,
@@ -60,10 +63,10 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
     : [];
   const out = {
     id: job.id,
@@ -118,11 +121,11 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const isQuote = docType === 'quote';
   const items = isQuote
     ? db
-        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
+        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
         .all(inv.id)
     : db
         .prepare(
-          'SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, approved FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id',
+          'SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id',
         )
         .all(inv.id);
   const quote = isQuote ? portalDocumentForCustomer(inv, items) : null;
@@ -200,6 +203,13 @@ customerPortalRouter.get('/:token', (req, res) => {
     ORDER BY i.created_at DESC
   `)
     .all(customer.id);
+  for (const doc of standaloneDocs) {
+    const totals = refreshInvoiceTotalsFromLineItems(doc.id);
+    if (!totals) continue;
+    doc.subtotal = totals.subtotal;
+    doc.tax_amount = totals.tax_amount;
+    doc.total = totals.total;
+  }
 
   res.json({
     customer: {

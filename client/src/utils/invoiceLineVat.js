@@ -20,12 +20,15 @@ export function invoiceLineNet(line) {
   return Math.round(gross * (1 - disc / 100) * 100) / 100;
 }
 
-export function invoiceLineVat(line) {
-  const net = invoiceLineNet(line);
+function vatOnAmount(line, amount) {
   if (Number(line.vat_exempt) === 1) return 0;
   const r = Number(line.vat_rate) || 0;
   if (r <= 0) return 0;
-  return Math.round(net * (r / 100) * 100) / 100;
+  return Math.round((Number(amount) || 0) * (r / 100) * 100) / 100;
+}
+
+export function invoiceLineVat(line) {
+  return vatOnAmount(line, invoiceLineNet(line));
 }
 
 export function invoiceLineGross(line) {
@@ -37,13 +40,19 @@ export function computeInvoiceTotalsFromLines(lines, docDiscount = {}) {
   let taxAfterLineDisc = 0;
   let lineDiscountTotal = 0;
 
+  let totalSaving = 0;
+
   for (const line of lines || []) {
     if (isHeaderLineType(line?.type)) continue;
     const gross = invoiceLineGrossBeforeDiscount(line);
     const net = invoiceLineNet(line);
+    const vatNet = invoiceLineVat(line);
     lineDiscountTotal += gross - net;
     netAfterLineDisc += net;
-    taxAfterLineDisc += invoiceLineVat(line);
+    taxAfterLineDisc += vatNet;
+    if (normalizeDiscountPercent(line?.discount_percent) > 0) {
+      totalSaving += gross - net + (vatOnAmount(line, gross) - vatNet);
+    }
   }
 
   lineDiscountTotal = Math.round(lineDiscountTotal * 100) / 100;
@@ -61,10 +70,12 @@ export function computeInvoiceTotalsFromLines(lines, docDiscount = {}) {
     const factor = 1 - docPct / 100;
     subtotal = Math.round(subtotal * factor * 100) / 100;
     tax_amount = Math.round(tax_amount * factor * 100) / 100;
+    totalSaving += documentDiscountTotal + (taxAfterLineDisc - tax_amount);
   }
 
   documentDiscountTotal = Math.round(documentDiscountTotal * 100) / 100;
   const total = Math.round((subtotal + tax_amount) * 100) / 100;
+  totalSaving = Math.round(Math.max(0, totalSaving) * 100) / 100;
 
   return {
     subtotal,
@@ -72,6 +83,7 @@ export function computeInvoiceTotalsFromLines(lines, docDiscount = {}) {
     total,
     line_discount_total: lineDiscountTotal,
     document_discount_total: documentDiscountTotal,
+    total_saving: totalSaving,
   };
 }
 

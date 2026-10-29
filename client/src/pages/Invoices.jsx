@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
 import StockItemSearchInput from '../components/StockItemSearchInput';
-import { defaultInvoiceLineVatFields, parseVatPayload } from '../utils/invoiceLineVat';
+import { defaultInvoiceLineVatFields, invoiceLineNet, parseVatPayload } from '../utils/invoiceLineVat';
+import InvoiceTotalsSummary, { formatKes } from '../components/InvoiceTotalsSummary';
 import { formatStockItemLabel } from '../utils/stockItemLabel';
 
 const EMPTY_CUSTOMER = { name: '', company_name: '', registration_number: '', email: '', phone: '', address: '', notes: '' };
@@ -142,6 +143,28 @@ export default function Invoices() {
     items: f.items.map((it, j) => (j === i ? { ...it, [field]: value } : it)),
   }));
   const removeLine = (i) => setForm((f) => ({ ...f, items: f.items.filter((_, j) => j !== i) }));
+
+  const linesForTotals = form.items.map((it) => {
+    if (String(it.type) === 'header') return { type: 'header', quantity: 0, unit_price: 0 };
+    let vatRate = 16;
+    let vatExempt = 0;
+    try {
+      const vat = parseVatPayload(it);
+      vatRate = vat.vat_rate;
+      vatExempt = vat.vat_exempt ? 1 : 0;
+    } catch {
+      vatRate = 16;
+      vatExempt = 0;
+    }
+    return {
+      type: it.type,
+      quantity: it.quantity,
+      unit_price: it.unit_price,
+      discount_percent: it.discount_percent,
+      vat_rate: vatRate,
+      vat_exempt: vatExempt,
+    };
+  });
 
   const submit = async (e) => {
     e.preventDefault();
@@ -558,6 +581,9 @@ export default function Invoices() {
                       onChange={(e) => updateLine(i, 'subtext', e.target.value)}
                       style={{ flex: '1 1 140px', minWidth: '8rem' }}
                     />
+                    <span style={{ fontSize: '0.85rem', whiteSpace: 'nowrap', minWidth: '7rem', textAlign: 'right' }} title="Line total ex VAT">
+                      {formatKes(invoiceLineNet(linesForTotals[i]))}
+                    </span>
                       </>
                     )}
                     <button type="button" className="btn" onClick={() => removeLine(i)}>×</button>
@@ -586,6 +612,7 @@ export default function Invoices() {
                   />
                   <span>%</span>
                 </div>
+                <InvoiceTotalsSummary items={linesForTotals} discountPercent={form.discount_percent} />
               </div>
               <div className="form-group">
                 <label>Notes (optional)</label>

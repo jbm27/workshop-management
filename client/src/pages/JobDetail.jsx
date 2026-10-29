@@ -9,6 +9,7 @@ import { formatStockItemLabel } from '../utils/stockItemLabel';
 import {
   invoiceLineNet,
   invoiceVatLabel,
+  computeInvoiceTotalsFromLines,
   vatFromFormData,
   vatFromElementIds,
   vatModeFromLine,
@@ -19,6 +20,7 @@ import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
 import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
 import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
+import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
@@ -365,8 +367,8 @@ export default function JobDetail() {
       }
     }
     if (newStatus === 'completed') {
-      if (!isJobInvoiceFullyPaid(job, invoice)) {
-        alert(completeJobBlockedMessage(invoice, invoiceBalance));
+      if (!isJobInvoiceFullyPaid(job, invoiceWithTotals)) {
+        alert(completeJobBlockedMessage(invoiceWithTotals, invoiceBalance));
         setStatusMenuKey((k) => k + 1);
         return;
       }
@@ -384,8 +386,8 @@ export default function JobDetail() {
   };
 
   const submitCloseJob = async () => {
-    if (!isJobInvoiceFullyPaid(job, invoice)) {
-      alert(completeJobBlockedMessage(invoice, invoiceBalance));
+    if (!isJobInvoiceFullyPaid(job, invoiceWithTotals)) {
+      alert(completeJobBlockedMessage(invoiceWithTotals, invoiceBalance));
       return;
     }
     try {
@@ -872,6 +874,21 @@ export default function JobDetail() {
     return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   };
 
+  const quoteTotals = quote
+    ? computeInvoiceTotalsFromLines(quote.items || [], { discount_percent: quote.discount_percent })
+    : null;
+  const invoiceTotals = invoice
+    ? computeInvoiceTotalsFromLines(invoice.items || [], { discount_percent: invoice.discount_percent })
+    : null;
+  const invoiceWithTotals =
+    invoice && invoiceTotals
+      ? {
+          ...invoice,
+          subtotal: invoiceTotals.subtotal,
+          tax_amount: invoiceTotals.tax_amount,
+          total: invoiceTotals.total,
+        }
+      : invoice;
   const invoicePaidTotal = invoice
     ? Number(
         invoice.amount_paid
@@ -879,11 +896,7 @@ export default function JobDetail() {
       ) || 0
     : 0;
   const invoiceBalance =
-    invoice != null
-      ? (invoice.balance != null
-        ? Number(invoice.balance)
-        : Number(invoice.total || 0) - invoicePaidTotal)
-      : null;
+    invoiceTotals != null ? Math.round((invoiceTotals.total - invoicePaidTotal) * 100) / 100 : null;
 
   const openSendQuoteModal = async () => {
     if (!quote || !job) return;
@@ -903,7 +916,7 @@ export default function JobDetail() {
         quoteNumber: quote.invoice_number,
         jobNumber: job.job_number,
         vehicleLabel,
-        totalFormatted: formatKes(quote.total),
+        totalFormatted: formatKes(quoteTotals?.total ?? quote.total),
         portalUrl: portal_url,
       });
       setSendQuoteModal({ phase: 'ready', message });
@@ -1040,7 +1053,7 @@ export default function JobDetail() {
     }
   };
 
-  const jobReport = !invoiceLoading && invoice ? computeJobReport(invoice) : null;
+  const jobReport = !invoiceLoading && invoiceWithTotals ? computeJobReport(invoiceWithTotals) : null;
 
   const quoteLineDragDisabled =
     !quote || !!editingItemId || addQuoteItem || addQuoteHeader;
@@ -1226,8 +1239,8 @@ export default function JobDetail() {
             ? vehicleReleasedBlockedReasons(job, undefined, undefined, tasks)
             : [];
         const completeMsg =
-          invoice && !isJobInvoiceFullyPaid(job, invoice) && Number(invoice.total) > 0
-            ? completeJobBlockedMessage(invoice, invoiceBalance)
+          invoiceWithTotals && !isJobInvoiceFullyPaid(job, invoiceWithTotals) && Number(invoiceWithTotals.total) > 0
+            ? completeJobBlockedMessage(invoiceWithTotals, invoiceBalance)
             : null;
         const parts = [...releaseReasons];
         if (completeMsg) parts.push(completeMsg);
@@ -1301,9 +1314,9 @@ export default function JobDetail() {
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1rem' }}>
                 Enter mileage and fuel level when returning the vehicle (after testing).
               </p>
-              {!isRepeatJob && invoice && !isJobInvoiceFullyPaid(job, invoice) && (
+              {!isRepeatJob && invoiceWithTotals && !isJobInvoiceFullyPaid(job, invoiceWithTotals) && (
                 <p style={{ color: 'var(--warning)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                  {completeJobBlockedMessage(invoice, invoiceBalance)}
+                  {completeJobBlockedMessage(invoiceWithTotals, invoiceBalance)}
                 </p>
               )}
               <div className="form-group">
@@ -1543,13 +1556,13 @@ export default function JobDetail() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
                       <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Quoted amount</dt>
                       <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                        {quoteLoading ? '…' : quote ? formatKes(quote.total) : '—'}
+                        {quoteLoading ? '…' : quoteTotals ? formatKes(quoteTotals.total) : '—'}
                       </dd>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
                       <dt style={{ margin: 0, color: 'var(--text-muted)' }}>Invoiced amount</dt>
                       <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right' }}>
-                        {invoiceLoading ? '…' : invoice ? formatKes(invoice.total) : '—'}
+                        {invoiceLoading ? '…' : invoiceTotals ? formatKes(invoiceTotals.total) : '—'}
                       </dd>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
@@ -2364,25 +2377,12 @@ export default function JobDetail() {
                   title="Invoice discount"
                   onSave={saveInvoiceDocumentDiscount}
                 />
-                <div style={{ marginTop: '1rem' }}>
-                <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>
-                  Invoice total (inc VAT): {formatKes(invoice.total ?? 0)}
-                </p>
-                {invoice.tax_amount != null && Number(invoice.tax_amount) > 0 && (
-                  <p style={{ margin: '0 0 0.35rem', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                    Subtotal (ex VAT) {formatKes(invoice.subtotal ?? 0)}
-                    {' · '}
-                    VAT {formatKes(invoice.tax_amount)}
-                  </p>
-                )}
-                <p style={{ margin: 0, fontSize: '0.95rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Paid to date</span>{' '}
-                  <strong>{formatKes(invoicePaidTotal)}</strong>
-                  {' · '}
-                  <span style={{ color: 'var(--text-muted)' }}>Balance</span>{' '}
-                  <strong>{formatKes(invoiceBalance)}</strong>
-                </p>
-              </div>
+                <InvoiceTotalsSummary
+                  items={invoice.items}
+                  discountPercent={invoice.discount_percent}
+                  amountPaid={invoicePaidTotal}
+                  showPayments
+                />
               </>
             )}
 
@@ -2401,7 +2401,7 @@ export default function JobDetail() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', marginBottom: '1rem' }}>
                 <div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Total due (inc VAT)</div>
-                  <div style={{ fontSize: '1.05rem' }}>{formatKes(invoice.total ?? 0)}</div>
+                  <div style={{ fontSize: '1.05rem' }}>{formatKes(invoiceTotals?.total ?? 0)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Paid to date</div>
@@ -2811,15 +2811,7 @@ export default function JobDetail() {
                   title="Quote discount"
                   onSave={saveQuoteDocumentDiscount}
                 />
-                <p style={{ marginTop: '1rem', fontWeight: 600 }}>
-                  Quote total (inc VAT): KES {(quote.total ?? 0).toLocaleString()}
-                  {quote.tax_amount != null && quote.tax_amount > 0 && (
-                    <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                      {' '}
-                      · ex VAT {Number(quote.subtotal ?? 0).toLocaleString()} · VAT {Number(quote.tax_amount).toLocaleString()}
-                    </span>
-                  )}
-                </p>
+                <InvoiceTotalsSummary items={quote.items} discountPercent={quote.discount_percent} />
               </>
             )}
           </>

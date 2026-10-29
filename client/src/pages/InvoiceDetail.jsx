@@ -6,13 +6,14 @@ import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
 import StockItemSearchInput from '../components/StockItemSearchInput';
 import { useAdmin } from '../auth/AdminContext';
 import { formatStockItemLabel } from '../utils/stockItemLabel';
-import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, vatFromFormData, vatFromElementIds, vatModeFromLine } from '../utils/invoiceLineVat';
+import { invoiceLineNet, invoiceLineVat, invoiceVatLabel, computeInvoiceTotalsFromLines, vatFromFormData, vatFromElementIds, vatModeFromLine } from '../utils/invoiceLineVat';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
 import InvoiceSectionHeaderRow from '../components/InvoiceSectionHeaderRow';
 import InvoiceLineDragHandle from '../components/InvoiceLineDragHandle';
 import { InvoiceLineSubtextView, InvoiceLineSubtextField } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountField, InvoiceLineDiscountView, readLineDiscountPercent } from '../components/InvoiceLineDiscount';
 import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountPanel';
+import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
@@ -367,13 +368,12 @@ export default function InvoiceDetail() {
     );
   }
 
-  const subtotal = Number(inv.subtotal || 0);
-  const tax = Number(inv.tax_amount || 0);
-  const total = Number(inv.total || 0);
   const items = inv.items || [];
+  const totals = computeInvoiceTotalsFromLines(items, { discount_percent: inv.discount_percent });
+  const total = totals.total;
   const payments = inv.payments || [];
   const amountPaid = Number(inv.amount_paid ?? payments.reduce((s, p) => s + Number(p.amount || 0), 0)) || 0;
-  const balance = inv.type === 'invoice' ? Number(inv.balance ?? total - amountPaid) : null;
+  const balance = inv.type === 'invoice' ? Math.round((total - amountPaid) * 100) / 100 : null;
   const isQuote = inv.type === 'quote';
   const canEditQuoteLines = isQuote && !inv.job_id;
   const canJobInvoicePdf =
@@ -999,12 +999,7 @@ export default function InvoiceDetail() {
             onSave={saveDocumentDiscount}
           />
         )}
-        <div style={{ marginTop: '1rem', textAlign: 'right', maxWidth: '280px', marginLeft: 'auto' }}>
-          <p style={{ margin: '0.25rem 0' }}>Subtotal (ex VAT) <strong>{kes(subtotal)}</strong></p>
-          <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)' }}>
-            VAT <strong>{kes(tax)}</strong></p>
-          <p style={{ margin: '0.5rem 0 0', fontSize: '1.1rem' }}>Total (inc VAT) <strong>{kes(total)}</strong></p>
-        </div>
+        <InvoiceTotalsSummary items={items} discountPercent={inv.discount_percent} />
       </div>
 
       {!isQuote && (

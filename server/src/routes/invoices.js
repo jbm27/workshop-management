@@ -69,6 +69,7 @@ function invoiceBelongsToRepeatJob(invoiceId) {
 }
 
 function fullInvoicePayload(invoiceId) {
+  refreshInvoiceTotalsFromLineItems(invoiceId);
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
@@ -450,6 +451,16 @@ invoicesRouter.get('/', (req, res) => {
   }
   stmt += ' ORDER BY i.created_at DESC';
   const rows = db.prepare(stmt).all(...params);
+  for (const row of rows) {
+    const totals = refreshInvoiceTotalsFromLineItems(row.id);
+    if (!totals) continue;
+    row.subtotal = totals.subtotal;
+    row.tax_amount = totals.tax_amount;
+    row.total = totals.total;
+    if (row.type === 'invoice') {
+      row.balance = Math.round((totals.total - (Number(row.amount_paid) || 0)) * 100) / 100;
+    }
+  }
   res.json(rows);
 });
 
@@ -2055,7 +2066,14 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const totalsBreakdown = computeInvoiceTotalsFromLines(items, {
     discount_percent: inv.discount_percent,
   });
+  if (isInvoiceDoc) {
+    balanceDue = Math.round((totalsBreakdown.total - amountPaid) * 100) / 100;
+  }
   const documentDiscountRows = totalsBreakdown.document_discount_total > 0 ? 1 : 0;
+  const savingNote =
+    totalsBreakdown.total_saving > 0
+      ? `Total saving as a result of the discount: ${kshFormat(Math.round(totalsBreakdown.total_saving))} (including VAT).`
+      : '';
 
   // Summary row: payment details & terms (left) beside totals box (right).
   let summaryY = yPos + 10;
@@ -2070,7 +2088,8 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const paymentTermsX = margin + paymentDetailsWidth + paymentTermsGap;
   const paymentTermsWidth = paymentAreaWidth - paymentDetailsWidth - paymentTermsGap;
   const estimatedPaymentHeight = isQuoteDoc ? 118 : 102;
-  const summaryBlockHeight = Math.max(totalsBoxHeight, estimatedPaymentHeight);
+  const estimatedSavingHeight = savingNote ? 28 : 0;
+  const summaryBlockHeight = Math.max(totalsBoxHeight, estimatedPaymentHeight) + estimatedSavingHeight;
 
   if (summaryY + summaryBlockHeight > pageBottom) {
     doc.addPage();
@@ -2127,9 +2146,9 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
 
   doc.fontSize(9).font('Helvetica');
   const formatKsh = (n) => kshFormat(n);
-  const subtotalRounded = Math.round(inv.subtotal || 0);
-  const taxRounded = Math.round(inv.tax_amount || 0);
-  const totalRounded = Math.round(inv.total || 0);
+  const subtotalRounded = Math.round(totalsBreakdown.subtotal || 0);
+  const taxRounded = Math.round(totalsBreakdown.tax_amount || 0);
+  const totalRounded = Math.round(totalsBreakdown.total || 0);
   const preDocSubtotal = Math.round(subtotalRounded + totalsBreakdown.document_discount_total);
 
   if (totalsBreakdown.document_discount_total > 0) {
@@ -2170,7 +2189,13 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.text(formatKsh(balanceDue), totalsBoxX + 10, totalsYPos, { width: totalsBoxWidth - 20, align: 'right' });
   }
 
-  const summaryBottom = Math.max(totalsY + totalsBoxHeight, paymentLeftEndY, paymentRightEndY);
+  const columnsBottom = Math.max(totalsY + totalsBoxHeight, paymentLeftEndY, paymentRightEndY);
+  let summaryBottom = columnsBottom;
+  if (savingNote) {
+    doc.fontSize(9).font('Helvetica-Oblique').fillColor('#000000');
+    doc.text(savingNote, margin, columnsBottom + 8, { width: contentWidth, align: 'right' });
+    summaryBottom = doc.y;
+  }
 
   const notesBlockY = drawInvoiceCustomerNotesBlock(doc, {
     margin,

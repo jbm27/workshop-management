@@ -1,11 +1,4 @@
 import { useEffect, useState } from 'react';
-import { computeInvoiceTotalsFromLines } from '../utils/invoiceLineVat';
-
-function formatKes(n) {
-  const x = Number(n);
-  if (Number.isNaN(x)) return '—';
-  return `KES ${x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-}
 
 /** Document-level percentage discount with save. */
 export default function InvoiceDocumentDiscountPanel({ document, onSave, title = 'Document discount' }) {
@@ -18,10 +11,6 @@ export default function InvoiceDocumentDiscountPanel({ document, onSave, title =
   }, [document?.discount_percent, document?.id]);
 
   if (!document) return null;
-
-  const breakdown = computeInvoiceTotalsFromLines(document.items || [], {
-    discount_percent: document.discount_percent,
-  });
 
   const handleSave = async () => {
     setBusy(true);
@@ -72,26 +61,6 @@ export default function InvoiceDocumentDiscountPanel({ document, onSave, title =
         <button type="button" className="btn primary" onClick={handleSave} disabled={busy || !dirty}>
           {busy ? 'Saving…' : 'Apply discount'}
         </button>
-      </div>
-      <div style={{ fontSize: '0.9rem' }}>
-        <p style={{ margin: '0.25rem 0' }}>
-          Total (inc VAT): <strong>{formatKes(document.total)}</strong>
-        </p>
-        <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)' }}>
-          Subtotal (ex VAT) {formatKes(document.subtotal)}
-          {' · '}
-          VAT {formatKes(document.tax_amount)}
-        </p>
-        {breakdown.line_discount_total > 0 && (
-          <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Line discounts applied: {formatKes(breakdown.line_discount_total)}
-          </p>
-        )}
-        {breakdown.document_discount_total > 0 && (
-          <p style={{ margin: '0.25rem 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Document discount applied: {formatKes(breakdown.document_discount_total)}
-          </p>
-        )}
       </div>
     </div>
   );
