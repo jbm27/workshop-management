@@ -1181,7 +1181,10 @@ invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth,
   if (fitted === 1 && !nextReceived) {
     return res.status(400).json({ error: 'Mark the part received before marking it fitted' });
   }
-  if (fitted !== null && req.admin.id !== Number(nextAssigned || 0)) {
+  const canManageFit = Boolean(
+    req.admin.permissions?.can_finalize_lpos || req.admin.permissions?.can_assign_lpo_ipr_receivers,
+  );
+  if (fitted !== null && req.admin.id !== Number(nextAssigned || 0) && !canManageFit) {
     return res.status(403).json({ error: 'Only the assigned team member can mark this part fitted' });
   }
   const fittedToStore = received === 0 ? 0 : fitted;
