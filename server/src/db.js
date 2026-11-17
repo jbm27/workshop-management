@@ -281,6 +281,22 @@ function migrate(db) {
       db.run('ALTER TABLE invoice_items ADD COLUMN discount_percent REAL DEFAULT 0');
       db.run('UPDATE invoice_items SET discount_percent = 0 WHERE discount_percent IS NULL');
     }
+    // Per-line progress tracker (customer portal): approved → LPO issued → received → fitted → vehicle tested.
+    for (const col of [
+      'approved_at',
+      'lpo_issued_at',
+      'lpo_issued_by',
+      'received_at',
+      'received_by',
+      'fitted_at',
+      'fitted_by',
+      'tested_at',
+      'tested_by',
+    ]) {
+      if (iiCols.length && !iiCols.includes(col)) {
+        db.run(`ALTER TABLE invoice_items ADD COLUMN ${col} TEXT`);
+      }
+    }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
       db.run('UPDATE invoice_items SET vat_exempt = 0 WHERE vat_exempt IS NULL');

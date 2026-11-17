@@ -613,3 +613,130 @@ tr:hover td {
     min-height: 44px;
   }
 }
+
+/* ---------- Line progress tracker (quote lines: approved → LPO → received → fitted → tested) ---------- */
+.line-progress-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.line-progress-toggle:hover { border-color: var(--accent); }
+.line-progress-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.line-progress-mini {
+  display: inline-block;
+  width: 2.75rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: #e8ebf0;
+  overflow: hidden;
+}
+.line-progress-mini > span,
+.job-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+.tone-done .line-progress-mini > span,
+.tone-done .job-progress-track > span { background: var(--success); }
+.line-progress-pct { font-variant-numeric: tabular-nums; min-width: 2.4em; text-align: right; font-weight: 600; }
+.tone-idle .line-progress-pct { color: var(--text-muted); font-weight: 500; }
+.tone-done .line-progress-pct { color: var(--success); }
+.line-progress-chevron { color: var(--text-muted); transition: transform 0.15s ease; }
+.line-progress-chevron.open { transform: rotate(180deg); }
+
+tr.line-progress-row > td {
+  background: #fafbfc;
+  padding: 0.6rem 0.75rem 0.75rem;
+}
+.line-progress-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.line-progress-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.15rem;
+  padding: 0 0.25rem;
+}
+/* connector line between dots */
+.line-progress-step + .line-progress-step::before {
+  content: '';
+  position: absolute;
+  top: 0.6rem;
+  right: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+.line-progress-step.done + .line-progress-step.done::before { background: var(--success); }
+.line-progress-dot {
+  position: relative;
+  z-index: 1;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+}
+.line-progress-step.done .line-progress-dot { background: var(--success); border-color: var(--success); }
+.line-progress-step label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: default;
+}
+.line-progress-step label.editable { cursor: pointer; }
+.line-progress-step input[type='checkbox'] { width: 1rem; height: 1rem; margin: 0; accent-color: var(--success); }
+.line-progress-step label.editable input[type='checkbox'] { cursor: pointer; }
+.line-progress-step:not(.done) .line-progress-label { color: var(--text-muted); font-weight: 500; }
+.line-progress-meta { font-size: 0.74rem; color: var(--text-muted); line-height: 1.3; }
+
+@media (max-width: 640px) {
+  /* The quote table scrolls sideways on phones; keep the steps pinned to the visible width. */
+  .line-progress-steps {
+    grid-template-columns: 1fr;
+    gap: 0.45rem;
+    position: sticky;
+    left: 0;
+    width: calc(100vw - 6.25rem);
+    max-width: 100%;
+  }
+  .line-progress-step { flex-direction: row; text-align: left; gap: 0.5rem; padding: 0; }
+  .line-progress-step + .line-progress-step::before { display: none; }
+  .line-progress-step label { margin-top: 0; }
+  .line-progress-meta { margin-left: auto; text-align: right; }
+}
+
+/* Whole-job completion bar */
+.job-progress { margin: 1rem 0 0; padding: 0.65rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.job-progress-head { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; font-size: 0.85rem; margin-bottom: 0.4rem; }
+.job-progress-head > span:first-child { color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.75rem; }
+.job-progress-sub { color: var(--text-muted); }
+.job-progress-track { height: 0.45rem; border-radius: 999px; background: #e8ebf0; overflow: hidden; }
+.tone-done .job-progress-head strong { color: var(--success); }

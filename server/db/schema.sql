@@ -256,6 +256,15 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   sort_order INTEGER DEFAULT 0,
   subtext TEXT,
   discount_percent REAL DEFAULT 0,
+  approved_at TEXT,
+  lpo_issued_at TEXT,
+  lpo_issued_by TEXT,
+  received_at TEXT,
+  received_by TEXT,
+  fitted_at TEXT,
+  fitted_by TEXT,
+  tested_at TEXT,
+  tested_by TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

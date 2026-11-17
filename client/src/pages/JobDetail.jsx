@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
@@ -23,6 +23,8 @@ import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountP
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
+import { LineProgressToggle, LineProgressSteps, JobProgressBar } from '../components/LineProgress';
+import { isTrackableLine, LINE_PROGRESS_STAGES } from '../utils/lineProgress';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 import {
@@ -226,6 +228,9 @@ export default function JobDetail() {
   const [addQuoteHeader, setAddQuoteHeader] = useState(false);
   const [quoteHeaderTitle, setQuoteHeaderTitle] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
+  /** Quote lines whose progress tracker is expanded (all start collapsed). */
+  const [openProgressLines, setOpenProgressLines] = useState(() => new Set());
+  const [progressSavingId, setProgressSavingId] = useState(null);
   const [editingHeaderTitle, setEditingHeaderTitle] = useState('');
   const [invoice, setInvoice] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
@@ -579,6 +584,31 @@ export default function JobDetail() {
       setEditingItemId(null);
     } catch (err) {
       alert(err.message);
+    }
+  };
+
+  const toggleProgressLine = (itemId) =>
+    setOpenProgressLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+
+  const setQuoteLineProgress = async (itemId, stage, done) => {
+    if (!quote) return;
+    if (!done) {
+      const label = LINE_PROGRESS_STAGES.find((s) => s.key === stage)?.label || stage;
+      if (!window.confirm(`Untick "${label}" for this line? The customer will see it as not done.`)) return;
+    }
+    try {
+      setProgressSavingId(itemId);
+      const updated = await api.invoices.setItemProgress(quote.id, itemId, stage, done);
+      setQuote((q) => (q ? { ...q, items: q.items.map((x) => (x.id === itemId ? { ...x, ...updated } : x)) } : q));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setProgressSavingId(null);
     }
   };
 
@@ -2621,12 +2651,15 @@ export default function JobDetail() {
                 <button type="button" className="btn" onClick={() => setAddQuoteHeader(true)}>+ Header</button>
               </div>
             )}
+            <div style={{ marginBottom: '0.75rem' }}>
+              <JobProgressBar items={quote.items} />
+            </div>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th style={{ width: '1.75rem' }} aria-label="Reorder" />
-                    <th>Approved</th>
+                    <th>Progress</th>
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Sale (ex VAT)</th>
@@ -2681,8 +2714,12 @@ export default function JobDetail() {
                     }
                     const it = row.item;
                     const labour = isLabourLine(it);
+                    const tracked = isTrackableLine(it);
+                    const progressOpen = tracked && openProgressLines.has(it.id);
+                    const progressId = `quote-line-progress-${it.id}`;
                     return (
-                    <tr key={it.id} {...quoteLineDrag.rowProps(it.id)}>
+                    <Fragment key={it.id}>
+                    <tr {...quoteLineDrag.rowProps(it.id)}>
                       <InvoiceLineDragHandle
                         disabled={!quoteLineDrag.sortable}
                         onDragStart={quoteLineDrag.handleDragStart(it.id)}
@@ -2756,7 +2793,18 @@ export default function JobDetail() {
                       ) : (
                         <>
                           <td style={{ textAlign: 'center' }}>
-                            {isQuoteLineApproved(it) ? <span style={{ color: 'green', fontWeight: 600 }}>✔</span> : ''}
+                            {tracked ? (
+                              <LineProgressToggle
+                                item={it}
+                                open={progressOpen}
+                                onToggle={() => toggleProgressLine(it.id)}
+                                controlsId={progressId}
+                              />
+                            ) : isQuoteLineApproved(it) ? (
+                              <span style={{ color: 'green', fontWeight: 600 }}>✔</span>
+                            ) : (
+                              ''
+                            )}
                           </td>
                           <td>
                             {labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}
@@ -2794,6 +2842,22 @@ export default function JobDetail() {
                         </>
                       )}
                     </tr>
+                    {progressOpen && (
+                      <tr className="line-progress-row">
+                        <td />
+                        <td colSpan={7}>
+                          <LineProgressSteps
+                            id={progressId}
+                            item={it}
+                            showWho
+                            busy={progressSavingId === it.id}
+                            canTick={(stage) => stage !== 'approved'}
+                            onTick={(stage, done) => setQuoteLineProgress(it.id, stage, done)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                     );
                   })}
                 </tbody>

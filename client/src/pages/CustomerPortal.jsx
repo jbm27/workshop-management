@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
@@ -7,6 +7,8 @@ import { invoiceLineNet } from '../utils/invoiceLineVat';
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
+import { LineProgressToggle, LineProgressSteps, JobProgressBar } from '../components/LineProgress';
+import { isTrackableLine } from '../utils/lineProgress';
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -515,6 +517,8 @@ function PortalJobDetail() {
         )}
       </section>
 
+      {job.quote && <JobProgressBar items={job.quote.items} />}
+
       {job.quote && (
         <QuoteSection
           quote={job.quote}
@@ -651,6 +655,15 @@ function PortalDocumentTotals({ doc }) {
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote }) {
   const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
+  // Every line's tracker starts collapsed so the quote stays tidy.
+  const [openLines, setOpenLines] = useState(() => new Set());
+  const toggleLine = (id) =>
+    setOpenLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <section className="card" style={{ marginTop: '1rem' }}>
@@ -696,7 +709,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
               </tr>
             )}
             <tr>
-              <th>Approval</th>
+              <th>Progress</th>
               <th>Item</th>
               <th style={{ textAlign: 'right' }}>Qty</th>
               <th style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
@@ -724,10 +737,21 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
               const item = row.item;
               const qty = Number(item.quantity) || 0;
               const price = Number(item.unit_price) || 0;
+              const tracked = isTrackableLine(item);
+              const open = tracked && openLines.has(item.id);
+              const stepsId = `line-progress-${item.id}`;
               return (
-                <tr key={item.id}>
+                <Fragment key={item.id}>
+                <tr>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    {isQuoteLineApproved(item) ? (
+                    {tracked ? (
+                      <LineProgressToggle
+                        item={item}
+                        open={open}
+                        onToggle={() => toggleLine(item.id)}
+                        controlsId={stepsId}
+                      />
+                    ) : isQuoteLineApproved(item) ? (
                       <span style={{ color: 'var(--success)', fontSize: '0.9rem', fontWeight: 600 }}>Approved</span>
                     ) : allowApprove ? (
                       <button
@@ -753,6 +777,23 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
                   <td style={{ textAlign: 'right' }}>{kes(price)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(qty * price)}</td>
                 </tr>
+                {open && (
+                  <tr className="line-progress-row">
+                    <td colSpan={5}>
+                      <LineProgressSteps
+                        id={stepsId}
+                        item={item}
+                        canTick={(stage, done) => stage === 'approved' && !done && allowApprove}
+                        onTick={(stage, done) => {
+                          if (stage !== 'approved' || !done) return;
+                          if (!window.confirm('Are you sure you would like to approve?')) return;
+                          onToggleApprove(quote.id, item.id, true);
+                        }}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

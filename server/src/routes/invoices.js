@@ -982,6 +982,38 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   res.json(updated);
 });
 
+/** Workshop-side stages of the per-line progress tracker shown in the customer portal. */
+const LINE_PROGRESS_STAGES = ['lpo_issued', 'received', 'fitted', 'tested'];
+
+invoicesRouter.patch('/:id/items/:itemId/progress', requireAdminAuth, (req, res) => {
+  const stage = String(req.body?.stage || '');
+  if (!LINE_PROGRESS_STAGES.includes(stage)) {
+    return res.status(400).json({ error: `stage must be one of: ${LINE_PROGRESS_STAGES.join(', ')}` });
+  }
+  const done = !!req.body?.done;
+  const item = db
+    .prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?')
+    .get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (isHeaderLine(item)) return res.status(400).json({ error: 'Section headers have no progress' });
+
+  const by = req.admin?.display_name || req.admin?.username || null;
+  if (done) {
+    db.prepare(
+      `UPDATE invoice_items SET ${stage}_at = COALESCE(${stage}_at, datetime('now')), ${stage}_by = COALESCE(${stage}_by, ?) WHERE id = ?`,
+    ).run(by, item.id);
+  } else {
+    db.prepare(`UPDATE invoice_items SET ${stage}_at = NULL, ${stage}_by = NULL WHERE id = ?`).run(item.id);
+  }
+  const updated = db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(item.id);
+  const inv = db.prepare('SELECT type FROM invoices WHERE id = ?').get(req.params.id);
+  if (inv?.type === 'quote') {
+    const { purchase_price, ...rest } = updated;
+    return res.json(rest);
+  }
+  res.json(updated);
+});
+
 invoicesRouter.delete('/:id/items/:itemId', (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
