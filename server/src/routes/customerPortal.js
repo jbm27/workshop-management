@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
+import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
 
 /** Line progress timestamps shown to the customer (who ticked each stage stays internal). */
 const PROGRESS_COLS = 'approved_at, lpo_issued_at, received_at, fitted_at, tested_at';
@@ -66,10 +67,10 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare(`SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, ${PROGRESS_COLS} FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id`).all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
+    ? db.prepare(`SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent, approved, quote_item_id, ${PROGRESS_COLS} FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id`).all(invoice.id)
     : [];
   const out = {
     id: job.id,
@@ -124,7 +125,7 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const isQuote = docType === 'quote';
   const items = isQuote
     ? db
-        .prepare(`SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, ${PROGRESS_COLS} FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id`)
+        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
         .all(inv.id)
     : db
         .prepare(
@@ -242,6 +243,7 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
   db.prepare(
     "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header'",
   ).run(quote.id);
+  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 
@@ -272,6 +274,7 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
   }
   if (already) return res.status(204).send();
   db.prepare("UPDATE invoice_items SET approved = 1, approved_at = datetime('now') WHERE id = ?").run(item.id);
+  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 

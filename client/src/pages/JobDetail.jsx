@@ -24,7 +24,7 @@ import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { LineProgressToggle, LineProgressSteps, JobProgressBar } from '../components/LineProgress';
-import { isTrackableLine, LINE_PROGRESS_STAGES } from '../utils/lineProgress';
+import { isItemLine, isTrackableLine, LINE_PROGRESS_STAGES } from '../utils/lineProgress';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 import {
@@ -200,6 +200,19 @@ function buildQuotePortalMessage({ customerName, quoteNumber, jobNumber, vehicle
     'Thank you.',
   );
   return lines.join('\n');
+}
+
+/** Quote line → invoice status for staff: awaiting approval, ready to move, or already on the invoice. */
+function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
+  const muted = { fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
+  if (!isQuoteLineApproved(line)) return <span style={muted}>Awaiting approval</span>;
+  if (line.moved_to_invoice_at) return <span style={{ ...muted, color: 'var(--success)' }}>Moved to invoice</span>;
+  if (!canMove) return <span style={muted}>Approved · moves when invoice is created</span>;
+  return (
+    <button type="button" className="btn primary" onClick={onMove}>
+      Move to invoice
+    </button>
+  );
 }
 
 export default function JobDetail() {
@@ -595,16 +608,18 @@ export default function JobDetail() {
       return next;
     });
 
-  const setQuoteLineProgress = async (itemId, stage, done) => {
-    if (!quote) return;
+  const setInvoiceLineProgress = async (itemId, stage, done) => {
+    if (!invoice) return;
     if (!done) {
       const label = LINE_PROGRESS_STAGES.find((s) => s.key === stage)?.label || stage;
       if (!window.confirm(`Untick "${label}" for this line? The customer will see it as not done.`)) return;
     }
     try {
       setProgressSavingId(itemId);
-      const updated = await api.invoices.setItemProgress(quote.id, itemId, stage, done);
-      setQuote((q) => (q ? { ...q, items: q.items.map((x) => (x.id === itemId ? { ...x, ...updated } : x)) } : q));
+      const updated = await api.invoices.setItemProgress(invoice.id, itemId, stage, done);
+      setInvoice((inv) =>
+        inv ? { ...inv, items: inv.items.map((x) => (x.id === itemId ? { ...x, ...updated } : x)) } : inv,
+      );
     } catch (err) {
       alert(err.message);
     } finally {
@@ -664,7 +679,10 @@ export default function JobDetail() {
     const purchase_price = Number(invoiceLineDraft.purchasePrice || fd.get('purchase_price')) || 0;
     const unit_price = Number(invoiceLineDraft.unitPrice || fd.get('unit_price')) || 0;
     if (!description) return alert('Item description is required');
-    if (descriptionMatchesUnapprovedQuote(quote, description) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) {
+    if (descriptionMatchesUnapprovedQuote(quote, description)) {
+      alert(
+        'This item is on the quote but the customer has not approved it yet. It will move to the invoice automatically once approved.',
+      );
       return;
     }
     let vat;
@@ -858,6 +876,23 @@ export default function JobDetail() {
     }
   };
 
+
+  /** Server moves every approved, not-yet-moved quote line onto the job invoice (unapproved lines never move). */
+  const moveApprovedQuoteLinesToInvoice = async () => {
+    if (!invoice) {
+      alert('Create an invoice first (see Invoice section above).');
+      return;
+    }
+    try {
+      const { moved } = await api.jobs.moveApprovedQuoteLines(id);
+      const [inv, q] = await Promise.all([api.invoices.get(invoice.id), quote ? api.invoices.get(quote.id) : null]);
+      setInvoice(inv);
+      if (q) setQuote(q);
+      if (!moved) alert('Nothing to move: only items the customer has approved on the quote can go to the invoice.');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   const copyQuoteToInvoice = async () => {
     if (!quote || !invoice) {
@@ -2024,9 +2059,14 @@ export default function JobDetail() {
               ) : (
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{invoice.invoice_number}</span>
               )}
-              {billingUnlocked && quote && quote.items && quote.items.length > 0 && (
-                <button type="button" className="btn" onClick={copyQuoteToInvoice}>
-                  Copy from quote
+              {billingUnlocked && quote && quote.items?.some((l) => isQuoteLineApproved(l) && !l.moved_to_invoice_at && isItemLine(l)) && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={moveApprovedQuoteLinesToInvoice}
+                  title="Move items the customer has approved on the quote onto this invoice"
+                >
+                  Move approved items
                 </button>
               )}
               {invoice.items && invoice.items.length > 0 && (
@@ -2156,11 +2196,15 @@ export default function JobDetail() {
                 </button>
               </div>
             )}
+            <div style={{ marginBottom: '0.75rem' }}>
+              <JobProgressBar items={invoice.items} />
+            </div>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th style={{ width: '1.75rem' }} aria-label="Reorder" />
+                    <th>Progress</th>
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Purchase (unit cost)</th>
@@ -2172,7 +2216,7 @@ export default function JobDetail() {
                 </thead>
                 <tbody>
                   {(!invoice.items || invoice.items.length === 0) && (
-                    <tr><td colSpan={8} className="empty">No invoice lines yet. Add items above.</td></tr>
+                    <tr><td colSpan={9} className="empty">No invoice lines yet. Add items above.</td></tr>
                   )}
                   {enrichItemsWithSectionTotals(invoice.items).map((row) => {
                     if (row.kind === 'header') {
@@ -2182,7 +2226,7 @@ export default function JobDetail() {
                           key={it.id}
                           item={it}
                           sectionNet={row.sectionNet}
-                          labelColSpan={5}
+                          labelColSpan={6}
                           formatMoney={(n) => `KES ${Number(n).toLocaleString()}`}
                           editable
                           editing={editingInvoiceItemId === it.id}
@@ -2218,13 +2262,34 @@ export default function JobDetail() {
                     const purchaseFromAlloc =
                       Number(it.lpo_line_count) > 0 || Number(it.ipr_line_count) > 0;
                     const labour = isLabourLine(it);
+                    const tracked = isTrackableLine(it);
+                    const progressOpen = tracked && openProgressLines.has(it.id);
+                    const progressId = `invoice-line-progress-${it.id}`;
                     return (
-                    <tr key={it.id} {...invoiceLineDrag.rowProps(it.id)}>
+                    <Fragment key={it.id}>
+                    <tr {...invoiceLineDrag.rowProps(it.id)}>
                       <InvoiceLineDragHandle
                         disabled={!invoiceLineDrag.sortable}
                         onDragStart={invoiceLineDrag.handleDragStart(it.id)}
                         onDragEnd={invoiceLineDrag.handleDragEnd}
                       />
+                      <td style={{ textAlign: 'center' }}>
+                        {tracked ? (
+                          <LineProgressToggle
+                            item={it}
+                            open={progressOpen}
+                            onToggle={() => toggleProgressLine(it.id)}
+                            controlsId={progressId}
+                          />
+                        ) : !labour ? (
+                          <span
+                            style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
+                            title="Added directly to the invoice, not approved on the quote, so it has no progress tracker"
+                          >
+                            Not from quote
+                          </span>
+                        ) : null}
+                      </td>
                       {editingInvoiceItemId === it.id ? (
                         <>
                           <td>
@@ -2390,6 +2455,22 @@ export default function JobDetail() {
                         </>
                       )}
                     </tr>
+                    {progressOpen && (
+                      <tr className="line-progress-row">
+                        <td />
+                        <td colSpan={8}>
+                          <LineProgressSteps
+                            id={progressId}
+                            item={it}
+                            showWho
+                            busy={progressSavingId === it.id}
+                            canTick={(stage) => stage !== 'approved'}
+                            onTick={(stage, done) => setInvoiceLineProgress(it.id, stage, done)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                     );
                   })}
                 </tbody>
@@ -2651,15 +2732,12 @@ export default function JobDetail() {
                 <button type="button" className="btn" onClick={() => setAddQuoteHeader(true)}>+ Header</button>
               </div>
             )}
-            <div style={{ marginBottom: '0.75rem' }}>
-              <JobProgressBar items={quote.items} />
-            </div>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th style={{ width: '1.75rem' }} aria-label="Reorder" />
-                    <th>Progress</th>
+                    <th>Approved</th>
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Sale (ex VAT)</th>
@@ -2714,12 +2792,8 @@ export default function JobDetail() {
                     }
                     const it = row.item;
                     const labour = isLabourLine(it);
-                    const tracked = isTrackableLine(it);
-                    const progressOpen = tracked && openProgressLines.has(it.id);
-                    const progressId = `quote-line-progress-${it.id}`;
                     return (
-                    <Fragment key={it.id}>
-                    <tr {...quoteLineDrag.rowProps(it.id)}>
+                    <tr key={it.id} {...quoteLineDrag.rowProps(it.id)}>
                       <InvoiceLineDragHandle
                         disabled={!quoteLineDrag.sortable}
                         onDragStart={quoteLineDrag.handleDragStart(it.id)}
@@ -2793,18 +2867,7 @@ export default function JobDetail() {
                       ) : (
                         <>
                           <td style={{ textAlign: 'center' }}>
-                            {tracked ? (
-                              <LineProgressToggle
-                                item={it}
-                                open={progressOpen}
-                                onToggle={() => toggleProgressLine(it.id)}
-                                controlsId={progressId}
-                              />
-                            ) : isQuoteLineApproved(it) ? (
-                              <span style={{ color: 'green', fontWeight: 600 }}>✔</span>
-                            ) : (
-                              ''
-                            )}
+                            {isQuoteLineApproved(it) ? <span style={{ color: 'green', fontWeight: 600 }}>✔</span> : ''}
                           </td>
                           <td>
                             {labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}
@@ -2829,10 +2892,12 @@ export default function JobDetail() {
                               >
                                 Edit
                               </button>
-                              {invoice && !invoiceLoading && !isHeaderLine(it) && String(it.type || '').toLowerCase() !== 'labour' && (
-                                <button type="button" className="btn primary" onClick={() => addQuoteLineToInvoice(it)}>
-                                  Add to invoice
-                                </button>
+                              {!labour && !isHeaderLine(it) && (
+                                <QuoteLineInvoiceStatus
+                                  line={it}
+                                  canMove={!!invoice && !invoiceLoading && billingUnlocked}
+                                  onMove={moveApprovedQuoteLinesToInvoice}
+                                />
                               )}
                               {!labour && (
                                 <button type="button" className="btn danger" onClick={() => removeQuoteItem(it.id)}>Remove</button>
@@ -2842,22 +2907,6 @@ export default function JobDetail() {
                         </>
                       )}
                     </tr>
-                    {progressOpen && (
-                      <tr className="line-progress-row">
-                        <td />
-                        <td colSpan={7}>
-                          <LineProgressSteps
-                            id={progressId}
-                            item={it}
-                            showWho
-                            busy={progressSavingId === it.id}
-                            canTick={(stage) => stage !== 'approved'}
-                            onTick={(stage, done) => setQuoteLineProgress(it.id, stage, done)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                    </Fragment>
                     );
                   })}
                 </tbody>

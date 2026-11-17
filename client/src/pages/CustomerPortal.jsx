@@ -517,8 +517,6 @@ function PortalJobDetail() {
         )}
       </section>
 
-      {job.quote && <JobProgressBar items={job.quote.items} />}
-
       {job.quote && (
         <QuoteSection
           quote={job.quote}
@@ -528,9 +526,11 @@ function PortalJobDetail() {
         />
       )}
 
+      {job.invoice && <JobProgressBar items={job.invoice.items} />}
+
       <section className="card" style={{ marginTop: '1rem' }}>
         <h3 style={{ marginTop: 0 }}>Invoice</h3>
-        {!job.invoice && <p className="empty">No invoice yet.</p>}
+        {!job.invoice && <p className="empty">No invoice yet. Items you approve on the quote will appear here.</p>}
         {job.invoice && (
           <>
             <p style={{ margin: '0 0 0.75rem' }}>
@@ -541,7 +541,7 @@ function PortalJobDetail() {
                 </span>
               )}
             </p>
-            <PortalLineItemsTable items={job.invoice.items} />
+            <PortalLineItemsTable items={job.invoice.items} showProgress />
             <PortalDocumentTotals doc={job.invoice} />
             <div style={{ marginTop: '1.25rem' }}>
               <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
@@ -584,13 +584,24 @@ function PortalJobDetail() {
   );
 }
 
-function PortalLineItemsTable({ items }) {
+function PortalLineItemsTable({ items, showProgress = false }) {
   const rows = enrichItemsWithSectionTotals(items || []);
+  // Every line's tracker starts collapsed so the invoice stays tidy.
+  const [openLines, setOpenLines] = useState(() => new Set());
+  const toggleLine = (id) =>
+    setOpenLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const colCount = showProgress ? 5 : 4;
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
+            {showProgress && <th>Progress</th>}
             <th>Item</th>
             <th style={{ textAlign: 'right' }}>Qty</th>
             <th style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
@@ -600,14 +611,14 @@ function PortalLineItemsTable({ items }) {
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={4} className="empty">No lines.</td>
+              <td colSpan={colCount} className="empty">No lines.</td>
             </tr>
           )}
           {rows.map((row) => {
             if (row.kind === 'header') {
               return (
                 <tr key={row.item.id} style={{ background: '#f0f0f0' }}>
-                  <td colSpan={3} style={{ fontWeight: 600, padding: '0.55rem 0.75rem' }}>
+                  <td colSpan={colCount - 1} style={{ fontWeight: 600, padding: '0.55rem 0.75rem' }}>
                     {row.item.description || 'Section'}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '0.55rem 0.75rem' }}>
@@ -619,8 +630,24 @@ function PortalLineItemsTable({ items }) {
             const item = row.item;
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
+            const tracked = showProgress && isTrackableLine(item);
+            const open = tracked && openLines.has(item.id);
+            const stepsId = `line-progress-${item.id}`;
             return (
-              <tr key={item.id}>
+              <Fragment key={item.id}>
+              <tr>
+                {showProgress && (
+                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    {tracked && (
+                      <LineProgressToggle
+                        item={item}
+                        open={open}
+                        onToggle={() => toggleLine(item.id)}
+                        controlsId={stepsId}
+                      />
+                    )}
+                  </td>
+                )}
                 <td>
                   {item.description}
                   <InvoiceLineSubtextView subtext={item.subtext} />
@@ -630,6 +657,14 @@ function PortalLineItemsTable({ items }) {
                 <td style={{ textAlign: 'right' }}>{kes(price)}</td>
                 <td style={{ textAlign: 'right' }}>{kes(invoiceLineNet(item))}</td>
               </tr>
+              {open && (
+                <tr className="line-progress-row">
+                  <td colSpan={colCount}>
+                    <LineProgressSteps id={stepsId} item={item} canTick={() => false} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
         </tbody>
@@ -655,15 +690,6 @@ function PortalDocumentTotals({ doc }) {
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote }) {
   const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
-  // Every line's tracker starts collapsed so the quote stays tidy.
-  const [openLines, setOpenLines] = useState(() => new Set());
-  const toggleLine = (id) =>
-    setOpenLines((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   return (
     <section className="card" style={{ marginTop: '1rem' }}>
@@ -709,7 +735,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
               </tr>
             )}
             <tr>
-              <th>Progress</th>
+              <th>Approval</th>
               <th>Item</th>
               <th style={{ textAlign: 'right' }}>Qty</th>
               <th style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
@@ -737,22 +763,18 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
               const item = row.item;
               const qty = Number(item.quantity) || 0;
               const price = Number(item.unit_price) || 0;
-              const tracked = isTrackableLine(item);
-              const open = tracked && openLines.has(item.id);
-              const stepsId = `line-progress-${item.id}`;
               return (
-                <Fragment key={item.id}>
-                <tr>
+                <tr key={item.id}>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    {tracked ? (
-                      <LineProgressToggle
-                        item={item}
-                        open={open}
-                        onToggle={() => toggleLine(item.id)}
-                        controlsId={stepsId}
-                      />
-                    ) : isQuoteLineApproved(item) ? (
-                      <span style={{ color: 'var(--success)', fontSize: '0.9rem', fontWeight: 600 }}>Approved</span>
+                    {isQuoteLineApproved(item) ? (
+                      <span style={{ color: 'var(--success)', fontSize: '0.9rem', fontWeight: 600 }}>
+                        Approved
+                        {item.moved_to_invoice_at && (
+                          <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 500, color: 'var(--text-muted)' }}>
+                            Moved to invoice ↓
+                          </span>
+                        )}
+                      </span>
                     ) : allowApprove ? (
                       <button
                         type="button"
@@ -777,23 +799,6 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
                   <td style={{ textAlign: 'right' }}>{kes(price)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(qty * price)}</td>
                 </tr>
-                {open && (
-                  <tr className="line-progress-row">
-                    <td colSpan={5}>
-                      <LineProgressSteps
-                        id={stepsId}
-                        item={item}
-                        canTick={(stage, done) => stage === 'approved' && !done && allowApprove}
-                        onTick={(stage, done) => {
-                          if (stage !== 'approved' || !done) return;
-                          if (!window.confirm('Are you sure you would like to approve?')) return;
-                          onToggleApprove(quote.id, item.id, true);
-                        }}
-                      />
-                    </td>
-                  </tr>
-                )}
-                </Fragment>
               );
             })}
           </tbody>

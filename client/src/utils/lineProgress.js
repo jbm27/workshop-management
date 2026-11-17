@@ -25,9 +25,17 @@ export function stageDoneBy(item, key) {
   return item?.[`${key}_by`] || null;
 }
 
-/** Lines that get a tracker: real items (not section headers, not the labour line). */
-export function isTrackableLine(item) {
+/** A real item line: not a section header and not the job's labour line. */
+export function isItemLine(item) {
   return !!item && !isHeaderLine(item) && String(item.type || '').toLowerCase() !== 'labour';
+}
+
+/**
+ * Invoice lines that get a tracker: ones moved over from an approved quote line
+ * (items typed straight onto the invoice have no customer approval, so no tracker).
+ */
+export function isTrackableLine(item) {
+  return isItemLine(item) && item.quote_item_id != null;
 }
 
 export function lineProgressPercent(item) {

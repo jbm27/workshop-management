@@ -265,6 +265,8 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   fitted_by TEXT,
   tested_at TEXT,
   tested_by TEXT,
+  moved_to_invoice_at TEXT,
+  quote_item_id INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
