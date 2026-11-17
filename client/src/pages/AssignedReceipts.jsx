@@ -38,7 +38,25 @@ function assignedRowMatchesQuery(r, rawQuery) {
   return hay.includes(q);
 }
 
-function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle }) {
+function FittedCheckbox({ row, busyRow, onToggleFitted }) {
+  if (row.doc_type !== 'lpo') return null;
+  const received = isRowReceived(row);
+  const fitted = Number(row.fitted_confirmed) === 1;
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+      <input
+        type="checkbox"
+        checked={fitted}
+        disabled={!received || busyRow === rowKey(row)}
+        title={received ? undefined : 'Mark the part received first'}
+        onChange={(e) => onToggleFitted(row, e.target.checked)}
+      />
+      <span style={{ color: fitted ? 'var(--success)' : undefined }}>Fitted</span>
+    </label>
+  );
+}
+
+function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle, onToggleFitted }) {
   return rows.map((r) => {
     const isDone = isRowReceived(r);
     const key = rowKey(r);
@@ -57,6 +75,7 @@ function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle }) {
               {isDone ? 'Received' : 'Pending'}
             </span>
           </label>
+          <FittedCheckbox row={r} busyRow={busyRow} onToggleFitted={onToggleFitted} />
         </td>
         <td>
           <strong>
@@ -87,7 +106,7 @@ function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle }) {
   });
 }
 
-function AssignedMobileCards({ rows, isMechanic, busyRow, onToggle }) {
+function AssignedMobileCards({ rows, isMechanic, busyRow, onToggle, onToggleFitted }) {
   return rows.map((r) => {
     const isDone = isRowReceived(r);
     const key = rowKey(r);
@@ -111,6 +130,7 @@ function AssignedMobileCards({ rows, isMechanic, busyRow, onToggle }) {
                 {isDone ? 'Received' : 'Pending'}
               </span>
             </label>
+            <FittedCheckbox row={r} busyRow={busyRow} onToggleFitted={onToggleFitted} />
           </div>
         </div>
         <dl className="assigned-card-dl">
@@ -195,10 +215,33 @@ export default function AssignedReceipts() {
         });
       }
       setRows((prev) =>
-        prev.map((r) => (rowKey(r) === key ? { ...r, received_confirmed: checked ? 1 : 0 } : r)),
+        prev.map((r) =>
+          rowKey(r) === key
+            ? { ...r, received_confirmed: checked ? 1 : 0, fitted_confirmed: checked ? r.fitted_confirmed : 0 }
+            : r,
+        ),
       );
     } catch (e) {
       setError(String(e?.message || 'Could not update received status.'));
+    } finally {
+      setBusyRow('');
+    }
+  };
+
+  const toggleFitted = async (row, fitted) => {
+    if (row.doc_type !== 'lpo') return;
+    const key = rowKey(row);
+    setBusyRow(key);
+    setError('');
+    try {
+      await api.invoices.updateLpoLineReceipt(row.invoice_id, row.doc_id, row.line_id, {
+        fitted_confirmed: fitted,
+      });
+      setRows((prev) =>
+        prev.map((r) => (rowKey(r) === key ? { ...r, fitted_confirmed: fitted ? 1 : 0 } : r)),
+      );
+    } catch (e) {
+      setError(String(e?.message || 'Could not update fitted status.'));
     } finally {
       setBusyRow('');
     }
@@ -335,6 +378,7 @@ export default function AssignedReceipts() {
                   isMechanic={isMechanic}
                   busyRow={busyRow}
                   onToggle={toggleReceived}
+                  onToggleFitted={toggleFitted}
                 />
               )}
             </tbody>
@@ -366,6 +410,7 @@ export default function AssignedReceipts() {
             isMechanic={isMechanic}
             busyRow={busyRow}
             onToggle={toggleReceived}
+            onToggleFitted={toggleFitted}
           />
         )}
       </div>
@@ -418,6 +463,7 @@ export default function AssignedReceipts() {
                         isMechanic={isMechanic}
                         busyRow={busyRow}
                         onToggle={toggleReceived}
+                        onToggleFitted={toggleFitted}
                       />
                     )}
                   </tbody>
@@ -438,6 +484,7 @@ export default function AssignedReceipts() {
                   isMechanic={isMechanic}
                   busyRow={busyRow}
                   onToggle={toggleReceived}
+                  onToggleFitted={toggleFitted}
                 />
               )}
             </div>
