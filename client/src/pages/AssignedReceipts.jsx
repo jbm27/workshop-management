@@ -38,21 +38,21 @@ function assignedRowMatchesQuery(r, rawQuery) {
   return hay.includes(q);
 }
 
-function FittedButton({ row, busyRow, onToggleFitted }) {
+function FittedCheckbox({ row, busyRow, onToggleFitted }) {
   if (row.doc_type !== 'lpo') return null;
   const received = isRowReceived(row);
   const fitted = Number(row.fitted_confirmed) === 1;
   return (
-    <button
-      type="button"
-      className="btn"
-      style={{ fontSize: '0.75rem', padding: '0.1rem 0.45rem', marginLeft: 8, color: fitted ? 'var(--success)' : undefined }}
-      disabled={!received || busyRow === rowKey(row)}
-      title={received ? undefined : 'Mark the part received first'}
-      onClick={() => onToggleFitted(row, !fitted)}
-    >
-      {fitted ? 'Fitted' : 'Mark fitted'}
-    </button>
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+      <input
+        type="checkbox"
+        checked={fitted}
+        disabled={!received || busyRow === rowKey(row)}
+        title={received ? undefined : 'Mark the part received first'}
+        onChange={(e) => onToggleFitted(row, e.target.checked)}
+      />
+      <span style={{ color: fitted ? 'var(--success)' : undefined }}>Fitted</span>
+    </label>
   );
 }
 
@@ -75,7 +75,7 @@ function AssignedDesktopRows({ rows, isMechanic, busyRow, onToggle, onToggleFitt
               {isDone ? 'Received' : 'Pending'}
             </span>
           </label>
-          <FittedButton row={r} busyRow={busyRow} onToggleFitted={onToggleFitted} />
+          <FittedCheckbox row={r} busyRow={busyRow} onToggleFitted={onToggleFitted} />
         </td>
         <td>
           <strong>
@@ -130,7 +130,7 @@ function AssignedMobileCards({ rows, isMechanic, busyRow, onToggle, onToggleFitt
                 {isDone ? 'Received' : 'Pending'}
               </span>
             </label>
-            <FittedButton row={r} busyRow={busyRow} onToggleFitted={onToggleFitted} />
+            <FittedCheckbox row={r} busyRow={busyRow} onToggleFitted={onToggleFitted} />
           </div>
         </div>
         <dl className="assigned-card-dl">
