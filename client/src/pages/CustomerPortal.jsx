@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
+import { jobProgressCounts, lineFitted, lineReceived, partFlagOn, visiblePartRows } from '../utils/portalJobProgress';
 import { invoiceLineNet } from '../utils/invoiceLineVat';
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
@@ -491,6 +492,8 @@ function PortalJobDetail() {
 
       {saving && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Saving…</p>}
 
+      <JobProgress job={job} />
+
       <section className="card" style={{ marginTop: '1rem' }}>
         <h3 style={{ marginTop: 0 }}>Tasks</h3>
         {(!job.tasks || job.tasks.length === 0) && <p className="empty">No tasks listed.</p>}
@@ -515,15 +518,6 @@ function PortalJobDetail() {
         )}
       </section>
 
-      {job.quote && (
-        <QuoteSection
-          quote={job.quote}
-          allowApprove={allowQuoteApproval}
-          onToggleApprove={toggleApprove}
-          onApproveAllQuote={approveAllQuote}
-        />
-      )}
-
       <section className="card" style={{ marginTop: '1rem' }}>
         <h3 style={{ marginTop: 0 }}>Invoice</h3>
         {!job.invoice && <p className="empty">No invoice yet.</p>}
@@ -537,7 +531,7 @@ function PortalJobDetail() {
                 </span>
               )}
             </p>
-            <PortalLineItemsTable items={job.invoice.items} />
+            <PortalLineItemsTable items={job.invoice.items} showPartProgress />
             <PortalDocumentTotals doc={job.invoice} />
             <div style={{ marginTop: '1.25rem' }}>
               <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
@@ -571,6 +565,15 @@ function PortalJobDetail() {
         )}
       </section>
 
+      {job.quote && (
+        <QuoteSection
+          quote={job.quote}
+          allowApprove={allowQuoteApproval}
+          onToggleApprove={toggleApprove}
+          onApproveAllQuote={approveAllQuote}
+        />
+      )}
+
       <PortalMileageReadOnly job={job} />
 
       {isPast && (
@@ -580,14 +583,59 @@ function PortalJobDetail() {
   );
 }
 
-function PortalLineItemsTable({ items }) {
+function PortalTick({ on }) {
+  if (!on) return null;
+  return (
+    <span className="portal-tick" aria-label="Done">
+      ✓
+    </span>
+  );
+}
+
+function JobProgress({ job }) {
+  const { done, total } = jobProgressCounts(job);
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  return (
+    <section className="card" style={{ marginTop: '1rem' }} aria-label="Job progress">
+      <h3 style={{ marginTop: 0 }}>Progress</h3>
+      {total === 0 ? (
+        <p className="empty" style={{ marginBottom: 0 }}>
+          No parts or tasks on this job yet.
+        </p>
+      ) : (
+        <>
+          <div className="job-progress-label">
+            <span>{done} of {total} complete</span>
+            <span>{pct}%</span>
+          </div>
+          <div
+            className="job-progress-track"
+            role="progressbar"
+            aria-valuenow={done}
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-label={`${done} of ${total} complete`}
+          >
+            <div className="job-progress-fill" style={{ width: `${pct}%` }} />
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function PortalLineItemsTable({ items, showPartProgress = false }) {
   const rows = enrichItemsWithSectionTotals(items || []);
+  const colSpan = showPartProgress ? 6 : 4;
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
             <th>Item</th>
+            {showPartProgress && <th className="portal-flag-col">Received</th>}
+            {showPartProgress && <th className="portal-flag-col">Fitted</th>}
             <th style={{ textAlign: 'right' }}>Qty</th>
             <th style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
             <th style={{ textAlign: 'right' }}>Line (ex VAT)</th>
@@ -596,14 +644,14 @@ function PortalLineItemsTable({ items }) {
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={4} className="empty">No lines.</td>
+              <td colSpan={colSpan} className="empty">No lines.</td>
             </tr>
           )}
           {rows.map((row) => {
             if (row.kind === 'header') {
               return (
                 <tr key={row.item.id} style={{ background: '#f0f0f0' }}>
-                  <td colSpan={3} style={{ fontWeight: 600, padding: '0.55rem 0.75rem' }}>
+                  <td colSpan={colSpan - 1} style={{ fontWeight: 600, padding: '0.55rem 0.75rem' }}>
                     {row.item.description || 'Section'}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 600, padding: '0.55rem 0.75rem' }}>
@@ -615,17 +663,45 @@ function PortalLineItemsTable({ items }) {
             const item = row.item;
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
+            const parts = showPartProgress ? item.parts || [] : [];
+            const childParts = visiblePartRows(parts);
             return (
-              <tr key={item.id}>
-                <td>
-                  {item.description}
-                  <InvoiceLineSubtextView subtext={item.subtext} />
-                  <InvoiceLineDiscountView discountPercent={item.discount_percent} />
-                </td>
-                <td style={{ textAlign: 'right' }}>{qty}</td>
-                <td style={{ textAlign: 'right' }}>{kes(price)}</td>
-                <td style={{ textAlign: 'right' }}>{kes(invoiceLineNet(item))}</td>
-              </tr>
+              <Fragment key={item.id}>
+                <tr>
+                  <td>
+                    {item.description}
+                    <InvoiceLineSubtextView subtext={item.subtext} />
+                    <InvoiceLineDiscountView discountPercent={item.discount_percent} />
+                  </td>
+                  {showPartProgress && (
+                    <td className="portal-flag-cell">
+                      <PortalTick on={lineReceived(parts)} />
+                    </td>
+                  )}
+                  {showPartProgress && (
+                    <td className="portal-flag-cell">
+                      <PortalTick on={lineFitted(parts)} />
+                    </td>
+                  )}
+                  <td style={{ textAlign: 'right' }}>{qty}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(price)}</td>
+                  <td style={{ textAlign: 'right' }}>{kes(invoiceLineNet(item))}</td>
+                </tr>
+                {childParts.map((part) => (
+                  <tr key={part.id}>
+                    <td className="portal-part-name">{part.description}</td>
+                    <td className="portal-flag-cell">
+                      <PortalTick on={partFlagOn(part, 'received_confirmed')} />
+                    </td>
+                    <td className="portal-flag-cell">
+                      <PortalTick on={part.source !== 'ipr' && partFlagOn(part, 'fitted_confirmed')} />
+                    </td>
+                    <td />
+                    <td />
+                    <td />
+                  </tr>
+                ))}
+              </Fragment>
             );
           })}
         </tbody>
