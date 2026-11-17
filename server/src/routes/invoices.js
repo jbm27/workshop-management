@@ -285,6 +285,7 @@ function getLposForInvoice(invoiceId) {
       SELECT ll.*, ii.description AS ii_desc, si.code AS stock_code, si.name AS stock_name,
         au.display_name AS assigned_admin_name,
         ru.display_name AS received_by_admin_name,
+        fu.display_name AS fitted_by_admin_name,
         CASE
           WHEN ii.id IS NOT NULL THEN ii.description
           WHEN IFNULL(si.code, '') != '' THEN TRIM(si.code || ' — ' || COALESCE(si.name, ''))
@@ -295,6 +296,7 @@ function getLposForInvoice(invoiceId) {
       LEFT JOIN stock_items si ON si.id = ll.stock_item_id
       LEFT JOIN admin_users au ON au.id = ll.assigned_admin_user_id
       LEFT JOIN admin_users ru ON ru.id = ll.received_confirmed_by_admin_user_id
+      LEFT JOIN admin_users fu ON fu.id = ll.fitted_confirmed_by_admin_user_id
       WHERE ll.lpo_id = ?
       ORDER BY ll.id
     `,
@@ -485,6 +487,7 @@ invoicesRouter.get('/assigned-receipts/mine', requireAdminAuth, (req, res) => {
         ll.unit_cost,
         ll.received_confirmed,
         ll.received_confirmed_at,
+        ll.fitted_confirmed,
         ll.created_at AS assigned_at,
         ii.description AS invoice_line_description
       FROM lpo_lines ll
@@ -514,6 +517,7 @@ invoicesRouter.get('/assigned-receipts/mine', requireAdminAuth, (req, res) => {
         il.unit_cost,
         il.received_confirmed,
         il.received_confirmed_at,
+        0 AS fitted_confirmed,
         il.created_at AS assigned_at,
         ii.description AS invoice_line_description
       FROM ipr_lines il
@@ -1151,14 +1155,16 @@ invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth,
   if (!requireJobIntakeHandover(req, res)) return;
   const lpo = db.prepare('SELECT * FROM lpos WHERE id = ? AND invoice_id = ?').get(req.params.lpoId, req.params.id);
   if (!lpo) return res.status(404).json({ error: 'LPO not found' });
-  if (Number(lpo.finalized) === 1) return res.status(400).json({ error: 'Already finalised' });
-  if (Number(lpo.approved) !== 1) {
-    return res.status(400).json({ error: 'LPO must be approved before marking parts received' });
-  }
   const line = db.prepare('SELECT * FROM lpo_lines WHERE id = ? AND lpo_id = ?').get(req.params.lineId, req.params.lpoId);
   if (!line) return res.status(404).json({ error: 'Line not found' });
   const assigned = req.body?.assigned_admin_user_id != null ? Number(req.body.assigned_admin_user_id) : null;
   const received = req.body?.received_confirmed !== undefined ? (req.body.received_confirmed ? 1 : 0) : null;
+  const fitted = req.body?.fitted_confirmed !== undefined ? (req.body.fitted_confirmed ? 1 : 0) : null;
+  const fittingOnly = fitted !== null && received === null && assigned === null;
+  if (Number(lpo.finalized) === 1 && !fittingOnly) return res.status(400).json({ error: 'Already finalised' });
+  if (Number(lpo.approved) !== 1) {
+    return res.status(400).json({ error: 'LPO must be approved before marking parts received' });
+  }
   if (assigned !== null && (!Number.isFinite(assigned) || assigned <= 0)) return res.status(400).json({ error: 'Invalid assigned_admin_user_id' });
   const canAssign = Boolean(req.admin.permissions?.can_assign_lpo_ipr_receivers);
   if (assigned !== null && !canAssign) return res.status(403).json({ error: 'You do not have permission to assign line receivers' });
@@ -1171,12 +1177,23 @@ invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth,
   if (received !== null && req.admin.id !== Number(nextAssigned || 0)) {
     return res.status(403).json({ error: 'Only assigned team member can confirm receipt' });
   }
+  const nextReceived = received === null ? Number(line.received_confirmed) === 1 : received === 1;
+  if (fitted === 1 && !nextReceived) {
+    return res.status(400).json({ error: 'Mark the part received before marking it fitted' });
+  }
+  if (fitted !== null && req.admin.id !== Number(nextAssigned || 0)) {
+    return res.status(403).json({ error: 'Only the assigned team member can mark this part fitted' });
+  }
+  const fittedToStore = received === 0 ? 0 : fitted;
   db.prepare(
     `UPDATE lpo_lines
      SET assigned_admin_user_id = COALESCE(?, assigned_admin_user_id),
          received_confirmed = COALESCE(?, received_confirmed),
          received_confirmed_at = CASE WHEN ? = 1 THEN datetime('now') WHEN ? = 0 THEN NULL ELSE received_confirmed_at END,
-         received_confirmed_by_admin_user_id = CASE WHEN ? = 1 THEN ? WHEN ? = 0 THEN NULL ELSE received_confirmed_by_admin_user_id END
+         received_confirmed_by_admin_user_id = CASE WHEN ? = 1 THEN ? WHEN ? = 0 THEN NULL ELSE received_confirmed_by_admin_user_id END,
+         fitted_confirmed = COALESCE(?, fitted_confirmed),
+         fitted_confirmed_at = CASE WHEN ? = 1 THEN datetime('now') WHEN ? = 0 THEN NULL ELSE fitted_confirmed_at END,
+         fitted_confirmed_by_admin_user_id = CASE WHEN ? = 1 THEN ? WHEN ? = 0 THEN NULL ELSE fitted_confirmed_by_admin_user_id END
      WHERE id = ? AND lpo_id = ?`,
   ).run(
     assigned,
@@ -1186,6 +1203,12 @@ invoicesRouter.patch('/:id/lpos/:lpoId/lines/:lineId/receipt', requireAdminAuth,
     received,
     req.admin.id,
     received,
+    fittedToStore,
+    fittedToStore,
+    fittedToStore,
+    fittedToStore,
+    req.admin.id,
+    fittedToStore,
     req.params.lineId,
     req.params.lpoId,
   );

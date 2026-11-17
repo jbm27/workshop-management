@@ -542,6 +542,35 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated, repea
                               />
                               Received
                             </label>
+                            <button
+                              type="button"
+                              className="btn"
+                              style={{
+                                fontSize: '0.75rem',
+                                padding: '0.1rem 0.4rem',
+                                color: Number(ln.fitted_confirmed) === 1 ? 'var(--success)' : undefined,
+                              }}
+                              disabled={
+                                busy ||
+                                Number(doc.approved) !== 1 ||
+                                Number(ln.received_confirmed) !== 1 ||
+                                Number(ln.assigned_admin_user_id || 0) !== Number(admin?.id || 0)
+                              }
+                              title={
+                                Number(ln.received_confirmed) !== 1
+                                  ? 'Mark the part received first'
+                                  : Number(ln.assigned_admin_user_id || 0) !== Number(admin?.id || 0)
+                                    ? 'Only the assigned team member can mark this part fitted'
+                                    : undefined
+                              }
+                              onClick={() =>
+                                updateLpoLineReceipt(doc.id, ln.id, {
+                                  fitted_confirmed: Number(ln.fitted_confirmed) !== 1,
+                                })
+                              }
+                            >
+                              {Number(ln.fitted_confirmed) === 1 ? 'Fitted' : 'Mark fitted'}
+                            </button>
                           </div>
                         </div>
                       ))}

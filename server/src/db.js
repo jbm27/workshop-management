@@ -600,6 +600,15 @@ function migrate(db) {
     if (cols.length && !cols.includes('received_confirmed_by_admin_user_id')) {
       db.run('ALTER TABLE lpo_lines ADD COLUMN received_confirmed_by_admin_user_id INTEGER REFERENCES admin_users(id)');
     }
+    if (cols.length && !cols.includes('fitted_confirmed')) {
+      db.run('ALTER TABLE lpo_lines ADD COLUMN fitted_confirmed INTEGER NOT NULL DEFAULT 0');
+    }
+    if (cols.length && !cols.includes('fitted_confirmed_at')) {
+      db.run('ALTER TABLE lpo_lines ADD COLUMN fitted_confirmed_at TEXT');
+    }
+    if (cols.length && !cols.includes('fitted_confirmed_by_admin_user_id')) {
+      db.run('ALTER TABLE lpo_lines ADD COLUMN fitted_confirmed_by_admin_user_id INTEGER REFERENCES admin_users(id)');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
