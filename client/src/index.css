@@ -607,12 +607,6 @@ tr:hover td {
   border-radius: 999px;
 }
 
-.job-progress-note {
-  margin: 0.45rem 0 0;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
 .portal-flag-col,
 .portal-flag-cell {
   text-align: center;

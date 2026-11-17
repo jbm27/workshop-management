@@ -3,7 +3,7 @@ import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
-import { allPartsFlagged, jobProgressCounts, partFlagOn } from '../utils/portalJobProgress';
+import { jobProgressCounts, lineFitted, lineReceived, partFlagOn, visiblePartRows } from '../utils/portalJobProgress';
 import { invoiceLineNet } from '../utils/invoiceLineVat';
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
@@ -518,15 +518,6 @@ function PortalJobDetail() {
         )}
       </section>
 
-      {job.quote && (
-        <QuoteSection
-          quote={job.quote}
-          allowApprove={allowQuoteApproval}
-          onToggleApprove={toggleApprove}
-          onApproveAllQuote={approveAllQuote}
-        />
-      )}
-
       <section className="card" style={{ marginTop: '1rem' }}>
         <h3 style={{ marginTop: 0 }}>Invoice</h3>
         {!job.invoice && <p className="empty">No invoice yet.</p>}
@@ -574,6 +565,15 @@ function PortalJobDetail() {
         )}
       </section>
 
+      {job.quote && (
+        <QuoteSection
+          quote={job.quote}
+          allowApprove={allowQuoteApproval}
+          onToggleApprove={toggleApprove}
+          onApproveAllQuote={approveAllQuote}
+        />
+      )}
+
       <PortalMileageReadOnly job={job} />
 
       {isPast && (
@@ -601,7 +601,7 @@ function JobProgress({ job }) {
       <h3 style={{ marginTop: 0 }}>Progress</h3>
       {total === 0 ? (
         <p className="empty" style={{ marginBottom: 0 }}>
-          No purchased parts or tasks on this job yet.
+          No parts or tasks on this job yet.
         </p>
       ) : (
         <>
@@ -619,9 +619,6 @@ function JobProgress({ job }) {
           >
             <div className="job-progress-fill" style={{ width: `${pct}%` }} />
           </div>
-          <p className="job-progress-note">
-            Each purchased part counts when it is received and again when it is fitted. Each task counts when it is done.
-          </p>
         </>
       )}
     </section>
@@ -667,6 +664,7 @@ function PortalLineItemsTable({ items, showPartProgress = false }) {
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
             const parts = showPartProgress ? item.parts || [] : [];
+            const childParts = visiblePartRows(parts);
             return (
               <Fragment key={item.id}>
                 <tr>
@@ -677,26 +675,26 @@ function PortalLineItemsTable({ items, showPartProgress = false }) {
                   </td>
                   {showPartProgress && (
                     <td className="portal-flag-cell">
-                      <PortalTick on={allPartsFlagged(parts, 'received_confirmed')} />
+                      <PortalTick on={lineReceived(parts)} />
                     </td>
                   )}
                   {showPartProgress && (
                     <td className="portal-flag-cell">
-                      <PortalTick on={allPartsFlagged(parts, 'fitted_confirmed')} />
+                      <PortalTick on={lineFitted(parts)} />
                     </td>
                   )}
                   <td style={{ textAlign: 'right' }}>{qty}</td>
                   <td style={{ textAlign: 'right' }}>{kes(price)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(invoiceLineNet(item))}</td>
                 </tr>
-                {parts.map((part) => (
-                  <tr key={`part-${part.id}`}>
+                {childParts.map((part) => (
+                  <tr key={part.id}>
                     <td className="portal-part-name">{part.description}</td>
                     <td className="portal-flag-cell">
                       <PortalTick on={partFlagOn(part, 'received_confirmed')} />
                     </td>
                     <td className="portal-flag-cell">
-                      <PortalTick on={partFlagOn(part, 'fitted_confirmed')} />
+                      <PortalTick on={part.source !== 'ipr' && partFlagOn(part, 'fitted_confirmed')} />
                     </td>
                     <td />
                     <td />

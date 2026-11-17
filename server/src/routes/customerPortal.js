@@ -26,6 +26,54 @@ function assertQuoteApprovalAllowed(quote) {
   }
 }
 
+function portalPartsForInvoice(invoiceId) {
+  const lpoRows = db
+    .prepare(
+      `SELECT ll.id, ll.invoice_item_id, ll.description,
+              COALESCE(ll.received_confirmed, 0) AS received_confirmed,
+              COALESCE(ll.fitted_confirmed, 0) AS fitted_confirmed
+       FROM lpo_lines ll
+       INNER JOIN lpos l ON l.id = ll.lpo_id
+       WHERE l.invoice_id = ? AND ll.invoice_item_id IS NOT NULL
+       ORDER BY ll.id`,
+    )
+    .all(invoiceId);
+  const iprRows = db
+    .prepare(
+      `SELECT il.id, il.invoice_item_id, il.description,
+              COALESCE(il.received_confirmed, 0) AS received_confirmed
+       FROM ipr_lines il
+       INNER JOIN iprs ip ON ip.id = il.ipr_id
+       WHERE ip.invoice_id = ?
+       ORDER BY il.id`,
+    )
+    .all(invoiceId);
+  const partsByItem = new Map();
+  const add = (itemId, part) => {
+    const list = partsByItem.get(itemId) || [];
+    list.push(part);
+    partsByItem.set(itemId, list);
+  };
+  for (const row of lpoRows) {
+    add(row.invoice_item_id, {
+      id: `lpo-${row.id}`,
+      description: row.description,
+      source: 'lpo',
+      received_confirmed: Number(row.received_confirmed) === 1 ? 1 : 0,
+      fitted_confirmed: Number(row.fitted_confirmed) === 1 ? 1 : 0,
+    });
+  }
+  for (const row of iprRows) {
+    add(row.invoice_item_id, {
+      id: `ipr-${row.id}`,
+      description: row.description,
+      source: 'ipr',
+      received_confirmed: Number(row.received_confirmed) === 1 ? 1 : 0,
+    });
+  }
+  return partsByItem;
+}
+
 function portalDocumentForCustomer(inv, items) {
   if (!inv) return null;
   const fresh = refreshInvoiceTotalsFromLineItems(inv.id);
@@ -69,28 +117,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
     : [];
   if (withTasks && invoice) {
-    const partRows = db
-      .prepare(
-        `SELECT ll.id, ll.invoice_item_id, ll.description,
-                COALESCE(ll.received_confirmed, 0) AS received_confirmed,
-                COALESCE(ll.fitted_confirmed, 0) AS fitted_confirmed
-         FROM lpo_lines ll
-         INNER JOIN lpos l ON l.id = ll.lpo_id
-         WHERE l.invoice_id = ? AND ll.invoice_item_id IS NOT NULL
-         ORDER BY ll.id`,
-      )
-      .all(invoice.id);
-    const partsByItem = new Map();
-    for (const row of partRows) {
-      const list = partsByItem.get(row.invoice_item_id) || [];
-      list.push({
-        id: row.id,
-        description: row.description,
-        received_confirmed: Number(row.received_confirmed) === 1 ? 1 : 0,
-        fitted_confirmed: Number(row.fitted_confirmed) === 1 ? 1 : 0,
-      });
-      partsByItem.set(row.invoice_item_id, list);
-    }
+    const partsByItem = portalPartsForInvoice(invoice.id);
     for (const item of invoiceItems) {
       item.parts = partsByItem.get(item.id) || [];
     }
