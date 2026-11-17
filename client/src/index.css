@@ -419,9 +419,9 @@ tr:hover td {
   font-size: 0.8rem;
   font-weight: 500;
 }
-.badge.in_progress { background: rgba(9, 105, 218, 0.12); color: var(--accent); }
+.badge.in_progress { background: rgba(207, 34, 46, 0.12); color: var(--danger); }
 .badge.vehicle_released { background: rgba(57,197,207,0.18); color: #39c5cf; }
-.badge.pending { background: rgba(9, 105, 218, 0.1); color: var(--accent); }
+.badge.pending { background: rgba(207, 34, 46, 0.12); color: var(--danger); }
 .badge.completed { background: rgba(26, 127, 55, 0.12); color: var(--success); }
 .badge.cancelled { background: rgba(207, 34, 46, 0.12); color: var(--danger); }
 .badge.scheduled { background: rgba(9, 105, 218, 0.12); color: var(--accent); }
