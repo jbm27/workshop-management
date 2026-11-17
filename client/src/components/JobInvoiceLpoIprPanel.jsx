@@ -270,7 +270,21 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated, repea
     setBusy(true);
     try {
       await api.invoices.updateLpoLineReceipt(invoice.id, lpoId, lineId, patch);
-      await refreshInvoiceAndLpos();
+      const docs = await api.invoices.listLpos(invoice.id);
+      if (patch.fitted_confirmed !== undefined) {
+        const doc = (docs || []).find((d) => Number(d.id) === Number(lpoId));
+        const line = (doc?.lines || []).find((ln) => Number(ln.id) === Number(lineId));
+        const saved = Number(line?.fitted_confirmed) === 1;
+        if (Boolean(patch.fitted_confirmed) !== saved) {
+          alert(
+            'Fitted did not stay ticked. In Railway, open the development environment and set the workshop service branch to lpo-mark-fitted. Leave production on main.',
+          );
+        }
+      }
+      const inv = await api.invoices.get(invoice.id);
+      onInvoiceUpdated(inv);
+      setLpos(docs || []);
+      await loadIprs();
     } catch (err) {
       alert(err.message);
     } finally {
@@ -541,6 +555,25 @@ export default function JobInvoiceLpoIprPanel({ invoice, onInvoiceUpdated, repea
                                 }
                               />
                               Received
+                            </label>
+                            <label style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <input
+                                type="checkbox"
+                                checked={Number(ln.fitted_confirmed) === 1}
+                                onChange={(e) => updateLpoLineReceipt(doc.id, ln.id, { fitted_confirmed: e.target.checked })}
+                                disabled={
+                                  busy ||
+                                  Number(doc.approved) !== 1 ||
+                                  Number(ln.received_confirmed) !== 1 ||
+                                  !(
+                                    Number(ln.assigned_admin_user_id || 0) === Number(admin?.id || 0) ||
+                                    canFinalizeLpos ||
+                                    canAssignReceivers
+                                  )
+                                }
+                                title={Number(ln.received_confirmed) !== 1 ? 'Mark the part received first' : undefined}
+                              />
+                              Fitted
                             </label>
                           </div>
                         </div>

@@ -303,6 +303,9 @@ CREATE TABLE IF NOT EXISTS lpo_lines (
   received_confirmed INTEGER NOT NULL DEFAULT 0,
   received_confirmed_at TEXT,
   received_confirmed_by_admin_user_id INTEGER REFERENCES admin_users(id),
+  fitted_confirmed INTEGER NOT NULL DEFAULT 0,
+  fitted_confirmed_at TEXT,
+  fitted_confirmed_by_admin_user_id INTEGER REFERENCES admin_users(id),
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_lpo_lines_lpo ON lpo_lines(lpo_id);
