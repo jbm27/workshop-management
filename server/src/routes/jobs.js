@@ -4,6 +4,7 @@ import { requireAdminAuth } from '../auth.js';
 import { allocateRepeatJobNumber } from '../repeatJobFamily.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
+import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
 import { streamJobSummaryPdf } from '../jobSummaryPdf.js';
 import { streamJobTasksPdf } from '../jobTasksPdf.js';
 import { deductOutstandingStockForJob } from '../invoiceStockDeduction.js';
@@ -1137,6 +1138,19 @@ jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
   res.status(201).json({ ...row, items });
 });
 
+/** Move customer-approved quote lines onto the job invoice (catches up items approved before the invoice existed). */
+jobsRouter.post('/:id/invoice/move-approved-quote-lines', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
+  const job = loadJobForCardRules(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  const intakeCheck = checkJobIntakeHandover(job);
+  if (!intakeCheck.ok) return res.status(400).json({ error: intakeCheck.error });
+  const invoice = db.prepare("SELECT id FROM invoices WHERE job_id = ? AND type = 'invoice'").get(req.params.id);
+  if (!invoice) return res.status(400).json({ error: 'Create an invoice for this job first' });
+  const moved = moveApprovedQuoteLinesToInvoice(req.params.id);
+  res.json({ moved });
+});
+
 jobsRouter.post('/:id/invoice', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;
   const job = loadJobForCardRules(req.params.id);
@@ -1157,6 +1171,8 @@ jobsRouter.post('/:id/invoice', requireAdminAuth, (req, res) => {
   const invId = result.lastInsertRowid;
   db.prepare('UPDATE invoices SET subtotal = 0, tax_amount = 0, total = 0 WHERE id = ?').run(invId);
   syncLabourLinesForJob(req.params.id);
+  // Items the customer already approved on the quote come straight across.
+  moveApprovedQuoteLinesToInvoice(req.params.id);
   const row = db.prepare(`
     SELECT i.*, c.name as customer_name, v.registration
     FROM invoices i JOIN customers c ON i.customer_id = c.id LEFT JOIN vehicles v ON i.vehicle_id = v.id

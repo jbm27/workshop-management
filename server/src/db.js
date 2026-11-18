@@ -281,6 +281,29 @@ function migrate(db) {
       db.run('ALTER TABLE invoice_items ADD COLUMN discount_percent REAL DEFAULT 0');
       db.run('UPDATE invoice_items SET discount_percent = 0 WHERE discount_percent IS NULL');
     }
+    // Invoice line progress (approved → LPO issued → received → fitted → vehicle tested).
+    // *_at/*_by are manual ticks by staff; LPO/IPR part ticks also count (see invoiceLineProgress.js).
+    for (const col of [
+      'approved_at',
+      'lpo_issued_at',
+      'lpo_issued_by',
+      'received_at',
+      'received_by',
+      'fitted_at',
+      'fitted_by',
+      'tested_at',
+      'tested_by',
+      // Quote line → invoice line hand-off: set on the quote line once moved, so it moves only once.
+      'moved_to_invoice_at',
+    ]) {
+      if (iiCols.length && !iiCols.includes(col)) {
+        db.run(`ALTER TABLE invoice_items ADD COLUMN ${col} TEXT`);
+      }
+    }
+    // Invoice line → the approved quote line it came from (null for items typed straight onto the invoice).
+    if (iiCols.length && !iiCols.includes('quote_item_id')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN quote_item_id INTEGER');
+    }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
       db.run('UPDATE invoice_items SET vat_exempt = 0 WHERE vat_exempt IS NULL');

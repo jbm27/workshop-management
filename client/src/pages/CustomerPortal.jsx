@@ -3,11 +3,27 @@ import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
 import { enrichItemsWithSectionTotals, isHeaderLine } from '../utils/invoiceLineSections';
-import { jobProgressCounts, lineFitted, lineReceived, partFlagOn, visiblePartRows } from '../utils/portalJobProgress';
+import { partCanBeFitted, partFlagOn, visiblePartRows } from '../utils/portalJobProgress';
 import { invoiceLineNet } from '../utils/invoiceLineVat';
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
+import { LineProgressToggle, LineProgressSteps, JobProgressBar } from '../components/LineProgress';
+import { isTrackableLine } from '../utils/lineProgress';
+
+/** A card that opens and closes; the summary line stays visible when it is closed. */
+function Collapsible({ title, meta, defaultOpen = false, children }) {
+  return (
+    <details className="card cf-collapse" open={defaultOpen || undefined}>
+      <summary>
+        <span className="cf-collapse-title">{title}</span>
+        {meta ? <span className="cf-collapse-meta">{meta}</span> : null}
+        <span className="cf-collapse-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div className="cf-collapse-body">{children}</div>
+    </details>
+  );
+}
 
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
@@ -117,36 +133,33 @@ function PortalJobsList() {
       });
 
   return (
-    <div className="customer-portal">
+    <div className="customer-portal cf-compact">
       <div className="cf-eyebrow">Customer portal · Karen, Nairobi</div>
-      <h1 className="page-title" style={{ marginBottom: '0.5rem' }}>{customer.name}</h1>
-      <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>
-        {customer.email || '—'} {customer.phone ? ` · ${customer.phone}` : ''}
+      <h1 className="page-title">{customer.name}</h1>
+      <p className="cf-meta-line">
+        {[customer.email, customer.phone].filter(Boolean).join(' · ') || '—'}
       </p>
 
       {(jobs.length > 0 || standaloneDocs.length > 0) && (
-        <div className="form-group card" style={{ marginBottom: '1rem', padding: '1rem 1.25rem' }}>
-          <label htmlFor="portal-job-search">Search jobs & documents</label>
+        <div className="cf-search">
+          <label htmlFor="portal-job-search" className="cf-visually-hidden">Search jobs & documents</label>
           <input
             id="portal-job-search"
             type="search"
-            placeholder="Job number, registration, quote #, invoice #, status…"
+            placeholder="Search job number, registration, quote #, invoice #, status…"
             value={portalSearch}
             onChange={(e) => setPortalSearch(e.target.value)}
-            style={{ width: '100%', maxWidth: '28rem' }}
           />
         </div>
       )}
 
+      {standaloneDocs.length > 0 && (
       <section className="card">
-        <h3 style={{ marginTop: 0 }}>Quotes & invoices (no job yet)</h3>
-        {standaloneDocs.length === 0 && (
-          <p className="empty" style={{ marginBottom: 0 }}>
-            No standalone quotes or invoices. Documents created without a job appear here.
-          </p>
-        )}
-        {standaloneDocs.length > 0 && (
-          <div className="table-wrap" style={{ marginBottom: '1.5rem' }}>
+        <div className="cf-card-head">
+          <h3>Quotes & invoices</h3>
+          <span className="cf-card-head-meta">Not linked to a job yet</span>
+        </div>
+          <div className="table-wrap">
             <table>
               <thead>
                 <tr>
@@ -195,12 +208,19 @@ function PortalJobsList() {
               </tbody>
             </table>
           </div>
-        )}
       </section>
+      )}
 
       <section className="card">
-        <h3 style={{ marginTop: 0 }}>Your jobs</h3>
-        {jobs.length === 0 && <p className="empty">No jobs yet.</p>}
+        <div className="cf-card-head">
+          <h3>Your jobs</h3>
+          {jobs.length > 0 && (
+            <span className="cf-card-head-meta">
+              {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'}
+            </span>
+          )}
+        </div>
+        {jobs.length === 0 && <p className="empty cf-empty-sm">No jobs yet.</p>}
         {jobs.length > 0 && (
           <>
             {filteredJobs.length === 0 && <p className="empty">No jobs match your search.</p>}
@@ -246,7 +266,7 @@ function PortalJobsList() {
                           )}
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
-                          <Link className="btn primary" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }} to={`job/${job.id}`}>
+                          <Link className="btn primary cf-btn-sm" to={`job/${job.id}`}>
                             View
                           </Link>
                         </td>
@@ -317,12 +337,10 @@ function PortalStandaloneDocument() {
     payload;
 
   return (
-    <div className="customer-portal">
-      <p style={{ marginBottom: '0.75rem' }}>
-        <Link to={`/portal/${encodeURIComponent(token)}`} className="btn" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}>
-          ← Home
-        </Link>
-      </p>
+    <div className="customer-portal cf-compact">
+      <Link to={`/portal/${encodeURIComponent(token)}`} className="cf-back">
+        ← Home
+      </Link>
       <div className="cf-eyebrow">Your document</div>
       <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
         {String(docType || '').toLowerCase() === 'quote' ? (
@@ -464,109 +482,25 @@ function PortalJobDetail() {
 
   const { customer, job, quote_approval_allowed: allowQuoteApproval } = payload;
   const isPast = job.status === 'completed' || job.status === 'cancelled';
+  const tasks = job.tasks || [];
+  const tasksDone = tasks.filter(isTaskCompleted).length;
+  const vehicle = [job.vehicle?.registration, job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ') || '—';
 
   return (
-    <div className="customer-portal">
-      <p style={{ marginBottom: '0.75rem' }}>
-        <Link to={`/portal/${encodeURIComponent(token)}`} className="btn" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}>
-          ← All jobs
-        </Link>
-      </p>
+    <div className="customer-portal cf-compact">
+      <Link to={`/portal/${encodeURIComponent(token)}`} className="cf-back">
+        ← All jobs
+      </Link>
       <div className="cf-eyebrow">Workshop job · {jobStatusLabel(job.status)}</div>
-      <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>{job.job_number}</h1>
-      <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>
-        {customer.name}
-        {' · '}
-        {[job.vehicle?.registration, job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ') || '—'}
-      </p>
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-        {jobStatusLabel(job.status)}
-        {' · '}
-        In {formatPortalDate(job.created_at)}
+      <h1 className="page-title">{job.job_number}</h1>
+      <p className="cf-meta-line">
+        {customer.name} · {vehicle} · In {formatPortalDate(job.created_at)}
         {job.completed_at ? ` · Out ${formatPortalDate(job.completed_at)}` : ''}
-        {job.invoice ? (
-          <>
-            {' · '}
-            Invoiced {kes(job.invoice.total)}
-            {job.invoice.invoice_number ? ` (${job.invoice.invoice_number})` : ''}
-          </>
-        ) : null}
       </p>
 
-      {saving && <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Saving…</p>}
+      {saving && <p className="cf-saving">Saving…</p>}
 
-      <JobProgress job={job} />
-
-      <section className="card" style={{ marginTop: '1rem' }}>
-        <h3 style={{ marginTop: 0 }}>Tasks</h3>
-        {(!job.tasks || job.tasks.length === 0) && <p className="empty">No tasks listed.</p>}
-        {job.tasks?.length > 0 && (
-          <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
-            {job.tasks.map((t) => {
-              const done = isTaskCompleted(t);
-              return (
-                <li key={t.id} style={{ marginBottom: '0.35rem' }}>
-                  {done ? (
-                    <span style={{ textDecoration: 'line-through', color: 'var(--text-muted)' }}>{t.description}</span>
-                  ) : (
-                    t.description
-                  )}
-                  {done ? (
-                    <span style={{ marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--success)' }}>Done</span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      <section className="card" style={{ marginTop: '1rem' }}>
-        <h3 style={{ marginTop: 0 }}>Invoice</h3>
-        {!job.invoice && <p className="empty">No invoice yet.</p>}
-        {job.invoice && (
-          <>
-            <p style={{ margin: '0 0 0.75rem' }}>
-              <strong>{job.invoice.invoice_number}</strong>
-              {job.invoice.status && (
-                <span style={{ marginLeft: '0.5rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                  ({job.invoice.status})
-                </span>
-              )}
-            </p>
-            <PortalLineItemsTable items={job.invoice.items} showPartProgress />
-            <PortalDocumentTotals doc={job.invoice} />
-            <div style={{ marginTop: '1.25rem' }}>
-              <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Amount</th>
-                      <th>Date</th>
-                      <th>Note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(!job.invoice.payments || job.invoice.payments.length === 0) && (
-                      <tr>
-                        <td colSpan={3} className="empty">No payments recorded yet.</td>
-                      </tr>
-                    )}
-                    {job.invoice.payments?.map((p) => (
-                      <tr key={p.id}>
-                        <td><strong>{kes(p.amount)}</strong></td>
-                        <td>{p.paid_at ? new Date(p.paid_at).toLocaleString() : '—'}</td>
-                        <td style={{ color: 'var(--text-muted)' }}>{p.notes || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
+      <JobProgressBar items={job.invoice?.items} tasks={tasks} />
 
       {job.quote && (
         <QuoteSection
@@ -577,11 +511,87 @@ function PortalJobDetail() {
         />
       )}
 
+      <section className="card">
+        <div className="cf-card-head">
+          <h3>Invoice</h3>
+          {job.invoice && (
+            <span className="cf-card-head-meta">
+              <strong>{job.invoice.invoice_number}</strong>
+              {job.invoice.status ? ` · ${job.invoice.status}` : ''}
+            </span>
+          )}
+        </div>
+        {!job.invoice && (
+          <p className="empty cf-empty-sm">No invoice yet. Items you approve on the quote will appear here.</p>
+        )}
+        {job.invoice && (
+          <>
+            <PortalLineItemsTable items={job.invoice.items} showPartProgress />
+            <PortalDocumentTotals doc={job.invoice} />
+          </>
+        )}
+      </section>
+
+      {job.invoice && (
+        <Collapsible
+          title="Payments"
+          meta={`Paid ${kes(job.invoice.amount_paid)} · Balance ${kes(job.invoice.balance)}`}
+        >
+          <PaymentHistoryTable payments={job.invoice.payments} />
+        </Collapsible>
+      )}
+
+      {tasks.length > 0 && (
+        <Collapsible title="Tasks" meta={`${tasksDone} of ${tasks.length} done`}>
+          <ul className="cf-task-list">
+            {tasks.map((t) => {
+              const done = isTaskCompleted(t);
+              return (
+                <li key={t.id} className={done ? 'done' : undefined}>
+                  <span className="cf-task-tick" aria-hidden="true">{done ? '✓' : ''}</span>
+                  <span>{t.description}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Collapsible>
+      )}
+
       <PortalMileageReadOnly job={job} />
 
       {isPast && (
         <FeedbackSection job={job} onSubmitRating={submitRating} />
       )}
+    </div>
+  );
+}
+
+function PaymentHistoryTable({ payments }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Amount</th>
+            <th>Date</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(!payments || payments.length === 0) && (
+            <tr>
+              <td colSpan={3} className="empty cf-empty-sm">No payments recorded yet.</td>
+            </tr>
+          )}
+          {payments?.map((p) => (
+            <tr key={p.id}>
+              <td><strong>{kes(p.amount)}</strong></td>
+              <td>{p.paid_at ? new Date(p.paid_at).toLocaleString() : '—'}</td>
+              <td style={{ color: 'var(--text-muted)' }}>{p.notes || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -595,52 +605,27 @@ function PortalTick({ on }) {
   );
 }
 
-function JobProgress({ job }) {
-  const { done, total } = jobProgressCounts(job);
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-
-  return (
-    <section className="card" style={{ marginTop: '1rem' }} aria-label="Job progress">
-      <h3 style={{ marginTop: 0 }}>Progress</h3>
-      {total === 0 ? (
-        <p className="empty" style={{ marginBottom: 0 }}>
-          No parts or tasks on this job yet.
-        </p>
-      ) : (
-        <>
-          <div className="job-progress-label">
-            <span>{done} of {total} complete</span>
-            <span>{pct}%</span>
-          </div>
-          <div
-            className="job-progress-track"
-            role="progressbar"
-            aria-valuenow={done}
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-label={`${done} of ${total} complete`}
-          >
-            <div className="job-progress-fill" style={{ width: `${pct}%` }} />
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
 function PortalLineItemsTable({ items, showPartProgress = false }) {
   const rows = enrichItemsWithSectionTotals(items || []);
-  const colSpan = showPartProgress ? 6 : 4;
+  const colSpan = showPartProgress ? 5 : 4;
+  // Every line's tick list starts closed so the invoice stays tidy.
+  const [openLines, setOpenLines] = useState(() => new Set());
+  const toggleLine = (id) =>
+    setOpenLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   return (
     <div className="table-wrap">
-      <table>
+      <table className="cf-lines">
         <thead>
           <tr>
+            {showPartProgress && <th className="cf-progress-col">Progress</th>}
             <th>Item</th>
-            {showPartProgress && <th className="portal-flag-col">Received</th>}
-            {showPartProgress && <th className="portal-flag-col">Fitted</th>}
             <th style={{ textAlign: 'right' }}>Qty</th>
-            <th style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
+            <th className="cf-col-unit" style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
             <th style={{ textAlign: 'right' }}>Line (ex VAT)</th>
           </tr>
         </thead>
@@ -666,44 +651,59 @@ function PortalLineItemsTable({ items, showPartProgress = false }) {
             const item = row.item;
             const qty = Number(item.quantity) || 0;
             const price = Number(item.unit_price) || 0;
-            const parts = showPartProgress ? item.parts || [] : [];
-            const childParts = visiblePartRows(parts);
+            const tracked = showPartProgress && isTrackableLine(item);
+            const open = tracked && openLines.has(item.id);
+            const stepsId = `portal-line-progress-${item.id}`;
+            const childParts = visiblePartRows(item.parts || []);
             return (
               <Fragment key={item.id}>
-                <tr>
+                <tr className={open ? 'cf-line-open' : undefined}>
+                  {showPartProgress && (
+                    <td className="cf-progress-col">
+                      {tracked && (
+                        <LineProgressToggle
+                          item={item}
+                          open={open}
+                          onToggle={() => toggleLine(item.id)}
+                          controlsId={stepsId}
+                        />
+                      )}
+                    </td>
+                  )}
                   <td>
                     {item.description}
                     <InvoiceLineSubtextView subtext={item.subtext} />
                     <InvoiceLineDiscountView discountPercent={item.discount_percent} />
                   </td>
-                  {showPartProgress && (
-                    <td className="portal-flag-cell">
-                      <PortalTick on={lineReceived(parts)} />
-                    </td>
-                  )}
-                  {showPartProgress && (
-                    <td className="portal-flag-cell">
-                      <PortalTick on={lineFitted(parts)} />
-                    </td>
-                  )}
                   <td style={{ textAlign: 'right' }}>{qty}</td>
-                  <td style={{ textAlign: 'right' }}>{kes(price)}</td>
+                  <td className="cf-col-unit" style={{ textAlign: 'right' }}>{kes(price)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(invoiceLineNet(item))}</td>
                 </tr>
-                {childParts.map((part) => (
-                  <tr key={part.id}>
-                    <td className="portal-part-name">{part.description}</td>
-                    <td className="portal-flag-cell">
-                      <PortalTick on={partFlagOn(part, 'received_confirmed')} />
+                {open && (
+                  <tr className="lp-row">
+                    <td colSpan={colSpan}>
+                      <LineProgressSteps id={stepsId} item={item} canTick={() => false}>
+                        {childParts.length > 0 && (
+                          <ul className="lp-parts">
+                            {childParts.map((part) => (
+                              <li key={part.id}>
+                                <span className="lp-part-name">{part.description}</span>
+                                <span className={partFlagOn(part, 'received_confirmed') ? 'on' : undefined}>
+                                  {partFlagOn(part, 'received_confirmed') ? '✓ ' : ''}Received
+                                </span>
+                                {partCanBeFitted(part) && (
+                                  <span className={partFlagOn(part, 'fitted_confirmed') ? 'on' : undefined}>
+                                    {partFlagOn(part, 'fitted_confirmed') ? '✓ ' : ''}Fitted
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </LineProgressSteps>
                     </td>
-                    <td className="portal-flag-cell">
-                      <PortalTick on={part.source !== 'ipr' && partFlagOn(part, 'fitted_confirmed')} />
-                    </td>
-                    <td />
-                    <td />
-                    <td />
                   </tr>
-                ))}
+                )}
               </Fragment>
             );
           })}
@@ -730,55 +730,48 @@ function PortalDocumentTotals({ doc }) {
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote }) {
   const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
+  const needsApproval = quotePendingCount > 0 && allowApprove;
+  const meta = [
+    quote.invoice_number,
+    quotePendingCount > 0 ? `${quotePendingCount} to approve` : 'All approved',
+    kes(quote.total),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
-    <section className="card" style={{ marginTop: '1rem' }}>
-      <h3 style={{ marginTop: 0 }}>Quote</h3>
-      <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-        <strong>{quote.invoice_number}</strong>
-        {quote.status && (
-          <span style={{ marginLeft: '0.35rem' }}>({quote.status})</span>
-        )}
-        {!allowApprove && quotePendingCount > 0 && (
-          <span> · Some lines are not approved (approval is only available while the job is open).</span>
-        )}
-      </p>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            {(quote.items?.length ?? 0) >= 2 && quotePendingCount > 0 && allowApprove && (
-              <tr>
-                <th
-                  style={{
-                    textAlign: 'center',
-                    verticalAlign: 'bottom',
-                    borderBottom: 'none',
-                    paddingBottom: '0.35rem',
+    <Collapsible title="Quote" meta={meta} defaultOpen={needsApproval}>
+      {(needsApproval || (!allowApprove && quotePendingCount > 0)) && (
+        <div className="cf-quote-bar">
+          {needsApproval ? (
+            <>
+              <span>Approve the items you would like us to go ahead with. Approved items move to your invoice.</span>
+              {(quote.items?.length ?? 0) >= 2 && (
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => {
+                    if (!window.confirm('Are you sure you would like to approve all lines?')) return;
+                    onApproveAllQuote(quote.id);
                   }}
                 >
-                  <button
-                    type="button"
-                    className="btn primary"
-                    style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
-                    onClick={() => {
-                      if (!window.confirm('Are you sure you would like to approve all lines?')) return;
-                      onApproveAllQuote(quote.id);
-                    }}
-                  >
-                    Approve all
-                  </button>
-                </th>
-                <th style={{ borderBottom: 'none', padding: 0 }} aria-hidden="true" />
-                <th style={{ borderBottom: 'none', padding: 0 }} aria-hidden="true" />
-                <th style={{ borderBottom: 'none', padding: 0 }} aria-hidden="true" />
-                <th style={{ borderBottom: 'none', padding: 0 }} aria-hidden="true" />
-              </tr>
-            )}
+                  Approve all
+                </button>
+              )}
+            </>
+          ) : (
+            <span>Some lines are not approved (approval is only available while the job is open).</span>
+          )}
+        </div>
+      )}
+      <div className="table-wrap">
+        <table className="cf-lines">
+          <thead>
             <tr>
               <th>Approval</th>
               <th>Item</th>
               <th style={{ textAlign: 'right' }}>Qty</th>
-              <th style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
+              <th className="cf-col-unit" style={{ textAlign: 'right' }}>Unit (ex VAT)</th>
               <th style={{ textAlign: 'right' }}>Line (ex VAT)</th>
             </tr>
           </thead>
@@ -807,12 +800,14 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
                 <tr key={item.id}>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                     {isQuoteLineApproved(item) ? (
-                      <span style={{ color: 'var(--success)', fontSize: '0.9rem', fontWeight: 600 }}>Approved</span>
+                      <span className="cf-approved">
+                        ✓ Approved
+                        {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
+                      </span>
                     ) : allowApprove ? (
                       <button
                         type="button"
-                        className="btn primary"
-                        style={{ padding: '0.3rem 0.65rem', fontSize: '0.85rem' }}
+                        className="btn primary cf-btn-sm"
                         onClick={() => {
                           if (!window.confirm('Are you sure you would like to approve?')) return;
                           onToggleApprove(quote.id, item.id, true);
@@ -829,7 +824,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
                     <InvoiceLineSubtextView subtext={item.subtext} />
                   </td>
                   <td style={{ textAlign: 'right' }}>{qty}</td>
-                  <td style={{ textAlign: 'right' }}>{kes(price)}</td>
+                  <td className="cf-col-unit" style={{ textAlign: 'right' }}>{kes(price)}</td>
                   <td style={{ textAlign: 'right' }}>{kes(qty * price)}</td>
                 </tr>
               );
@@ -838,7 +833,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
         </table>
       </div>
       <PortalDocumentTotals doc={quote} />
-    </section>
+    </Collapsible>
   );
 }
 
@@ -860,10 +855,13 @@ function PortalMileageReadOnly({ job }) {
     marginBottom: '0.35rem',
   };
 
+  const inKm = job.odometer_in != null ? `${Number(job.odometer_in).toLocaleString()} km in` : null;
+  const outKm = job.odometer_out != null ? `${Number(job.odometer_out).toLocaleString()} km out` : null;
+  const meta = [inKm, outKm, job.fuel_in ? `Fuel in ${job.fuel_in}` : null].filter(Boolean).join(' · ');
+
   return (
-    <section className="card" style={{ marginTop: '1rem' }}>
-      <h3 style={{ marginTop: 0 }}>Mileage & fuel</h3>
-      <div style={{ marginBottom: '0.75rem' }}>
+    <Collapsible title="Mileage & fuel" meta={meta || 'Not recorded yet'}>
+      <div>
         <div style={rowStyle}>
           <strong>Mileage in</strong>
           <span>{job.odometer_in != null ? `${Number(job.odometer_in).toLocaleString()} km` : '—'}</span>
@@ -887,7 +885,7 @@ function PortalMileageReadOnly({ job }) {
           <span>, Fuel used {ho.fuelUsed}</span>
         </div>
       </div>
-    </section>
+    </Collapsible>
   );
 }
 

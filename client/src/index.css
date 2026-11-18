@@ -791,3 +791,138 @@ tr:hover td {
   .cf-portal .card { padding: 1.1rem 1rem; border-radius: 10px; }
   .cf-footer-grid { grid-template-columns: 1fr; gap: 1.25rem; }
 }
+
+/* ======================================================================
+   Invoice line progress tick list (staff job page + customer portal)
+   Approved → LPO issued → Received → Fitted → Vehicle tested
+   ====================================================================== */
+.lp-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.2rem 0.5rem; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); color: var(--text); font-size: 0.8rem; cursor: pointer; white-space: nowrap;
+}
+.lp-toggle:hover { border-color: var(--text); }
+.lp-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lp-mini { display: inline-block; width: 2.5rem; height: 0.32rem; border-radius: 999px; background: #e8e8e5; overflow: hidden; }
+.lp-mini > span, .lp-job-track > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.25s ease; }
+.lp-tone-done .lp-mini > span, .lp-tone-done .lp-job-track > span { background: var(--success); }
+.lp-pct { font-variant-numeric: tabular-nums; min-width: 2.3em; text-align: right; font-weight: 600; }
+.lp-tone-idle .lp-pct { color: var(--text-muted); font-weight: 500; }
+.lp-tone-done .lp-pct { color: var(--success); }
+.lp-chevron { color: var(--text-muted); font-size: 0.75rem; transition: transform 0.15s ease; }
+.lp-chevron.open { transform: rotate(180deg); }
+
+tr.lp-row > td { background: #fafaf8; padding: 0.55rem 0.75rem 0.65rem; }
+tr.lp-row:hover > td { background: #fafaf8; }
+.lp-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.lp-step { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.1rem; padding: 0 0.2rem; }
+.lp-step + .lp-step::before {
+  content: ''; position: absolute; top: 0.55rem; right: 50%; width: 100%; height: 2px; background: var(--border); z-index: 0;
+}
+.lp-step.done + .lp-step.done::before { background: var(--success); }
+.lp-dot {
+  position: relative; z-index: 1; width: 1.1rem; height: 1.1rem; border-radius: 50%;
+  border: 2px solid var(--border); background: var(--surface);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; color: #fff;
+}
+.lp-step.done .lp-dot { background: var(--success); border-color: var(--success); }
+.lp-step label { display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: 0.82rem; font-weight: 600; cursor: default; }
+.lp-step label.editable, .lp-step label.editable input { cursor: pointer; }
+.lp-step input[type='checkbox'] { width: 0.95rem; height: 0.95rem; min-height: 0; margin: 0; accent-color: var(--success); }
+.lp-step:not(.done) .lp-label { color: var(--text-muted); font-weight: 500; }
+.lp-meta { font-size: 0.72rem; color: var(--text-muted); line-height: 1.3; }
+.lp-note { margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--text-muted); text-align: center; }
+.lp-parts { list-style: none; margin: 0.55rem 0 0; padding: 0.45rem 0 0; border-top: 1px dashed var(--border); font-size: 0.8rem; }
+.lp-parts li { display: flex; gap: 0.9rem; align-items: baseline; padding: 0.1rem 0; color: var(--text-muted); }
+.lp-parts .lp-part-name { flex: 1; color: var(--text); }
+.lp-parts .on { color: var(--success); font-weight: 600; }
+
+.lp-job { margin: 0 0 0.85rem; padding: 0.6rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.lp-job-head { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; font-size: 0.85rem; margin-bottom: 0.4rem; }
+.lp-job-title { color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.72rem; align-self: center; }
+.lp-job-sub { color: var(--text-muted); }
+.lp-job-track { height: 0.4rem; border-radius: 999px; background: #e8e8e5; overflow: hidden; }
+.lp-tone-done .lp-job-head strong { color: var(--success); }
+
+@media (max-width: 640px) {
+  .lp-steps { grid-template-columns: 1fr; gap: 0.35rem; position: sticky; left: 0; width: calc(100vw - 4.5rem); max-width: 100%; }
+  .lp-step { flex-direction: row; text-align: left; gap: 0.5rem; padding: 0; }
+  .lp-step + .lp-step::before { display: none; }
+  .lp-step label { margin-top: 0; }
+  .lp-meta { margin-left: auto; text-align: right; }
+  .lp-parts { position: sticky; left: 0; width: calc(100vw - 4.5rem); max-width: 100%; }
+}
+
+/* ======================================================================
+   Customer portal — compact layout (keeps the main-site look, less spacing)
+   ====================================================================== */
+.cf-portal .cf-compact .card { padding: 1rem 1.15rem; margin-bottom: 0.75rem; }
+.cf-portal .cf-compact .page-title { font-size: clamp(1.75rem, 3.2vw, 2.3rem); margin-bottom: 0.2rem; }
+.cf-portal .cf-compact h3 { font-size: 1.1rem; margin: 0; }
+.cf-portal .cf-compact th, .cf-portal .cf-compact td { padding: 0.45rem 0.6rem; }
+.cf-portal .cf-compact th { font-size: 11px; }
+.cf-portal .cf-compact .btn.cf-btn-sm, .cf-portal .cf-compact .cf-btn-sm { min-height: 32px; padding: 0 0.8rem; font-size: 12px; }
+.cf-portal .cf-compact .lp-job { padding: 0.65rem 1rem; border-radius: 12px; margin-bottom: 0.75rem; }
+.cf-portal .cf-compact .lp-toggle { border-color: #d9d9d6; }
+.cf-portal.cf-portal .cf-main { padding: 1.5rem 0 2.5rem; }
+.cf-portal .cf-eyebrow { font-size: 12px; margin-bottom: 0.35rem; }
+.cf-back { display: inline-block; margin-bottom: 0.6rem; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
+.cf-portal a.cf-back { color: #595959; }
+.cf-meta-line { margin: 0 0 0.9rem; color: var(--text-muted); font-size: 0.92rem; }
+.cf-saving { margin: -0.4rem 0 0.6rem; font-size: 0.8rem; color: var(--text-muted); }
+.cf-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+.cf-card-head-meta { font-size: 0.85rem; color: var(--text-muted); }
+.cf-portal .empty.cf-empty-sm { padding: 0.6rem 0; text-align: left; margin: 0; font-size: 0.9rem; }
+.cf-search { margin: 0 0 0.75rem; }
+.cf-portal .cf-search input { width: 100%; max-width: 30rem; min-height: 40px; }
+.cf-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cf-progress-col { width: 1%; white-space: nowrap; text-align: left; }
+.cf-portal tr.cf-line-open > td { background: #fafaf8; border-bottom-color: transparent; }
+
+/* Drop-down sections */
+.cf-portal .cf-collapse { padding: 0; }
+.cf-collapse > summary {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem 1.15rem;
+  cursor: pointer; list-style: none; user-select: none;
+}
+.cf-collapse > summary::-webkit-details-marker { display: none; }
+.cf-collapse > summary:hover .cf-collapse-title { text-decoration: underline; text-underline-offset: 3px; }
+.cf-collapse > summary:focus-visible { outline: 2px solid #171717; outline-offset: -2px; border-radius: 12px; }
+.cf-collapse-title { font-weight: 800; font-size: 1.05rem; letter-spacing: -0.015em; }
+.cf-collapse-meta { flex: 1; text-align: right; font-size: 0.85rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-collapse-chevron { color: var(--text-muted); font-size: 0.8rem; transition: transform 0.15s ease; }
+.cf-collapse[open] > summary .cf-collapse-chevron { transform: rotate(180deg); }
+.cf-collapse[open] > summary { border-bottom: 1px solid #efefed; }
+.cf-collapse-body { padding: 0.75rem 1.15rem 1rem; }
+
+/* Quote */
+.cf-quote-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
+  margin: 0 0 0.6rem; padding: 0.55rem 0.75rem; border-radius: 8px; background: #f7f7f5; font-size: 0.85rem; color: #3f3f3f;
+}
+.cf-approved { display: inline-flex; flex-direction: column; align-items: center; color: var(--success); font-weight: 600; font-size: 0.82rem; line-height: 1.2; }
+.cf-approved-sub { color: var(--text-muted); font-weight: 500; font-size: 0.72rem; }
+
+/* Tasks */
+.cf-task-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.cf-task-list li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.92rem; }
+.cf-task-list li.done span:last-child { color: var(--text-muted); text-decoration: line-through; }
+.cf-task-tick {
+  width: 1rem; height: 1rem; border-radius: 4px; border: 1.5px solid #c8c8c8; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 700; color: #fff;
+}
+.cf-task-list li.done .cf-task-tick { background: var(--success); border-color: var(--success); }
+
+@media (max-width: 640px) {
+  .cf-collapse > summary { padding: 0.75rem 1rem; flex-wrap: wrap; }
+  .cf-collapse-meta { order: 3; flex-basis: 100%; text-align: left; white-space: normal; }
+  .cf-collapse-body { padding: 0.65rem 1rem 0.9rem; }
+  .cf-portal .cf-compact .card:not(.cf-collapse) { padding: 0.9rem 1rem; }
+}
+.cf-portal .cf-compact .card.cf-collapse { padding: 0; }
+@media (max-width: 640px) {
+  .cf-portal .cf-col-unit { display: none; }
+  .cf-portal .lp-steps, .cf-portal .lp-parts { width: calc(100vw - 6rem); }
+  .cf-portal .lp-parts li { flex-wrap: wrap; gap: 0.2rem 0.75rem; }
+  .cf-portal .lp-parts .lp-part-name { flex-basis: 100%; }
+}

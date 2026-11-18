@@ -22,6 +22,7 @@ import {
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
 import PDFDocument from 'pdfkit';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
+import { attachInvoiceLineProgress, MANUAL_STAGES } from '../invoiceLineProgress.js';
 import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
 import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
 import {
@@ -105,7 +106,7 @@ function fullInvoicePayload(invoiceId) {
   const quoteItems =
     inv.type === 'quote'
       ? items.map(({ purchase_price, ...rest }) => rest)
-      : items;
+      : attachInvoiceLineProgress(invoiceId, items, { includeWho: true });
   const payments = db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at ASC, id ASC').all(invoiceId);
   const amount_paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const total = Number(inv.total) || 0;
@@ -983,6 +984,37 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
     const { purchase_price, ...rest } = updated;
     return res.json(rest);
   }
+  res.json(updated);
+});
+
+/** Staff tick / untick a progress stage on an invoice line (LPO issued, Received, Fitted, Vehicle tested). */
+invoicesRouter.patch('/:id/items/:itemId/progress', requireAdminAuth, (req, res) => {
+  const stage = String(req.body?.stage || '');
+  if (!MANUAL_STAGES.includes(stage)) {
+    return res.status(400).json({ error: `stage must be one of: ${MANUAL_STAGES.join(', ')}` });
+  }
+  const done = !!req.body?.done;
+  const inv = db.prepare('SELECT id, type FROM invoices WHERE id = ?').get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (inv.type !== 'invoice') return res.status(400).json({ error: 'Progress is tracked on invoice lines' });
+  const item = db
+    .prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?')
+    .get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (isHeaderLine(item) || String(item.type || '') === 'labour') {
+    return res.status(400).json({ error: 'This line has no progress tracker' });
+  }
+
+  const by = req.admin?.display_name || req.admin?.username || null;
+  if (done) {
+    db.prepare(
+      `UPDATE invoice_items SET ${stage}_at = COALESCE(${stage}_at, datetime('now')), ${stage}_by = COALESCE(${stage}_by, ?) WHERE id = ?`,
+    ).run(by, item.id);
+  } else {
+    db.prepare(`UPDATE invoice_items SET ${stage}_at = NULL, ${stage}_by = NULL WHERE id = ?`).run(item.id);
+  }
+  const updated = db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(item.id);
+  attachInvoiceLineProgress(inv.id, [updated], { includeWho: true });
   res.json(updated);
 });
 

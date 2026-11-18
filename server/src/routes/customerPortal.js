@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
+import { attachInvoiceLineProgress } from '../invoiceLineProgress.js';
+import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
 
 export const customerPortalRouter = Router();
 
@@ -111,16 +113,24 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
+    ? db
+        .prepare(
+          `SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent,
+                  approved, approved_at, quote_item_id, lpo_issued_at, received_at, fitted_at, tested_at
+           FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id`,
+        )
+        .all(invoice.id)
     : [];
   if (withTasks && invoice) {
     const partsByItem = portalPartsForInvoice(invoice.id);
     for (const item of invoiceItems) {
       item.parts = partsByItem.get(item.id) || [];
     }
+    // Line progress (dates only; staff names stay internal)
+    attachInvoiceLineProgress(invoice.id, invoiceItems);
   }
   const out = {
     id: job.id,
@@ -290,7 +300,11 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
 
-  db.prepare("UPDATE invoice_items SET approved = 1 WHERE invoice_id = ? AND COALESCE(type, '') != 'header'").run(quote.id);
+  db.prepare(
+    "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header'",
+  ).run(quote.id);
+  // Approved items go straight onto the job invoice (if there is one yet)
+  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 
@@ -320,7 +334,9 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
     return res.status(204).send();
   }
   if (already) return res.status(204).send();
-  db.prepare('UPDATE invoice_items SET approved = 1 WHERE id = ?').run(item.id);
+  db.prepare("UPDATE invoice_items SET approved = 1, approved_at = datetime('now') WHERE id = ?").run(item.id);
+  // Approved items go straight onto the job invoice (if there is one yet)
+  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 
