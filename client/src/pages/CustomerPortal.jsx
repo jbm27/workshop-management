@@ -8,7 +8,7 @@ import { invoiceLineNet } from '../utils/invoiceLineVat';
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
-import { LineProgressToggle, LineProgressSteps, JobProgressBar } from '../components/LineProgress';
+import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
 import { isTrackableLine } from '../utils/lineProgress';
 
 /** A card that opens and closes; the summary line stays visible when it is closed. */
@@ -500,7 +500,7 @@ function PortalJobDetail() {
 
       {saving && <p className="cf-saving">Saving…</p>}
 
-      <JobProgressBar items={job.invoice?.items} tasks={tasks} />
+      <JobProgressBar items={job.invoice?.items} tasks={tasks} vehicleTested={!!job.vehicle_tested_at} />
 
       {job.quote && (
         <QuoteSection
@@ -508,6 +508,8 @@ function PortalJobDetail() {
           allowApprove={allowQuoteApproval}
           onToggleApprove={toggleApprove}
           onApproveAllQuote={approveAllQuote}
+          showVehicleTested
+          vehicleTestedAt={job.vehicle_tested_at}
         />
       )}
 
@@ -728,13 +730,14 @@ function PortalDocumentTotals({ doc }) {
   );
 }
 
-function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote }) {
+function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote, showVehicleTested = false, vehicleTestedAt = null }) {
   const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
   const needsApproval = quotePendingCount > 0 && allowApprove;
   const meta = [
     quote.invoice_number,
     quotePendingCount > 0 ? `${quotePendingCount} to approve` : 'All approved',
     kes(quote.total),
+    showVehicleTested && vehicleTestedAt ? 'Vehicle tested ✓' : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -833,6 +836,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote 
         </table>
       </div>
       <PortalDocumentTotals doc={quote} />
+      {showVehicleTested && <VehicleTestedTick id={`portal-vehicle-tested-${quote.id}`} at={vehicleTestedAt} />}
     </Collapsible>
   );
 }

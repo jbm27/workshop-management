@@ -6,14 +6,14 @@ import { isHeaderLine } from './invoiceLineSections';
  *   - Approved comes from the customer approving the item on the quote.
  *   - LPO issued / Received / Fitted are also filled in automatically from the LPO/IPR
  *     parts on the line (`auto: true`); otherwise staff tick them on the invoice line.
- *   - Vehicle tested is ticked by staff.
+ * "Vehicle tested" is not per line: it is one tick for the whole job (job.vehicle_tested_at),
+ * shown next to the quote total.
  */
 export const LINE_PROGRESS_STAGES = [
   { key: 'approved', label: 'Approved', who: 'Customer, on the quote' },
   { key: 'lpo_issued', label: 'LPO issued', who: 'Stores' },
   { key: 'received', label: 'Received', who: 'Mechanic / supervisor' },
   { key: 'fitted', label: 'Fitted', who: 'Mechanic' },
-  { key: 'tested', label: 'Vehicle tested', who: 'Mechanic / supervisor' },
 ];
 
 export function stageInfo(item, key) {
@@ -42,17 +42,20 @@ export function lineProgressPercent(item) {
 }
 
 /**
- * Whole-job progress: every stage of every tracked line counts once, plus one step per job task.
+ * Whole-job progress: every stage of every tracked line counts once, plus one step per job task,
+ * plus one step for "Vehicle tested" when there is anything else to track.
  * Null when there is nothing to track.
  */
-export function jobProgressSummary(items, tasks = []) {
+export function jobProgressSummary(items, tasks = [], vehicleTested = false) {
   const lines = (items || []).filter(isTrackableLine);
   const taskList = Array.isArray(tasks) ? tasks : [];
-  const total = lines.length * LINE_PROGRESS_STAGES.length + taskList.length;
-  if (total === 0) return null;
+  const base = lines.length * LINE_PROGRESS_STAGES.length + taskList.length;
+  if (base === 0) return null;
+  const total = base + 1;
   const done =
     lines.reduce((n, it) => n + LINE_PROGRESS_STAGES.filter((s) => isStageDone(it, s.key)).length, 0) +
-    taskList.filter((t) => Number(t?.completed) === 1).length;
+    taskList.filter((t) => Number(t?.completed) === 1).length +
+    (vehicleTested ? 1 : 0);
   const complete = lines.filter((it) => lineProgressPercent(it) === 100).length;
   return {
     percent: Math.round((done / total) * 100),
@@ -60,6 +63,7 @@ export function jobProgressSummary(items, tasks = []) {
     complete,
     tasks: taskList.length,
     tasksDone: taskList.filter((t) => Number(t?.completed) === 1).length,
+    vehicleTested: !!vehicleTested,
   };
 }
 

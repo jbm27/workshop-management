@@ -130,6 +130,7 @@ export const api = {
     createQuote: (id) => api.post(`/jobs/${id}/quote`, {}),
     createInvoice: (id) => api.post(`/jobs/${id}/invoice`, {}),
     moveApprovedQuoteLines: (id) => api.post(`/jobs/${id}/invoice/move-approved-quote-lines`, {}),
+    setVehicleTested: (id, done) => api.patch(`/jobs/${id}/vehicle-tested`, { done }),
     /** Sets quote_prepared_at once (first Send quote) for time-to-quote reporting. */
     recordQuotePrepared: (id) => api.post(`/jobs/${id}/quote-prepared`, {}),
     addTimeLog: (jobId, body) => api.post(`/jobs/${jobId}/time-logs`, body),

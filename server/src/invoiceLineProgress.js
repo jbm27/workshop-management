@@ -1,7 +1,8 @@
 import { db } from './db.js';
 
 /**
- * Per-line progress for invoice lines: Approved → LPO issued → Received → Fitted → Vehicle tested.
+ * Per-line progress for invoice lines: Approved → LPO issued → Received → Fitted.
+ * (Vehicle tested is one tick for the whole job: jobs.vehicle_tested_at, shown next to the quote total.)
  *
  * Each stage is done when EITHER staff ticked it on the invoice line (the *_at columns)
  * OR the workshop's existing records already show it:
@@ -10,11 +11,10 @@ import { db } from './db.js';
  *   - LPO issued: an LPO or IPR line is attached to this invoice line.
  *   - Received:   every attached LPO/IPR part is marked received.
  *   - Fitted:     every attached LPO part is marked fitted (IPR stock issues have no fitted step).
- *   - Tested:     staff tick only.
  * Stages that come from those records are flagged `auto` so staff know to change them on the LPO/IPR.
  */
-export const PROGRESS_STAGES = ['approved', 'lpo_issued', 'received', 'fitted', 'tested'];
-export const MANUAL_STAGES = ['lpo_issued', 'received', 'fitted', 'tested'];
+export const PROGRESS_STAGES = ['approved', 'lpo_issued', 'received', 'fitted'];
+export const MANUAL_STAGES = ['lpo_issued', 'received', 'fitted'];
 
 function norm(s) {
   return String(s || '').trim().toLowerCase();

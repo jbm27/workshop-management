@@ -23,7 +23,7 @@ import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountP
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
-import { LineProgressToggle, LineProgressSteps, JobProgressBar } from '../components/LineProgress';
+import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
 import { isItemLine, isTrackableLine, LINE_PROGRESS_STAGES } from '../utils/lineProgress';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
@@ -244,6 +244,7 @@ export default function JobDetail() {
   /** Quote lines whose progress tracker is expanded (all start collapsed). */
   const [openProgressLines, setOpenProgressLines] = useState(() => new Set());
   const [progressSavingId, setProgressSavingId] = useState(null);
+  const [vehicleTestedSaving, setVehicleTestedSaving] = useState(false);
   const [editingHeaderTitle, setEditingHeaderTitle] = useState('');
   const [invoice, setInvoice] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
@@ -607,6 +608,20 @@ export default function JobDetail() {
       else next.add(itemId);
       return next;
     });
+
+  /** "Vehicle tested" is one tick for the whole job, shown under the quote total. */
+  const setVehicleTested = async (done) => {
+    if (!done && !window.confirm('Untick "Vehicle tested"? The customer will see the vehicle as not tested yet.')) return;
+    try {
+      setVehicleTestedSaving(true);
+      const row = await api.jobs.setVehicleTested(id, done);
+      setJob((j) => (j ? { ...j, ...row } : j));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setVehicleTestedSaving(false);
+    }
+  };
 
   const setInvoiceLineProgress = async (itemId, stage, done) => {
     if (!invoice) return;
@@ -2197,7 +2212,7 @@ export default function JobDetail() {
               </div>
             )}
             <div style={{ marginBottom: '0.75rem' }}>
-              <JobProgressBar items={invoice.items} />
+              <JobProgressBar items={invoice.items} tasks={job?.tasks} vehicleTested={!!job?.vehicle_tested_at} />
             </div>
             <div className="table-wrap">
               <table>
@@ -2932,6 +2947,13 @@ export default function JobDetail() {
                 <InvoiceTotalsSummary items={quote.items} discountPercent={quote.discount_percent} />
               </>
             )}
+            <VehicleTestedTick
+              id={`vehicle-tested-${job.id}`}
+              at={job.vehicle_tested_at}
+              by={job.vehicle_tested_by}
+              busy={vehicleTestedSaving}
+              onChange={setVehicleTested}
+            />
           </>
         )}
       </div>

@@ -78,14 +78,41 @@ export function LineProgressSteps({ id, item, canTick, onTick, busy, showWho = f
   );
 }
 
-/** Slim whole-job completion bar (line stages + job tasks). Renders nothing when there is nothing to track. */
-export function JobProgressBar({ items, tasks }) {
-  const summary = jobProgressSummary(items, tasks);
+/**
+ * "Vehicle tested": one tick for the whole job, shown next to the quote total.
+ * Staff pass `onChange` to make it tickable; customers see it read-only.
+ */
+export function VehicleTestedTick({ at, by, onChange, busy, id = 'vehicle-tested' }) {
+  const done = !!at;
+  const editable = !!onChange && !busy;
+  return (
+    <div className={`lp-vt${done ? ' done' : ''}`}>
+      <label htmlFor={id} className={editable ? 'editable' : undefined}>
+        <input
+          id={id}
+          type="checkbox"
+          checked={done}
+          disabled={!editable}
+          onChange={(e) => onChange?.(e.target.checked)}
+        />
+        <span className="lp-vt-label">Vehicle tested</span>
+      </label>
+      <span className="lp-vt-meta">
+        {done ? [formatStageDate(at), by].filter(Boolean).join(' · ') : 'Not yet — final road test after the work'}
+      </span>
+    </div>
+  );
+}
+
+/** Slim whole-job completion bar (line stages + job tasks + vehicle tested). Renders nothing when there is nothing to track. */
+export function JobProgressBar({ items, tasks, vehicleTested = false }) {
+  const summary = jobProgressSummary(items, tasks, vehicleTested);
   if (!summary) return null;
   const tone = progressTone(summary.percent);
   const bits = [];
   if (summary.lines) bits.push(`${summary.complete} of ${summary.lines} ${summary.lines === 1 ? 'item' : 'items'} complete`);
   if (summary.tasks) bits.push(`${summary.tasksDone} of ${summary.tasks} ${summary.tasks === 1 ? 'task' : 'tasks'} done`);
+  bits.push(summary.vehicleTested ? 'vehicle tested ✓' : 'not yet tested');
   return (
     <div className={`lp-job lp-tone-${tone}`}>
       <div className="lp-job-head">

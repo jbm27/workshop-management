@@ -987,7 +987,7 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
   res.json(updated);
 });
 
-/** Staff tick / untick a progress stage on an invoice line (LPO issued, Received, Fitted, Vehicle tested). */
+/** Staff tick / untick a progress stage on an invoice line (LPO issued, Received, Fitted). */
 invoicesRouter.patch('/:id/items/:itemId/progress', requireAdminAuth, (req, res) => {
   const stage = String(req.body?.stage || '');
   if (!MANUAL_STAGES.includes(stage)) {

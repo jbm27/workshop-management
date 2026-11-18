@@ -91,6 +91,13 @@ function migrate(db) {
     if (jobCols.length && !jobCols.includes('valuables_in_vehicle')) {
       db.run('ALTER TABLE jobs ADD COLUMN valuables_in_vehicle TEXT');
     }
+    // "Vehicle tested" is one tick for the whole job (shown next to the quote total)
+    if (jobCols.length && !jobCols.includes('vehicle_tested_at')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_at TEXT');
+    }
+    if (jobCols.length && !jobCols.includes('vehicle_tested_by')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_by TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }

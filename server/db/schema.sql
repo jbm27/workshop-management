@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   fuel_in TEXT,
   fuel_out TEXT,
   valuables_in_vehicle TEXT,
+  vehicle_tested_at TEXT,
+  vehicle_tested_by TEXT,
   due_date TEXT,
   completed_at TEXT,
   vehicle_released_at TEXT,

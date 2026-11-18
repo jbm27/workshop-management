@@ -1138,6 +1138,22 @@ jobsRouter.post('/:id/quote', requireAdminAuth, (req, res) => {
   res.status(201).json({ ...row, items });
 });
 
+/** Tick / untick "Vehicle tested" for the whole job (shown next to the quote total). */
+jobsRouter.patch('/:id/vehicle-tested', requireAdminAuth, (req, res) => {
+  const job = db.prepare('SELECT id FROM jobs WHERE id = ?').get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (req.body?.done) {
+    const by = req.admin?.display_name || req.admin?.username || null;
+    db.prepare(
+      "UPDATE jobs SET vehicle_tested_at = COALESCE(vehicle_tested_at, datetime('now')), vehicle_tested_by = COALESCE(vehicle_tested_by, ?) WHERE id = ?",
+    ).run(by, job.id);
+  } else {
+    db.prepare('UPDATE jobs SET vehicle_tested_at = NULL, vehicle_tested_by = NULL WHERE id = ?').run(job.id);
+  }
+  const row = db.prepare('SELECT vehicle_tested_at, vehicle_tested_by FROM jobs WHERE id = ?').get(job.id);
+  res.json(row);
+});
+
 /** Move customer-approved quote lines onto the job invoice (catches up items approved before the invoice existed). */
 jobsRouter.post('/:id/invoice/move-approved-quote-lines', requireAdminAuth, (req, res) => {
   if (!assertNotMechanic(req, res)) return;

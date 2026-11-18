@@ -926,3 +926,18 @@ tr.lp-row:hover > td { background: #fafaf8; }
   .cf-portal .lp-parts li { flex-wrap: wrap; gap: 0.2rem 0.75rem; }
   .cf-portal .lp-parts .lp-part-name { flex-basis: 100%; }
 }
+
+/* "Vehicle tested" — one tick per job, next to the quote total */
+.lp-vt {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; flex-wrap: wrap;
+  margin: 0.6rem 0 0 auto; max-width: 26rem; padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+}
+.lp-vt.done { border-color: rgba(26, 127, 55, 0.35); background: rgba(26, 127, 55, 0.06); }
+.lp-vt label { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; font-size: 0.9rem; cursor: default; }
+.lp-vt label.editable, .lp-vt label.editable input { cursor: pointer; }
+.lp-vt input[type='checkbox'] { width: 1.05rem; height: 1.05rem; min-height: 0; margin: 0; accent-color: var(--success); }
+.lp-vt:not(.done) .lp-vt-label { color: var(--text-muted); }
+.lp-vt.done .lp-vt-label { color: var(--success); }
+.lp-vt-meta { font-size: 0.78rem; color: var(--text-muted); }
+@media (max-width: 640px) { .lp-vt { max-width: none; } }

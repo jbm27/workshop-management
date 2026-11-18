@@ -119,7 +119,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ? db
         .prepare(
           `SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent,
-                  approved, approved_at, quote_item_id, lpo_issued_at, received_at, fitted_at, tested_at
+                  approved, approved_at, quote_item_id, lpo_issued_at, received_at, fitted_at
            FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id`,
         )
         .all(invoice.id)
@@ -145,6 +145,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     },
     quote: quote ? portalDocumentForCustomer(quote, quoteItems) : null,
     invoice: invoice ? portalDocumentForCustomer(invoice, invoiceItems) : null,
+    vehicle_tested_at: job.vehicle_tested_at || null,
     rating: job.customer_rating,
     feedback: job.customer_feedback,
   };
