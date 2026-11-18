@@ -24,7 +24,7 @@ import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
 import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
-import { isItemLine, isTrackableLine, LINE_PROGRESS_STAGES } from '../utils/lineProgress';
+import { isItemLine, isTrackableLine, LINE_PROGRESS_STAGES, formatStageDate } from '../utils/lineProgress';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 import {
@@ -343,6 +343,9 @@ export default function JobDetail() {
   const [invoiceEditStock, setInvoiceEditStock] = useState({ query: '', stockItemId: null });
   const [testDriveOdo, setTestDriveOdo] = useState('');
   const [testDriveFuel, setTestDriveFuel] = useState('');
+  const [testDriveNotes, setTestDriveNotes] = useState('');
+  const [editingTdId, setEditingTdId] = useState(null);
+  const [editTdNotes, setEditTdNotes] = useState('');
   const [testDriveBusy, setTestDriveBusy] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -521,10 +524,25 @@ export default function JobDetail() {
     if (!testDriveFuel) return alert('Select fuel in on return');
     setTestDriveBusy(true);
     try {
-      const j = await api.jobs.addTestDrive(id, { odometer: odo, fuel: testDriveFuel });
+      const j = await api.jobs.addTestDrive(id, { odometer: odo, fuel: testDriveFuel, notes: testDriveNotes });
       setJob(j);
       setTestDriveOdo('');
       setTestDriveFuel('');
+      setTestDriveNotes('');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setTestDriveBusy(false);
+    }
+  };
+
+  /** Save the notes on an already-logged test drive. */
+  const saveTestDriveNotes = async (tdId, notes) => {
+    try {
+      setTestDriveBusy(true);
+      const j = await api.jobs.updateTestDrive(id, tdId, { notes });
+      setJob(j);
+      setEditingTdId(null);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -1303,11 +1321,8 @@ export default function JobDetail() {
   const canInvoicePdf = canDownloadJobInvoicePdf(job);
   const billingLockMessage = intakeHandoverBlockedMessage();
 
+  // Before the vehicle is released the invoice PDF still downloads, marked PROVISIONAL.
   const handleDownloadInvoicePdf = () => {
-    if (!canInvoicePdf) {
-      alert(invoicePdfBlockedMessage());
-      return;
-    }
     api.invoices.downloadPDF(invoice.id);
   };
 
@@ -1978,11 +1993,48 @@ export default function JobDetail() {
               {tdComputed.map((row) => {
                 const tdRow = testDrivesList[row.index];
                 const who = tdRow?.logged_by_display_name || tdRow?.logged_by_username || '—';
+                const editingNotes = editingTdId === row.id;
                 return (
-                  <div key={row.id} style={rowStyle}>
-                    <strong>Test drive {row.index + 1}:</strong>
-                    Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
-                    <span style={{ color: 'var(--text-muted)' }}> · Logged by {who}</span>
+                  <div key={row.id} className="td-row">
+                    <div style={{ ...rowStyle, marginBottom: 0 }}>
+                      <strong>Test drive {row.index + 1}:</strong>
+                      Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {' '}· back at {tdRow?.odometer != null ? `${Number(tdRow.odometer).toLocaleString()} km` : '—'}
+                        {tdRow?.created_at ? ` · ${formatStageDate(tdRow.created_at)}` : ''} · Logged by {who}
+                      </span>
+                      {canLogTestDrives && !editingNotes && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ padding: '0.1rem 0.45rem', fontSize: '0.78rem' }}
+                          onClick={() => {
+                            setEditingTdId(row.id);
+                            setEditTdNotes(tdRow?.notes || '');
+                          }}
+                        >
+                          {tdRow?.notes ? 'Edit notes' : 'Add notes'}
+                        </button>
+                      )}
+                    </div>
+                    {!editingNotes && tdRow?.notes && <div className="td-notes">{tdRow.notes}</div>}
+                    {editingNotes && (
+                      <div className="td-notes-edit">
+                        <textarea
+                          rows={2}
+                          value={editTdNotes}
+                          onChange={(e) => setEditTdNotes(e.target.value)}
+                          placeholder="What did the driver notice? e.g. slight pull left under braking, no noises over bumps"
+                          maxLength={1000}
+                        />
+                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          <button type="button" className="btn primary" disabled={testDriveBusy} onClick={() => saveTestDriveNotes(row.id, editTdNotes)}>
+                            Save notes
+                          </button>
+                          <button type="button" className="btn" onClick={() => setEditingTdId(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -2009,6 +2061,14 @@ export default function JobDetail() {
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                  <input
+                    type="text"
+                    value={testDriveNotes}
+                    onChange={(e) => setTestDriveNotes(e.target.value)}
+                    placeholder="Notes (optional): what did the driver notice?"
+                    maxLength={1000}
+                    style={{ ...inlineInp, width: 'min(26rem, 100%)' }}
+                  />
                   <button type="button" className="btn primary" onClick={submitTestDrive} disabled={testDriveBusy} style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem' }}>
                     {testDriveBusy ? '…' : 'Add'}
                   </button>
@@ -2179,9 +2239,13 @@ export default function JobDetail() {
                   type="button"
                   className="btn primary"
                   onClick={handleDownloadInvoicePdf}
-                  title={!canInvoicePdf ? invoicePdfBlockedMessage() : undefined}
+                  title={
+                    !canInvoicePdf
+                      ? 'The vehicle is not released yet, so the PDF is marked PROVISIONAL (amounts may still change).'
+                      : undefined
+                  }
                 >
-                  Download PDF
+                  {canInvoicePdf ? 'Download PDF' : 'Download PDF (provisional)'}
                 </button>
               )}
             </div>

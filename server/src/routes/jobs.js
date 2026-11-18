@@ -140,7 +140,7 @@ function fullJob(jobId) {
   const test_drives = db
     .prepare(
       `
-      SELECT td.id, td.job_id, td.admin_user_id, td.odometer, td.fuel, td.created_at,
+      SELECT td.id, td.job_id, td.admin_user_id, td.odometer, td.fuel, td.notes, td.created_at,
         au.display_name AS logged_by_display_name, au.username AS logged_by_username
       FROM job_test_drives td
       LEFT JOIN admin_users au ON au.id = td.admin_user_id
@@ -688,6 +688,7 @@ jobsRouter.post('/:id/test-drives', requireAdminAuth, (req, res) => {
     return res.status(403).json({ error: 'This job is not available for workshop staff' });
   }
   const { odometer, fuel } = req.body;
+  const notes = normalizeTestDriveNotes(req.body?.notes);
   const odo = Number(odometer);
   if (!Number.isFinite(odo) || odo < 0) return res.status(400).json({ error: 'Valid odometer (km) on return to workshop is required' });
   if (!fuel || !TEST_DRIVE_FUEL_LEVELS.includes(fuel)) {
@@ -707,14 +708,40 @@ jobsRouter.post('/:id/test-drives', requireAdminAuth, (req, res) => {
       error: 'Odometer must be at or above the previous reading (mileage in or last test drive return)',
     });
   }
-  db.prepare('INSERT INTO job_test_drives (job_id, admin_user_id, odometer, fuel) VALUES (?, ?, ?, ?)').run(
+  db.prepare('INSERT INTO job_test_drives (job_id, admin_user_id, odometer, fuel, notes) VALUES (?, ?, ?, ?, ?)').run(
     jobId,
     req.admin.id,
     Math.round(odo),
     fuel,
+    notes,
   );
   const job = fullJob(jobId);
   res.status(201).json(req.admin.is_mechanic ? stripJobForMechanic(job) : job);
+});
+
+/** Test drive notes: trimmed, empty → null, capped so a paste can't bloat the job. */
+function normalizeTestDriveNotes(value) {
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s ? s.slice(0, 1000) : null;
+}
+
+/** Add or change the notes on a logged test drive (what the driver noticed). */
+jobsRouter.patch('/:id/test-drives/:tdId', requireAdminAuth, (req, res) => {
+  if (!req.admin.permissions?.can_log_test_drives) {
+    return res.status(403).json({ error: 'You do not have permission to log test drives' });
+  }
+  const jobId = Number(req.params.id);
+  const tdId = Number(req.params.tdId);
+  const td = db.prepare('SELECT * FROM job_test_drives WHERE id = ? AND job_id = ?').get(tdId, jobId);
+  if (!td) return res.status(404).json({ error: 'Test drive not found' });
+  const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(jobId);
+  if (req.admin.is_mechanic && !MECHANIC_ALLOWED_JOB_STATUSES.includes(job?.status)) {
+    return res.status(403).json({ error: 'This job is not available for workshop staff' });
+  }
+  db.prepare('UPDATE job_test_drives SET notes = ? WHERE id = ?').run(normalizeTestDriveNotes(req.body?.notes), tdId);
+  const full = fullJob(jobId);
+  res.json(req.admin.is_mechanic ? stripJobForMechanic(full) : full);
 });
 
 jobsRouter.delete('/:id/test-drives/:tdId', requireAdminAuth, (req, res) => {

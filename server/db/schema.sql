@@ -189,6 +189,7 @@ CREATE TABLE IF NOT EXISTS job_test_drives (
   admin_user_id INTEGER REFERENCES admin_users(id),
   odometer INTEGER NOT NULL,
   fuel TEXT,
+  notes TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

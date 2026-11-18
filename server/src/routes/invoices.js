@@ -2315,4 +2315,5 @@ export function sendInvoicePdf(invoiceId, res, { allowProvisional = false } = {}
   doc.end();
 }
 
-invoicesRouter.get('/:id/pdf', (req, res) => sendInvoicePdf(req.params.id, res));
+// Staff can download a job invoice at any time; before the vehicle is released it is marked PROVISIONAL.
+invoicesRouter.get('/:id/pdf', (req, res) => sendInvoicePdf(req.params.id, res, { allowProvisional: true }));

@@ -249,7 +249,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     out.fuel_in = job.fuel_in;
     out.fuel_out = job.fuel_out;
     out.test_drives = db
-      .prepare('SELECT id, odometer, fuel, created_at FROM job_test_drives WHERE job_id = ? ORDER BY id ASC')
+      .prepare('SELECT id, odometer, fuel, notes, created_at FROM job_test_drives WHERE job_id = ? ORDER BY id ASC')
       .all(job.id);
   }
   return out;

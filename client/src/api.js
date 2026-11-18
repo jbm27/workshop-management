@@ -127,6 +127,7 @@ export const api = {
     update: (id, data) => api.patch(`/jobs/${id}`, data),
     addTestDrive: (jobId, body) => api.post(`/jobs/${jobId}/test-drives`, body),
     deleteTestDrive: (jobId, tdId) => api.delete(`/jobs/${jobId}/test-drives/${tdId}`),
+    updateTestDrive: (jobId, tdId, body) => api.patch(`/jobs/${jobId}/test-drives/${tdId}`, body),
     createQuote: (id) => api.post(`/jobs/${id}/quote`, {}),
     createInvoice: (id) => api.post(`/jobs/${id}/invoice`, {}),
     moveApprovedQuoteLines: (id) => api.post(`/jobs/${id}/invoice/move-approved-quote-lines`, {}),

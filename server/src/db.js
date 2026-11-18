@@ -146,6 +146,10 @@ function migrate(db) {
     if (tdCols.length && !tdCols.includes('admin_user_id')) {
       db.run('ALTER TABLE job_test_drives ADD COLUMN admin_user_id INTEGER REFERENCES admin_users(id)');
     }
+    // Test drive notes (what the driver noticed), shown on the job page and in the customer portal
+    if (tdCols.length && !tdCols.includes('notes')) {
+      db.run('ALTER TABLE job_test_drives ADD COLUMN notes TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }

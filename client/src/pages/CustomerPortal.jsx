@@ -9,7 +9,7 @@ import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
 import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
-import { isTrackableLine } from '../utils/lineProgress';
+import { isTrackableLine, formatStageDate } from '../utils/lineProgress';
 import { whatsappWithText } from '../components/PortalShell';
 
 /**
@@ -1152,7 +1152,15 @@ function PortalMileageReadOnly({ job }) {
 
   const inKm = job.odometer_in != null ? `${Number(job.odometer_in).toLocaleString()} km in` : null;
   const outKm = job.odometer_out != null ? `${Number(job.odometer_out).toLocaleString()} km out` : null;
-  const meta = [inKm, outKm, job.fuel_in ? `Fuel in ${job.fuel_in}` : null].filter(Boolean).join(' · ');
+  const tdCount = testDrivesList.length;
+  const meta = [
+    inKm,
+    outKm,
+    job.fuel_in ? `Fuel in ${job.fuel_in}` : null,
+    tdCount ? `${tdCount} test ${tdCount === 1 ? 'drive' : 'drives'}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <Collapsible title="Mileage & fuel" meta={meta || 'Not recorded yet'}>
@@ -1163,12 +1171,27 @@ function PortalMileageReadOnly({ job }) {
           <strong>Fuel in</strong>
           <span>{job.fuel_in || '—'}</span>
         </div>
-        {tdComputed.map((row) => (
-          <div key={row.id} style={rowStyle}>
-            <strong>Test drive {row.index + 1}:</strong>
-            Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
-          </div>
-        ))}
+        {tdComputed.length > 0 && (
+          <ol className="cf-td-list">
+            {tdComputed.map((row) => {
+              const td = testDrivesList[row.index] || {};
+              return (
+                <li key={row.id}>
+                  <div className="cf-td-head">
+                    <strong>Test drive {row.index + 1}</strong>
+                    {td.created_at && <span className="cf-muted">{formatStageDate(td.created_at)}</span>}
+                  </div>
+                  <div className="cf-td-facts">
+                    <span>{formatKmDelta(row.covered)} driven</span>
+                    <span>Fuel used {row.used}</span>
+                    {td.odometer != null && <span className="cf-muted">back at {Number(td.odometer).toLocaleString()} km</span>}
+                  </div>
+                  {td.notes && <div className="cf-td-notes">{td.notes}</div>}
+                </li>
+              );
+            })}
+          </ol>
+        )}
         <div style={rowStyle}>
           <strong>Mileage out</strong>
           <span>{job.odometer_out != null ? `${Number(job.odometer_out).toLocaleString()} km` : '—'}</span>
