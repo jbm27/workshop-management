@@ -73,15 +73,22 @@ function PaymentDetails({ details, balance, reference }) {
   );
 }
 
-/** "Download PDF" link for a quote / invoice, or a note saying when it will be ready. */
+/**
+ * "Download PDF" link for a quote / invoice. While the job is still in progress the invoice
+ * comes out marked PROVISIONAL (amounts may still change), and the button says so.
+ */
 function PdfLink({ token, doc, label = 'Download PDF' }) {
-  if (!doc) return null;
-  if (!doc.pdf_available) {
-    return <span className="cf-pdf-later">PDF available once your vehicle is ready</span>;
-  }
+  if (!doc || doc.pdf_available === false) return null;
+  const provisional = !!doc.pdf_provisional;
   return (
-    <a className="btn cf-btn-sm" href={api.customerPortal.documentPdfUrl(token, doc.id)} target="_blank" rel="noopener noreferrer">
-      ⤓ {label}
+    <a
+      className="btn cf-btn-sm"
+      href={api.customerPortal.documentPdfUrl(token, doc.id)}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={provisional ? 'Work is still in progress, so items and amounts may change' : undefined}
+    >
+      ⤓ {provisional ? `${label} (provisional)` : label}
     </a>
   );
 }

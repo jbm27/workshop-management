@@ -185,7 +185,8 @@ function portalDocumentForCustomer(inv, items) {
     payments: inv.type === 'invoice' ? payments : [],
     amount_paid: inv.type === 'invoice' ? amount_paid : 0,
     balance,
-    pdf_available: pdfAvailable(inv),
+    pdf_available: true,
+    pdf_provisional: inv.type === 'invoice' && !pdfAvailable(inv),
   };
 }
 
@@ -313,10 +314,8 @@ customerPortalRouter.get('/:token/documents/:invoiceId/pdf', (req, res) => {
     .prepare("SELECT id, type, job_id FROM invoices WHERE id = ? AND customer_id = ? AND type IN ('quote', 'invoice')")
     .get(Number(req.params.invoiceId), customer.id);
   if (!inv) return res.status(404).json({ error: 'Document not found' });
-  if (!pdfAvailable(inv)) {
-    return res.status(403).json({ error: 'The invoice PDF will be available once your vehicle is ready for collection.' });
-  }
-  return sendInvoicePdf(inv.id, res);
+  // Invoices for jobs still in progress come out marked PROVISIONAL.
+  return sendInvoicePdf(inv.id, res, { allowProvisional: true });
 });
 
 /** One vehicle's history with this customer, plus when the next service is due. */

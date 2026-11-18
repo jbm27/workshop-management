@@ -1856,9 +1856,11 @@ invoicesRouter.get('/:id/iprs/:iprId/pdf', (req, res) => {
 
 /**
  * Streams the quote / invoice PDF. Shared by the staff route below and the customer portal.
- * Job invoices are only available once the job status allows it (checkInvoicePdfAllowedForJobStatus).
+ * Job invoices are only available once the job status allows it (checkInvoicePdfAllowedForJobStatus),
+ * unless `allowProvisional` is set (customer portal): then a job invoice for an unreleased job is
+ * still produced, clearly marked PROVISIONAL.
  */
-export function sendInvoicePdf(invoiceId, res) {
+export function sendInvoicePdf(invoiceId, res, { allowProvisional = false } = {}) {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
@@ -1871,9 +1873,13 @@ export function sendInvoicePdf(invoiceId, res) {
     WHERE i.id = ?
   `).get(invoiceId);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  let provisional = false;
   if (inv.type === 'invoice' && inv.job_id) {
     const pdfCheck = checkInvoicePdfAllowedForJobStatus(inv.job_status);
-    if (!pdfCheck.ok) return res.status(403).json({ error: pdfCheck.error });
+    if (!pdfCheck.ok) {
+      if (!allowProvisional) return res.status(403).json({ error: pdfCheck.error });
+      provisional = true;
+    }
   }
 
   const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoiceId);
@@ -1896,7 +1902,7 @@ export function sendInvoicePdf(invoiceId, res) {
   
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}.pdf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}${provisional ? '-provisional' : ''}.pdf"`);
   doc.pipe(res);
   
   const { company } = config;
@@ -1927,7 +1933,9 @@ export function sendInvoicePdf(invoiceId, res) {
   const dateLabel = inv.type === 'invoice' ? 'Invoice Date' : 'Issue Date';
   const issueDate = new Date(inv.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const titleLine = `${title} #${numberPart}`;
-  const dateLine = `${dateLabel}: ${issueDate}`;
+  const dateLine = provisional
+    ? `${dateLabel}: ${issueDate}\nPROVISIONAL – work in progress`
+    : `${dateLabel}: ${issueDate}`;
 
   doc.fontSize(16).font('Helvetica-Bold');
   const invTitleH = doc.heightOfString(titleLine, { width: docBoxInnerW });
@@ -2256,6 +2264,17 @@ export function sendInvoicePdf(invoiceId, res) {
   if (savingNote) {
     doc.fontSize(9).font('Helvetica-Oblique').fillColor('#000000');
     doc.text(savingNote, margin, columnsBottom + 8, { width: contentWidth, align: 'right' });
+    summaryBottom = doc.y;
+  }
+  if (provisional) {
+    doc.fontSize(9).font('Helvetica-Oblique').fillColor('#9a6700');
+    doc.text(
+      'Provisional invoice: the work is still in progress, so items and amounts may change. A final invoice is issued at collection.',
+      margin,
+      summaryBottom + 8,
+      { width: contentWidth, align: 'right' },
+    );
+    doc.fillColor('#000000');
     summaryBottom = doc.y;
   }
   // Once the workshop has ticked "Vehicle tested" on the job, say so under the totals.
