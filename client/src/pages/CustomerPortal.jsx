@@ -530,6 +530,9 @@ function PortalJobDetail() {
           <>
             <PortalLineItemsTable items={job.invoice.items} showPartProgress />
             <PortalDocumentTotals doc={job.invoice} />
+            {job.vehicle_tested_at && (
+              <VehicleTestedTick id={`portal-invoice-vehicle-tested-${job.id}`} at={job.vehicle_tested_at} />
+            )}
           </>
         )}
       </section>

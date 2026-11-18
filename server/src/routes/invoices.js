@@ -2254,6 +2254,20 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.text(savingNote, margin, columnsBottom + 8, { width: contentWidth, align: 'right' });
     summaryBottom = doc.y;
   }
+  // Once the workshop has ticked "Vehicle tested" on the job, say so under the totals.
+  if (isInvoiceDoc && inv.job_id) {
+    const tested = db.prepare('SELECT vehicle_tested_at FROM jobs WHERE id = ?').get(inv.job_id)?.vehicle_tested_at;
+    if (tested) {
+      const d = new Date(`${String(tested).replace(' ', 'T')}Z`);
+      const when = Number.isNaN(d.getTime())
+        ? String(tested)
+        : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' });
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#1a7f37');
+      doc.text(`Vehicle tested: ${when}`, margin, summaryBottom + 8, { width: contentWidth, align: 'right' });
+      doc.fillColor('#000000');
+      summaryBottom = doc.y;
+    }
+  }
 
   const notesBlockY = drawInvoiceCustomerNotesBlock(doc, {
     margin,

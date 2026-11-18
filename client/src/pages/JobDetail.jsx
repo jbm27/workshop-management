@@ -2514,6 +2514,15 @@ export default function JobDetail() {
                   amountPaid={invoicePaidTotal}
                   showPayments
                 />
+                {job?.vehicle_tested_at && (
+                  <VehicleTestedTick
+                    id={`invoice-vehicle-tested-${job.id}`}
+                    at={job.vehicle_tested_at}
+                    by={job.vehicle_tested_by}
+                    busy={vehicleTestedSaving}
+                    onChange={setVehicleTested}
+                  />
+                )}
               </>
             )}
 
