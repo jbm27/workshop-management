@@ -6,7 +6,12 @@
 const SITE = 'https://www.thechequeredflag.net';
 const PHONE_DISPLAY = '+254 720 514965';
 const PHONE_TEL = 'tel:+254720514965';
-const WHATSAPP = 'https://wa.me/254720514965';
+export const WHATSAPP = 'https://wa.me/254720514965';
+
+/** WhatsApp link with a message already typed in (customer just presses send). */
+export function whatsappWithText(text) {
+  return `${WHATSAPP}?text=${encodeURIComponent(text)}`;
+}
 const MAPS = 'https://www.google.com/maps/search/?api=1&query=Chequered+Flag+Ngong+Road+Karen+Nairobi';
 
 function Brand() {

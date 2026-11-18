@@ -10,6 +10,101 @@ import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
 import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
 import { isTrackableLine } from '../utils/lineProgress';
+import { whatsappWithText } from '../components/PortalShell';
+
+/** Small "Copy" button for till / account numbers. */
+function CopyButton({ value, label = 'Copy' }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      window.prompt('Copy this:', String(value));
+    }
+  };
+  return (
+    <button type="button" className="cf-copy" onClick={copy} aria-label={`${label} ${value}`}>
+      {copied ? 'Copied ✓' : label}
+    </button>
+  );
+}
+
+/** How to pay an outstanding balance: M-Pesa till and bank details, with copy buttons. */
+function PaymentDetails({ details, balance, reference }) {
+  if (!details || !(Number(balance) > 0)) return null;
+  const { mpesa_till: till, bank, terms } = details;
+  return (
+    <div className="cf-pay">
+      <div className="cf-pay-head">
+        <span className="cf-eyebrow-sm">How to pay</span>
+        <span>
+          Balance <strong>{kes(balance)}</strong>
+          {reference ? <> · use <strong>{reference}</strong> as the reference</> : null}
+        </span>
+      </div>
+      <div className="cf-pay-grid">
+        {till && (
+          <div className="cf-pay-box">
+            <div className="cf-pay-title">M-Pesa · Buy Goods</div>
+            <div className="cf-pay-row">
+              Till number <strong className="cf-pay-num">{till}</strong> <CopyButton value={till} />
+            </div>
+          </div>
+        )}
+        {bank && (
+          <div className="cf-pay-box">
+            <div className="cf-pay-title">Bank transfer · {bank.name}</div>
+            <div className="cf-pay-row">
+              Account <strong className="cf-pay-num">{bank.account_number}</strong> <CopyButton value={bank.account_number} />
+            </div>
+            <div className="cf-pay-sub">
+              {[bank.account_name, bank.branch ? `${bank.branch} branch` : null, bank.swift_code ? `SWIFT ${bank.swift_code}` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          </div>
+        )}
+      </div>
+      {terms && <div className="cf-pay-sub">Terms: {terms}. Cheque payments must clear before collection.</div>}
+    </div>
+  );
+}
+
+/** "Download PDF" link for a quote / invoice, or a note saying when it will be ready. */
+function PdfLink({ token, doc, label = 'Download PDF' }) {
+  if (!doc) return null;
+  if (!doc.pdf_available) {
+    return <span className="cf-pdf-later">PDF available once your vehicle is ready</span>;
+  }
+  return (
+    <a className="btn cf-btn-sm" href={api.customerPortal.documentPdfUrl(token, doc.id)} target="_blank" rel="noopener noreferrer">
+      ⤓ {label}
+    </a>
+  );
+}
+
+function formatDueDate(iso) {
+  if (!iso) return null;
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** "166,400 km or 18 May 2027" */
+function serviceDueLabel(next) {
+  if (!next) return null;
+  return [next.km != null ? `${Number(next.km).toLocaleString()} km` : null, formatDueDate(next.date)].filter(Boolean).join(' or ') || null;
+}
+
+function bookServiceLink(vehicle, next) {
+  const car = [vehicle.registration, [vehicle.make, vehicle.model].filter(Boolean).join(' ')].filter(Boolean).join(' – ');
+  const due = serviceDueLabel(next);
+  return whatsappWithText(
+    `Hello Chequered Flag, I would like to book a service for ${car || 'my vehicle'}.${due ? ` Next service due: ${due}.` : ''} When would suit?`,
+  );
+}
 
 /** A card that opens and closes; the summary line stays visible when it is closed. */
 function Collapsible({ title, meta, defaultOpen = false, children }) {
@@ -64,6 +159,7 @@ export default function CustomerPortal() {
       <Route index element={<PortalJobsList />} />
       <Route path="document/:invoiceId" element={<PortalStandaloneDocument />} />
       <Route path="job/:jobId" element={<PortalJobDetail />} />
+      <Route path="vehicle/:vehicleId" element={<PortalVehicle />} />
     </Routes>
   );
 }
@@ -89,7 +185,7 @@ function PortalJobsList() {
   if (loading) return <div className="page-title">Loading…</div>;
   if (error || !data) return <div className="page-title">Link not found or expired.</div>;
 
-  const { customer, jobs, standalone_documents: standaloneDocs = [] } = data;
+  const { customer, jobs, standalone_documents: standaloneDocs = [], vehicles = [] } = data;
   const q = portalSearch.trim().toLowerCase();
   const filteredJobs = !q
     ? jobs
@@ -279,6 +375,136 @@ function PortalJobsList() {
           </>
         )}
       </section>
+
+      {vehicles.length > 0 && (
+        <section className="card">
+          <div className="cf-card-head">
+            <h3>Your vehicles</h3>
+            <span className="cf-card-head-meta">Service history and next service</span>
+          </div>
+          <div className="cf-vehicles">
+            {vehicles.map((v) => {
+              const due = serviceDueLabel(v.next_service);
+              return (
+                <div key={v.id} className="cf-vehicle">
+                  <div className="cf-vehicle-main">
+                    <div className="cf-vehicle-reg">{v.registration || '—'}</div>
+                    <div className="cf-vehicle-name">{[v.make, v.model, v.year].filter(Boolean).join(' ') || '—'}</div>
+                    <div className="cf-vehicle-meta">
+                      {v.visits} {v.visits === 1 ? 'visit' : 'visits'}
+                      {v.last_visit ? ` · last ${formatPortalDate(v.last_visit)}` : ''}
+                    </div>
+                    <div className="cf-vehicle-due">
+                      {due ? (
+                        <>
+                          Next service <strong>{due}</strong>
+                          {v.next_service?.estimated && <span className="cf-est"> (estimate)</span>}
+                        </>
+                      ) : (
+                        <span className="cf-muted">Next service: ask us</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="cf-vehicle-actions">
+                    <Link className="btn cf-btn-sm" to={`vehicle/${v.id}`}>History</Link>
+                    <a className="btn primary cf-btn-sm" href={bookServiceLink(v, v.next_service)} target="_blank" rel="noopener noreferrer">
+                      Book service
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/** One vehicle: when the next service is due (with a Book button) and every visit to the workshop. */
+function PortalVehicle() {
+  const { token, vehicleId } = useParams();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!token || !vehicleId) return;
+    setLoading(true);
+    setError('');
+    api.customerPortal
+      .getVehicle(token, vehicleId)
+      .then(setData)
+      .catch((err) => setError(err.message || 'Failed to load'))
+      .finally(() => setLoading(false));
+  }, [token, vehicleId]);
+
+  if (loading) return <div className="page-title">Loading…</div>;
+  if (error || !data) return <div className="page-title">Vehicle not found.</div>;
+
+  const { vehicle, next_service: next, history } = data;
+  const due = serviceDueLabel(next);
+  return (
+    <div className="customer-portal cf-compact">
+      <Link to={`/portal/${encodeURIComponent(token)}`} className="cf-back">
+        ← Home
+      </Link>
+      <div className="cf-eyebrow">Your vehicle · Service history</div>
+      <h1 className="page-title">{vehicle.registration || 'Vehicle'}</h1>
+      <p className="cf-meta-line">
+        {[vehicle.make, vehicle.model, vehicle.year].filter(Boolean).join(' ') || '—'}
+        {vehicle.last_odometer ? ` · last recorded ${Number(vehicle.last_odometer).toLocaleString()} km` : ''}
+      </p>
+
+      <section className="card cf-next-service">
+        <div>
+          <div className="cf-eyebrow-sm">Next service due</div>
+          <div className="cf-next-service-value">{due || 'Ask us when your next service is due'}</div>
+          {next?.estimated && (
+            <div className="cf-muted cf-small">
+              Estimate based on a typical 10,000 km / 6-month interval from your last visit. We will confirm when you book.
+            </div>
+          )}
+        </div>
+        <a className="btn primary" href={bookServiceLink(vehicle, next)} target="_blank" rel="noopener noreferrer">
+          Book service on WhatsApp
+        </a>
+      </section>
+
+      <section className="card">
+        <div className="cf-card-head">
+          <h3>Visits</h3>
+          <span className="cf-card-head-meta">
+            {history.length} {history.length === 1 ? 'visit' : 'visits'}
+          </span>
+        </div>
+        {history.length === 0 && <p className="empty cf-empty-sm">No visits yet.</p>}
+        <ol className="cf-history">
+          {history.map((h) => {
+            const km = h.odometer_out ?? h.odometer_in;
+            return (
+              <li key={h.id}>
+                <div className="cf-history-date">{formatPortalDate(h.completed_at || h.created_at)}</div>
+                <div className="cf-history-body">
+                  <div className="cf-history-title">
+                    <strong>{h.job_number}</strong>
+                    <span className="cf-muted"> · {jobStatusLabel(h.status)}</span>
+                    {km != null && <span className="cf-muted"> · {Number(km).toLocaleString()} km</span>}
+                  </div>
+                  {h.description && <div>{h.description}</div>}
+                  {h.work?.length > 0 && <div className="cf-history-work">{h.work.join(' · ')}</div>}
+                </div>
+                <div className="cf-history-side">
+                  {h.invoice_total != null && <div>{kes(h.invoice_total)}</div>}
+                  <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
+                    View
+                  </Link>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
     </div>
   );
 }
@@ -367,6 +593,7 @@ function PortalStandaloneDocument() {
           allowApprove={allowQuoteApproval}
           onToggleApprove={toggleApprove}
           onApproveAllQuote={approveAllQuote}
+          token={token}
         />
       )}
 
@@ -383,6 +610,10 @@ function PortalStandaloneDocument() {
           </p>
           <PortalLineItemsTable items={invoice.items} />
           <PortalDocumentTotals doc={invoice} />
+          <PaymentDetails details={payload.payment_details} balance={invoice.balance} reference={invoice.invoice_number} />
+          <div className="cf-doc-actions">
+            <PdfLink token={token} doc={invoice} label="Download invoice PDF" />
+          </div>
           <div style={{ marginTop: '1.25rem' }}>
             <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
             <div className="table-wrap">
@@ -510,6 +741,7 @@ function PortalJobDetail() {
           onApproveAllQuote={approveAllQuote}
           showVehicleTested
           vehicleTestedAt={job.vehicle_tested_at}
+          token={token}
         />
       )}
 
@@ -520,6 +752,7 @@ function PortalJobDetail() {
             <span className="cf-card-head-meta">
               <strong>{job.invoice.invoice_number}</strong>
               {job.invoice.status ? ` · ${job.invoice.status}` : ''}
+              <PdfLink token={token} doc={job.invoice} />
             </span>
           )}
         </div>
@@ -533,6 +766,11 @@ function PortalJobDetail() {
             {job.vehicle_tested_at && (
               <VehicleTestedTick id={`portal-invoice-vehicle-tested-${job.id}`} at={job.vehicle_tested_at} />
             )}
+            <PaymentDetails
+              details={payload.payment_details}
+              balance={job.invoice.balance}
+              reference={job.invoice.invoice_number}
+            />
           </>
         )}
       </section>
@@ -733,7 +971,7 @@ function PortalDocumentTotals({ doc }) {
   );
 }
 
-function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote, showVehicleTested = false, vehicleTestedAt = null }) {
+function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote, showVehicleTested = false, vehicleTestedAt = null, token = null }) {
   const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
   const needsApproval = quotePendingCount > 0 && allowApprove;
   const meta = [
@@ -840,6 +1078,11 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
       </div>
       <PortalDocumentTotals doc={quote} />
       {showVehicleTested && <VehicleTestedTick id={`portal-vehicle-tested-${quote.id}`} at={vehicleTestedAt} />}
+      {token && (
+        <div className="cf-doc-actions">
+          <PdfLink token={token} doc={quote} label="Download quote PDF" />
+        </div>
+      )}
     </Collapsible>
   );
 }

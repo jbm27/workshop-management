@@ -941,3 +941,60 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .lp-vt.done .lp-vt-label { color: var(--success); }
 .lp-vt-meta { font-size: 0.78rem; color: var(--text-muted); }
 @media (max-width: 640px) { .lp-vt { max-width: none; } }
+
+/* ---------- Portal: PDF, payment details, vehicles, service history ---------- */
+.cf-portal .cf-card-head-meta { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.cf-pdf-later { font-size: 0.78rem; color: #737373; }
+.cf-doc-actions { display: flex; justify-content: flex-end; margin-top: 0.6rem; }
+
+.cf-pay { margin-top: 0.85rem; padding: 0.75rem 0.9rem; border: 1px solid #e5e5e5; border-radius: 10px; background: #fafaf8; }
+.cf-pay-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem 1rem; flex-wrap: wrap; font-size: 0.88rem; margin-bottom: 0.55rem; }
+.cf-pay-head .cf-eyebrow-sm { margin: 0; }
+.cf-pay-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.6rem; }
+.cf-pay-box { background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 0.55rem 0.75rem; }
+.cf-pay-title { font-size: 0.75rem; font-weight: 600; color: #595959; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.2rem; }
+.cf-pay-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.9rem; }
+.cf-pay-num { font-size: 1.05rem; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.cf-pay-sub { font-size: 0.78rem; color: #737373; margin-top: 0.3rem; }
+.cf-copy {
+  border: 1px solid #c8c8c8; background: #fff; color: #171717; border-radius: 6px;
+  font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.5rem; cursor: pointer; min-height: 0;
+}
+.cf-copy:hover { border-color: #171717; }
+
+.cf-vehicles { display: grid; gap: 0.6rem; }
+.cf-vehicle { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.65rem 0.8rem; border: 1px solid #ececea; border-radius: 10px; }
+.cf-vehicle-main { min-width: 0; }
+.cf-vehicle-reg { font-weight: 800; letter-spacing: 0.02em; }
+.cf-vehicle-name { font-size: 0.9rem; }
+.cf-vehicle-meta, .cf-muted { color: #737373; }
+.cf-vehicle-meta { font-size: 0.8rem; }
+.cf-vehicle-due { font-size: 0.85rem; margin-top: 0.2rem; }
+.cf-est { color: #737373; font-size: 0.78rem; }
+.cf-vehicle-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.cf-small { font-size: 0.78rem; }
+
+.cf-portal .cf-next-service { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem 1.5rem; flex-wrap: wrap; }
+.cf-next-service-value { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.01em; margin: 0.15rem 0; }
+
+.cf-history { list-style: none; margin: 0; padding: 0; }
+.cf-history li { display: grid; grid-template-columns: 7.5rem 1fr auto; gap: 0.75rem; padding: 0.6rem 0; border-top: 1px solid #efefed; align-items: start; }
+.cf-history li:first-child { border-top: 0; }
+.cf-history-date { font-size: 0.85rem; color: #595959; font-weight: 600; }
+.cf-history-body { font-size: 0.9rem; min-width: 0; }
+.cf-history-work { color: #595959; font-size: 0.82rem; margin-top: 0.15rem; }
+.cf-history-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; font-size: 0.88rem; font-weight: 600; }
+
+@media (max-width: 640px) {
+  .cf-history li { grid-template-columns: 1fr auto; }
+  .cf-history-date { grid-column: 1 / -1; }
+  .cf-vehicle-actions { width: 100%; }
+  .cf-vehicle-actions .btn { flex: 1; }
+}
+
+/* Staff job page: next service due editor */
+.next-service-box { margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid var(--border); }
+.next-service-head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+.next-service-form { display: grid; gap: 0.5rem; margin-top: 0.35rem; }
+.next-service-form label { display: grid; gap: 0.2rem; font-size: 0.82rem; color: var(--text-muted); }
+.next-service-form input { padding: 0.4rem 0.55rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--text); }

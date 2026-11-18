@@ -1854,7 +1854,11 @@ invoicesRouter.get('/:id/iprs/:iprId/pdf', (req, res) => {
   pdfDoc.end();
 });
 
-invoicesRouter.get('/:id/pdf', (req, res) => {
+/**
+ * Streams the quote / invoice PDF. Shared by the staff route below and the customer portal.
+ * Job invoices are only available once the job status allows it (checkInvoicePdfAllowedForJobStatus).
+ */
+export function sendInvoicePdf(invoiceId, res) {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
@@ -1865,21 +1869,21 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
     LEFT JOIN jobs j ON i.job_id = j.id
     WHERE i.id = ?
-  `).get(req.params.id);
+  `).get(invoiceId);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (inv.type === 'invoice' && inv.job_id) {
     const pdfCheck = checkInvoicePdfAllowedForJobStatus(inv.job_status);
     if (!pdfCheck.ok) return res.status(403).json({ error: pdfCheck.error });
   }
 
-  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(req.params.id);
+  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoiceId);
   const isInvoiceDoc = inv.type === 'invoice';
   let amountPaid = 0;
   let balanceDue = 0;
   if (isInvoiceDoc) {
     amountPaid =
       Number(
-        db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM invoice_payments WHERE invoice_id = ?').get(req.params.id)?.s,
+        db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM invoice_payments WHERE invoice_id = ?').get(invoiceId)?.s,
       ) || 0;
     balanceDue = Math.round(((Number(inv.total) || 0) - amountPaid) * 100) / 100;
   }
@@ -2290,4 +2294,6 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   );
 
   doc.end();
-});
+}
+
+invoicesRouter.get('/:id/pdf', (req, res) => sendInvoicePdf(req.params.id, res));

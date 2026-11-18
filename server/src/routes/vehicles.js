@@ -64,6 +64,20 @@ vehiclesRouter.patch('/:id', (req, res) => {
     notes ?? row.notes,
     req.params.id
   );
+  // Next service due: only touched when sent; empty clears it.
+  if ('next_service_km' in req.body || 'next_service_date' in req.body) {
+    const km = 'next_service_km' in req.body ? req.body.next_service_km : row.next_service_km;
+    const kmNum = km === '' || km == null ? null : Math.round(Number(km));
+    if (kmNum != null && (!Number.isFinite(kmNum) || kmNum < 0)) {
+      return res.status(400).json({ error: 'next_service_km must be a positive number' });
+    }
+    const date = 'next_service_date' in req.body ? req.body.next_service_date : row.next_service_date;
+    const dateStr = date ? String(date).trim().slice(0, 10) : null;
+    if (dateStr && !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: 'next_service_date must be YYYY-MM-DD' });
+    }
+    db.prepare('UPDATE vehicles SET next_service_km = ?, next_service_date = ? WHERE id = ?').run(kmNum, dateStr || null, req.params.id);
+  }
   res.json(db.prepare('SELECT v.*, c.name as customer_name FROM vehicles v JOIN customers c ON v.customer_id = c.id WHERE v.id = ?').get(req.params.id));
 });
 

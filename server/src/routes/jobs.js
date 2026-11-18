@@ -53,7 +53,7 @@ function nextJobNumber() {
 }
 
 const jobDetailSql = `
-  SELECT j.*, v.registration, v.make, v.model, v.vin,
+  SELECT j.*, v.registration, v.make, v.model, v.vin, v.next_service_km, v.next_service_date,
     c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
     c.phone as customer_phone, c.email as customer_email,
     rj.job_number as related_job_number,

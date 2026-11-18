@@ -300,6 +300,11 @@ export const api = {
       ),
     getJob: (token, jobId) =>
       api.get(`/customer-portal/${encodeURIComponent(token)}/jobs/${encodeURIComponent(jobId)}`),
+    getVehicle: (token, vehicleId) =>
+      api.get(`/customer-portal/${encodeURIComponent(token)}/vehicles/${encodeURIComponent(vehicleId)}`),
+    /** Direct link to a quote / invoice PDF (opened by the browser, no login needed: the token is the key). */
+    documentPdfUrl: (token, invoiceId) =>
+      `${API}/customer-portal/${encodeURIComponent(token)}/documents/${encodeURIComponent(invoiceId)}/pdf`,
     approveItem: (token, quoteId, itemId, approved) =>
       api.post(`/customer-portal/${encodeURIComponent(token)}/quotes/${quoteId}/items/${itemId}/approve`, { approved }),
     approveAllQuote: (token, quoteId) =>

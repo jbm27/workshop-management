@@ -91,6 +91,15 @@ function migrate(db) {
     if (jobCols.length && !jobCols.includes('valuables_in_vehicle')) {
       db.run('ALTER TABLE jobs ADD COLUMN valuables_in_vehicle TEXT');
     }
+    // Next service due (set by staff; the customer portal shows it with a "Book it" button)
+    const vehInfo = db.exec('PRAGMA table_info(vehicles)');
+    const vehCols = (vehInfo[0]?.values || []).map((row) => row[1]);
+    if (vehCols.length && !vehCols.includes('next_service_km')) {
+      db.run('ALTER TABLE vehicles ADD COLUMN next_service_km INTEGER');
+    }
+    if (vehCols.length && !vehCols.includes('next_service_date')) {
+      db.run('ALTER TABLE vehicles ADD COLUMN next_service_date TEXT');
+    }
     // "Vehicle tested" is one tick for the whole job (shown next to the quote total)
     if (jobCols.length && !jobCols.includes('vehicle_tested_at')) {
       db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_at TEXT');

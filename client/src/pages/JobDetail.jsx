@@ -202,6 +202,90 @@ function buildQuotePortalMessage({ customerName, quoteNumber, jobNumber, vehicle
   return lines.join('\n');
 }
 
+/**
+ * "Next service due" for the job's vehicle. Shown to the customer in the portal with a "Book it" button.
+ * If left empty, the portal shows an estimate (last visit + 10,000 km / 6 months), labelled as such.
+ */
+function NextServiceEditor({ job, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [km, setKm] = useState('');
+  const [date, setDate] = useState('');
+  const [busy, setBusy] = useState(false);
+  const hasValue = job.next_service_km != null || !!job.next_service_date;
+  const label = [
+    job.next_service_km != null ? `${Number(job.next_service_km).toLocaleString()} km` : null,
+    job.next_service_date
+      ? new Date(`${job.next_service_date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' or ');
+
+  const start = () => {
+    const suggestKm = Number(job.odometer_out ?? job.odometer_in);
+    setKm(job.next_service_km != null ? String(job.next_service_km) : Number.isFinite(suggestKm) && suggestKm > 0 ? String(suggestKm + 10000) : '');
+    if (job.next_service_date) setDate(job.next_service_date);
+    else {
+      const d = new Date();
+      d.setMonth(d.getMonth() + 6);
+      setDate(d.toISOString().slice(0, 10));
+    }
+    setEditing(true);
+  };
+  const save = async (clear = false) => {
+    try {
+      setBusy(true);
+      const row = await api.vehicles.update(job.vehicle_id, {
+        next_service_km: clear ? null : km === '' ? null : Number(km),
+        next_service_date: clear ? null : date || null,
+      });
+      onSaved?.(row);
+      setEditing(false);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="next-service-box">
+      <div className="next-service-head">
+        <strong>Next service due</strong>
+        {!editing && (
+          <button type="button" className="btn" style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} onClick={start}>
+            {hasValue ? 'Edit' : 'Set'}
+          </button>
+        )}
+      </div>
+      {!editing && (
+        <div style={{ fontSize: '0.9rem', color: hasValue ? 'var(--text)' : 'var(--text-muted)' }}>
+          {hasValue ? label : 'Not set (customer sees an estimate: +10,000 km / 6 months)'}
+        </div>
+      )}
+      {editing && (
+        <div className="next-service-form">
+          <label>
+            <span>At km</span>
+            <input type="number" min="0" step="500" value={km} onChange={(e) => setKm(e.target.value)} />
+          </label>
+          <label>
+            <span>Or by date</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn primary" disabled={busy} onClick={() => save(false)}>Save</button>
+            {hasValue && (
+              <button type="button" className="btn" disabled={busy} onClick={() => save(true)}>Clear</button>
+            )}
+            <button type="button" className="btn" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Quote line → invoice status for staff: awaiting approval, ready to move, or already on the invoice. */
 function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
   const muted = { fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
@@ -1584,6 +1668,12 @@ export default function JobDetail() {
             )}
             <p>{job.customer_phone || '—'}</p>
             <p>{job.customer_email || '—'}</p>
+            <NextServiceEditor
+              job={job}
+              onSaved={(row) =>
+                setJob((j) => (j ? { ...j, next_service_km: row.next_service_km, next_service_date: row.next_service_date } : j))
+              }
+            />
           </div>
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Job details</h3>

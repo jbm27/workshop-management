@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS vehicles (
   vin TEXT,
   odometer INTEGER,
   notes TEXT,
+  next_service_km INTEGER,
+  next_service_date TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
