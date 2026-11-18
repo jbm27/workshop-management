@@ -650,3 +650,144 @@ tr:hover td {
     min-height: 44px;
   }
 }
+
+/* ======================================================================
+   Customer portal — styled to match the main Chequered Flag website
+   (thechequeredflag.net). Everything is scoped to .cf-portal so the
+   staff app is unaffected.
+   ====================================================================== */
+.cf-portal {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --border: #e5e5e5;
+  --text: #171717;
+  --text-muted: #595959;
+  --accent: #171717;
+  --accent-dim: #000000;
+  --radius: 10px;
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+.cf-portal input, .cf-portal select, .cf-portal textarea, .cf-portal button { font-family: var(--font); }
+.cf-portal a { color: var(--text); }
+.cf-container { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 2rem; }
+
+/* Header */
+.cf-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #fff;
+  border-bottom: 1px solid #e5e5e5;
+}
+.cf-header-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 76px; }
+.cf-brand { display: inline-flex; align-items: center; gap: 0.75rem; color: #171717; }
+.cf-brand:hover { text-decoration: none; }
+.cf-brand-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; flex-shrink: 0;
+  background: #fff; border: 1px solid #e5e5e5; border-radius: 6px;
+}
+.cf-brand-name { display: block; font-size: 18px; font-weight: 600; letter-spacing: 0.025em; line-height: 1.5; }
+.cf-brand-est { display: block; font-size: 12px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: #737373; line-height: 1.3; }
+.cf-header-actions { display: flex; gap: 0.6rem; align-items: center; }
+
+/* Buttons (header/footer and the portal's own .btn) */
+.cf-btn, .cf-portal .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 44px; padding: 0 1.25rem;
+  border-radius: 8px; border: 1px solid #e0e0e0;
+  background: #fff; color: #171717;
+  font-size: 15px; font-weight: 600; line-height: 1.2;
+  cursor: pointer; text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.cf-btn:hover, .cf-portal .btn:hover { border-color: #171717; text-decoration: none; }
+.cf-btn-dark, .cf-portal .btn.primary { background: #171717; border-color: #171717; color: #fff; font-weight: 700; }
+.cf-btn-dark:hover, .cf-portal .btn.primary:hover { background: #000; border-color: #000; color: #fff; }
+.cf-portal .btn.primary { text-transform: uppercase; letter-spacing: 0.06em; font-size: 13px; }
+.cf-portal .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.cf-portal a.btn, .cf-portal a.cf-btn-dark { color: inherit; }
+.cf-portal a.btn.primary, .cf-portal a.cf-btn-dark { color: #fff; }
+
+/* Page */
+.cf-main { flex: 1; padding: 2.5rem 0 4rem; }
+.cf-eyebrow {
+  font-size: 13px; font-weight: 700; letter-spacing: 0.23em; text-transform: uppercase;
+  color: #595959; margin: 0 0 0.6rem;
+}
+.cf-portal .page-title {
+  font-size: clamp(2rem, 4.2vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  margin: 0 0 0.75rem;
+}
+.cf-portal h3 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.25; }
+.cf-portal h4 { font-weight: 700; letter-spacing: -0.01em; }
+.cf-portal p { line-height: 1.6; }
+
+/* Cards and tables */
+.cf-portal .card {
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 1.6rem 1.75rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 6px 18px rgba(60, 50, 20, 0.05);
+}
+.cf-portal th {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
+  color: #737373; border-bottom-color: #e5e5e5;
+}
+.cf-portal td { border-bottom-color: #efefed; }
+.cf-portal tr:hover td { background: #fafaf8; }
+.cf-portal .empty { color: #737373; }
+
+/* Forms */
+.cf-portal .form-group label { font-size: 13px; font-weight: 400; color: #595959; }
+.cf-portal .form-group input,
+.cf-portal .form-group select,
+.cf-portal .form-group textarea,
+.cf-portal textarea,
+.cf-portal input[type='search'] {
+  background: #fff; border: 1px solid #c8c8c8; border-radius: 8px;
+  min-height: 46px; padding: 0 0.75rem; font-size: 15px;
+}
+.cf-portal textarea { padding: 0.65rem 0.75rem; }
+.cf-portal .form-group input:focus,
+.cf-portal textarea:focus,
+.cf-portal input[type='search']:focus { outline: 2px solid #171717; outline-offset: 1px; border-color: #171717; }
+
+/* Footer */
+.cf-footer { border-top: 1px solid #e5e5e5; background: #fff; padding: 2.5rem 0 3rem; font-size: 14px; line-height: 1.7; }
+.cf-footer-grid { display: grid; grid-template-columns: 1.1fr 0.8fr 1fr 1fr 1fr; gap: 2rem; }
+.cf-footer-title { font-weight: 600; }
+.cf-footer-muted { color: #737373; }
+.cf-footer-logo {
+  display: inline-flex; margin-top: 1rem; padding: 0.6rem;
+  border: 1px solid #e5e5e5; border-radius: 10px; background: #fff;
+}
+.cf-footer-links { display: flex; flex-direction: column; }
+.cf-footer a { color: #171717; text-decoration: none; }
+.cf-footer a:hover { text-decoration: underline; }
+.cf-eyebrow-sm { font-size: 12px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: #737373; margin-bottom: 0.4rem; }
+
+@media (max-width: 900px) {
+  .cf-footer-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .cf-container { padding: 0 1rem; }
+  .cf-header-inner { min-height: 64px; }
+  .cf-hide-sm { display: none; }
+  .cf-brand-name { font-size: 16px; }
+  .cf-header-actions .cf-btn { min-height: 40px; padding: 0 0.9rem; font-size: 14px; }
+  .cf-main { padding: 1.5rem 0 3rem; }
+  .cf-portal .card { padding: 1.1rem 1rem; border-radius: 10px; }
+  .cf-footer-grid { grid-template-columns: 1fr; gap: 1.25rem; }
+}

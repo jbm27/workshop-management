@@ -13,6 +13,7 @@ import Suppliers from './pages/Suppliers';
 import SupplierDetail from './pages/SupplierDetail';
 import JobDetail from './pages/JobDetail';
 import CustomerPortal from './pages/CustomerPortal';
+import PortalShell from './components/PortalShell';
 import Feedback from './pages/Feedback';
 import JobReports from './pages/JobReports';
 import AdminLogin from './pages/AdminLogin';
@@ -285,16 +286,14 @@ function App() {
   const location = useLocation();
   const isPortal = location.pathname.startsWith('/portal');
 
-  // Customer portal layout: no admin sidebar, just the portal content
+  // Customer portal layout: no admin sidebar; branded like the main Chequered Flag website
   if (isPortal) {
     return (
-      <div className="app">
-        <main className="main">
-          <Routes>
-            <Route path="/portal/:token/*" element={<CustomerPortal />} />
-          </Routes>
-        </main>
-      </div>
+      <PortalShell>
+        <Routes>
+          <Route path="/portal/:token/*" element={<CustomerPortal />} />
+        </Routes>
+      </PortalShell>
     );
   }
 

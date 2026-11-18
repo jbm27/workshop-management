@@ -118,6 +118,7 @@ function PortalJobsList() {
 
   return (
     <div className="customer-portal">
+      <div className="cf-eyebrow">Customer portal · Karen, Nairobi</div>
       <h1 className="page-title" style={{ marginBottom: '0.5rem' }}>{customer.name}</h1>
       <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>
         {customer.email || '—'} {customer.phone ? ` · ${customer.phone}` : ''}
@@ -322,6 +323,7 @@ function PortalStandaloneDocument() {
           ← Home
         </Link>
       </p>
+      <div className="cf-eyebrow">Your document</div>
       <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>
         {String(docType || '').toLowerCase() === 'quote' ? (
           <>
@@ -470,6 +472,7 @@ function PortalJobDetail() {
           ← All jobs
         </Link>
       </p>
+      <div className="cf-eyebrow">Workshop job · {jobStatusLabel(job.status)}</div>
       <h1 className="page-title" style={{ marginBottom: '0.25rem' }}>{job.job_number}</h1>
       <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>
         {customer.name}
