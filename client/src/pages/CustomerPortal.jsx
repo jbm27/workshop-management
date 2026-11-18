@@ -12,6 +12,38 @@ import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTic
 import { isTrackableLine } from '../utils/lineProgress';
 import { whatsappWithText } from '../components/PortalShell';
 
+/**
+ * Keeps an open portal page up to date with what the workshop changes (new quote items, ticks,
+ * payments): refreshes every 30 seconds while the page is visible, and straight away when the
+ * customer comes back to the tab / app. Refresh errors are ignored (the next one will retry).
+ */
+const PORTAL_REFRESH_MS = 30000;
+function usePortalAutoRefresh(refresh, deps) {
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const p = refresh();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch {
+        /* ignore */
+      }
+    };
+    const timer = setInterval(run, PORTAL_REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') run();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', run);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', run);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
 /** Small "Copy" button for till / account numbers. */
 function CopyButton({ value, label = 'Copy' }) {
   const [copied, setCopied] = useState(false);
@@ -188,6 +220,8 @@ function PortalJobsList() {
       .catch((err) => setError(err.message || 'Failed to load'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  usePortalAutoRefresh(() => (token ? api.customerPortal.get(token).then(setData) : null), [token]);
 
   if (loading) return <div className="page-title">Loading…</div>;
   if (error || !data) return <div className="page-title">Link not found or expired.</div>;
@@ -537,6 +571,8 @@ function PortalStandaloneDocument() {
       .finally(() => setLoading(false));
   }, [token, invoiceId]);
 
+  usePortalAutoRefresh(() => (saving ? null : reload()), [token, invoiceId, saving]);
+
   const toggleApprove = async (quoteId, itemId, approved) => {
     if (!token) return;
     try {
@@ -675,6 +711,8 @@ function PortalJobDetail() {
       .catch((err) => setError(err.message || 'Failed to load'))
       .finally(() => setLoading(false));
   }, [token, jobId]);
+
+  usePortalAutoRefresh(() => (saving ? null : reload()), [token, jobId, saving]);
 
   const toggleApprove = async (quoteId, itemId, approved) => {
     if (!token) return;
