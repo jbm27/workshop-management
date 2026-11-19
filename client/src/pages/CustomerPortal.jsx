@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
@@ -10,7 +10,14 @@ import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
 import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
 import { isTrackableLine, formatStageDate } from '../utils/lineProgress';
-import { whatsappWithText } from '../components/PortalShell';
+import {
+  whatsappWithText,
+  PHONE_TEL,
+  PHONE_DISPLAY,
+  MAPS,
+  VEHICLE_HIRE,
+  GOOGLE_REVIEW_URL,
+} from '../components/PortalShell';
 
 /**
  * Keeps an open portal page up to date with what the workshop changes (new quote items, ticks,
@@ -106,6 +113,172 @@ function PaymentDetails({ details, balance, reference }) {
 }
 
 /**
+ * Payments section for an invoice: "Paid in full" once settled; otherwise how to pay (M-Pesa till /
+ * bank), a form for the M-Pesa confirmation code, the codes waiting for us to confirm, and the history.
+ */
+function PortalPaySection({ token, invoice, details, onSubmitted }) {
+  const balance = Number(invoice?.balance) || 0;
+  const claims = invoice?.payment_claims || [];
+  const pending = claims.filter((c) => c.status === 'pending');
+  const rejected = balance > 0 ? claims.filter((c) => c.status === 'rejected') : [];
+  const pendingTotal = pending.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const toConfirm = Math.max(0, Math.round((balance - pendingTotal) * 100) / 100);
+  const [code, setCode] = useState('');
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [sent, setSent] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    setSent('');
+    const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (clean.length !== 10) {
+      setErr('The M-Pesa confirmation code is 10 letters and numbers, e.g. SKL7ABC123.');
+      return;
+    }
+    const amt = amount === '' ? toConfirm : Number(amount);
+    if (!(amt > 0)) {
+      setErr('Enter the amount you paid.');
+      return;
+    }
+    try {
+      setBusy(true);
+      await api.customerPortal.submitPaymentClaim(token, invoice.id, { mpesa_code: clean, amount: amt });
+      setCode('');
+      setAmount('');
+      setSent(clean);
+      await onSubmitted?.();
+    } catch (ex) {
+      setErr(ex.message || 'Could not send the code');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {balance <= 0 ? (
+        <div className="cf-paid-full">
+          <span className="cf-paid-full-tick" aria-hidden="true">✓</span>
+          <div>
+            <strong>Paid in full</strong>
+            <div className="cf-pay-sub">Thank you. {kes(invoice.amount_paid)} received for {invoice.invoice_number}.</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="cf-pay-summary">
+            <div>
+              <span className="cf-muted">Total</span>
+              <strong>{kes(invoice.total)}</strong>
+            </div>
+            <div>
+              <span className="cf-muted">Paid</span>
+              <strong>{kes(invoice.amount_paid)}</strong>
+            </div>
+            <div className="cf-pay-summary-due">
+              <span className="cf-muted">Balance due</span>
+              <strong>{kes(balance)}</strong>
+            </div>
+          </div>
+          {details?.mpesa_till && (
+            <div className="cf-pay cf-mpesa">
+              <div className="cf-pay-title">Pay with M-Pesa · Buy Goods and Services</div>
+              <div className="cf-pay-row" style={{ marginBottom: '0.45rem' }}>
+                Till number <strong className="cf-pay-num cf-pay-till">{details.mpesa_till}</strong>{' '}
+                <CopyButton value={details.mpesa_till} />
+              </div>
+              <ol className="cf-mpesa-steps">
+                <li>Open M-Pesa and choose <strong>Lipa na M-Pesa</strong> → <strong>Buy Goods and Services</strong>.</li>
+                <li>Enter till number <strong>{details.mpesa_till}</strong> and the amount ({kes(toConfirm || balance)}).</li>
+                <li>Enter your PIN and send. You will get an SMS with a confirmation code.</li>
+                <li>Enter that code below so we can match your payment.</li>
+              </ol>
+              <form className="cf-claim-form" onSubmit={submit}>
+                <label>
+                  <span>M-Pesa confirmation code</span>
+                  <input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. SKL7ABC123"
+                    maxLength={14}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label="M-Pesa confirmation code"
+                  />
+                </label>
+                <label>
+                  <span>Amount paid (KES)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder={String(toConfirm || balance)}
+                    aria-label="Amount paid"
+                  />
+                </label>
+                <button type="submit" className="btn primary" disabled={busy}>
+                  {busy ? 'Sending…' : 'Submit payment'}
+                </button>
+              </form>
+              {err && <div className="cf-claim-err">{err}</div>}
+              {sent && (
+                <div className="cf-claim-ok">
+                  Thanks, we've received code <strong>{sent}</strong>. We'll confirm it shortly and this page will update.
+                </div>
+              )}
+            </div>
+          )}
+          <PaymentDetails details={details ? { ...details, mpesa_till: null } : null} balance={balance} reference={invoice.invoice_number} />
+        </>
+      )}
+
+      {(pending.length > 0 || rejected.length > 0) && (
+        <ul className="cf-claims">
+          {pending.map((c) => (
+            <li key={c.id} className="cf-claim cf-claim-pending">
+              <span className="cf-claim-status">⏳ Awaiting confirmation</span>
+              <span>
+                M-Pesa <strong>{c.mpesa_code}</strong> · {kes(c.amount)}
+              </span>
+              <span className="cf-muted">sent {new Date(c.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</span>
+            </li>
+          ))}
+          {rejected.map((c) => (
+            <li key={c.id} className="cf-claim cf-claim-rejected">
+              <span className="cf-claim-status">✕ Not matched</span>
+              <span>
+                M-Pesa <strong>{c.mpesa_code}</strong> · {kes(c.amount)}
+              </span>
+              <span className="cf-muted">
+                {String(c.reject_reason || 'We could not find this payment').replace(/[.\s]*$/, '.')} Please check the code or call us on {PHONE_DISPLAY}.
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h4 className="cf-pay-history-title">Payment history</h4>
+      <PaymentHistoryTable payments={invoice.payments} />
+    </>
+  );
+}
+
+/** Short meta line for the Payments drop-down header. */
+function paymentsMeta(invoice) {
+  if (!invoice) return '';
+  if (!(Number(invoice.balance) > 0)) return `Paid in full ✓ · ${kes(invoice.amount_paid)}`;
+  const pending = (invoice.payment_claims || []).filter((c) => c.status === 'pending').length;
+  return [`${kes(invoice.balance)} due`, pending ? 'awaiting confirmation' : 'pay by M-Pesa'].join(' · ');
+}
+
+/**
  * "Download PDF" link for a quote / invoice. While the job is still in progress the invoice
  * comes out marked PROVISIONAL (amounts may still change), and the button says so.
  */
@@ -145,12 +318,132 @@ function bookServiceLink(vehicle, next) {
   );
 }
 
-/** A card that opens and closes; the summary line stays visible when it is closed. */
-function Collapsible({ title, meta, defaultOpen = false, children }) {
+function isLabourLine(item) {
+  return String(item?.type || '').toLowerCase() === 'labour';
+}
+
+/** Vehicle released: big, clear "ready for collection" message with hours, directions and how to arrange. */
+function CollectionBanner({ job }) {
+  const car = [job.vehicle?.registration, [job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(' – ');
+  const due = job.invoice && Number(job.invoice.balance) > 0 ? job.invoice.balance : 0;
   return (
-    <details className="card cf-collapse" open={defaultOpen || undefined}>
+    <section className="cf-ready" aria-live="polite">
+      <div className="cf-ready-main">
+        <div className="cf-ready-title">✓ Your vehicle is ready for collection</div>
+        <div className="cf-ready-text">
+          Collect from our workshop on Ngong Road, Karen · Mon–Fri 8:00am – 5:00pm, Sat 8:00am – 1:00pm
+          (closed Sundays & public holidays).
+        </div>
+        {due > 0 && (
+          <div className="cf-ready-text">
+            Balance to pay at collection: <strong>{kes(due)}</strong> (see <em>How to pay</em> under the invoice).
+          </div>
+        )}
+      </div>
+      <div className="cf-ready-actions">
+        <a
+          className="btn primary cf-btn-sm"
+          href={whatsappWithText(`Hello Chequered Flag, I would like to arrange collection of ${car || 'my vehicle'} (job ${job.job_number}).`)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Arrange collection
+        </a>
+        <a className="btn cf-btn-sm" href={PHONE_TEL}>Call {PHONE_DISPLAY}</a>
+        <a className="btn cf-btn-sm" href={MAPS} target="_blank" rel="noopener noreferrer">Directions</a>
+      </div>
+    </section>
+  );
+}
+
+/** While the work is in progress: expected ready date (if set) and a hire-car suggestion. */
+function InProgressStrip({ job }) {
+  const ready = job.due_date ? formatDueDate(job.due_date) : null;
+  return (
+    <section className="cf-strip">
+      <div>
+        {ready ? (
+          <>
+            Expected ready <strong>{ready}</strong>
+            <span className="cf-muted"> · we will message you if that changes</span>
+          </>
+        ) : (
+          <span className="cf-muted">We are working on your vehicle. We will message you when it is ready.</span>
+        )}
+      </div>
+      <a className="cf-strip-hire" href={VEHICLE_HIRE} target="_blank" rel="noopener noreferrer">
+        Need a car while yours is in? <strong>See hire vehicles →</strong>
+      </a>
+    </section>
+  );
+}
+
+/** Job statuses where the customer can still approve quote items (same rule as the server). */
+const QUOTE_APPROVAL_STATUSES = ['pending', 'in_progress', 'vehicle_released'];
+
+/** Quote items still waiting for the customer (headers and the labour line don't count). */
+function isQuoteLineDeclined(line) {
+  return !isQuoteLineApproved(line) && !!line?.declined_at;
+}
+
+/** Quote items the customer hasn't decided on yet (headers, the labour line and declined items don't count). */
+function quoteItemsAwaiting(quote) {
+  return (quote?.items || []).filter(
+    (i) => !isHeaderLine(i) && !isLabourLine(i) && !isQuoteLineApproved(i) && !isQuoteLineDeclined(i),
+  ).length;
+}
+
+function jobApprovalsNeeded(job) {
+  return QUOTE_APPROVAL_STATUSES.includes(job?.status) ? quoteItemsAwaiting(job?.quote) : 0;
+}
+
+/** Opens the quote drop-down and scrolls to it. */
+function openQuote() {
+  openSection('portal-quote');
+}
+
+function openSection(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.open = true;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** "Action needed" notice at the top of a job while quote items wait for approval. */
+function ApprovalNotice({ count }) {
+  if (!count) return null;
+  return (
+    <section className="cf-attn" role="status">
+      <div>
+        <div className="cf-attn-title">Action needed: approval</div>
+        <div className="cf-attn-text">
+          {count === 1 ? '1 item on your quote is' : `${count} items on your quote are`} waiting for your approval. We
+          only go ahead with the items you approve.
+        </div>
+      </div>
+      <button type="button" className="btn primary cf-btn-sm" onClick={openQuote}>
+        Review & approve
+      </button>
+    </section>
+  );
+}
+
+/** A card that opens and closes; the summary line stays visible when it is closed. */
+function Collapsible({ title, meta, badge, id, defaultOpen = false, children }) {
+  // Opens itself when something needs attention (e.g. new items to approve after a refresh), but never
+  // closes itself: the customer decides when to close it.
+  const ref = useRef(null);
+  const [initiallyOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (defaultOpen && ref.current) ref.current.open = true;
+  }, [defaultOpen]);
+  return (
+    <details ref={ref} className="card cf-collapse" id={id} open={initiallyOpen || undefined}>
       <summary>
         <span className="cf-collapse-title">{title}</span>
+        {badge ? <span className="cf-attn-badge">{badge}</span> : null}
         {meta ? <span className="cf-collapse-meta">{meta}</span> : null}
         <span className="cf-collapse-chevron" aria-hidden="true">▾</span>
       </summary>
@@ -162,7 +455,7 @@ function Collapsible({ title, meta, defaultOpen = false, children }) {
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
   in_progress: 'In progress',
-  vehicle_released: 'Vehicle released',
+  vehicle_released: 'Ready for collection',
   completed: 'Complete',
   cancelled: 'Cancelled',
 };
@@ -227,6 +520,7 @@ function PortalJobsList() {
   if (error || !data) return <div className="page-title">Link not found or expired.</div>;
 
   const { customer, jobs, standalone_documents: standaloneDocs = [], vehicles = [] } = data;
+  const jobsNeedingApproval = jobs.filter((j) => jobApprovalsNeeded(j) > 0);
   const q = portalSearch.trim().toLowerCase();
   const filteredJobs = !q
     ? jobs
@@ -276,6 +570,37 @@ function PortalJobsList() {
       <p className="cf-meta-line">
         {[customer.email, customer.phone].filter(Boolean).join(' · ') || '—'}
       </p>
+
+      {jobsNeedingApproval.length > 0 && (
+        <section className="cf-attn" role="status">
+          <div>
+            <div className="cf-attn-title">
+              Action needed: {jobsNeedingApproval.length === 1 ? '1 job needs' : `${jobsNeedingApproval.length} jobs need`} your
+              approval
+            </div>
+            <ul className="cf-attn-list">
+              {jobsNeedingApproval.map((j) => {
+                const n = jobApprovalsNeeded(j);
+                return (
+                  <li key={j.id}>
+                    <Link to={`job/${j.id}`}>
+                      <strong>{j.vehicle?.registration || j.job_number}</strong>
+                      {j.vehicle?.registration ? ` · job ${j.job_number}` : ''}
+                      {' · '}
+                      {n} {n === 1 ? 'item' : 'items'} to approve
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          {jobsNeedingApproval.length === 1 && (
+            <Link className="btn primary cf-btn-sm" to={`job/${jobsNeedingApproval[0].id}`}>
+              Review & approve
+            </Link>
+          )}
+        </section>
+      )}
 
       {(jobs.length > 0 || standaloneDocs.length > 0) && (
         <div className="cf-search">
@@ -383,7 +708,10 @@ function PortalJobsList() {
                         <td>{job.vehicle?.registration || '—'}</td>
                         <td>{formatPortalDate(job.created_at)}</td>
                         <td>{formatPortalDate(job.completed_at)}</td>
-                        <td>{jobStatusLabel(job.status)}</td>
+                        <td>
+                          {jobStatusLabel(job.status)}
+                          {jobApprovalsNeeded(job) > 0 && <div className="cf-attn-badge cf-attn-badge-sm">Approval needed</div>}
+                        </td>
                         <td>
                           {job.quote ? (
                             <span title={job.quote.invoice_number ? `Quote ${job.quote.invoice_number}` : undefined}>
@@ -537,9 +865,22 @@ function PortalVehicle() {
                 </div>
                 <div className="cf-history-side">
                   {h.invoice_total != null && <div>{kes(h.invoice_total)}</div>}
-                  <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
-                    View
-                  </Link>
+                  <div className="cf-history-actions">
+                    <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
+                      View
+                    </Link>
+                    {h.invoice_id && (
+                      <a
+                        className="btn cf-btn-sm"
+                        href={api.customerPortal.documentPdfUrl(token, h.invoice_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={h.invoice_provisional ? 'Work still in progress, so the PDF is marked provisional' : 'Download the invoice for this visit'}
+                      >
+                        ⤓ {h.invoice_provisional ? 'PDF (provisional)' : 'PDF'}
+                      </a>
+                    )}
+                  </div>
                 </div>
               </li>
             );
@@ -653,37 +994,12 @@ function PortalStandaloneDocument() {
           </p>
           <PortalLineItemsTable items={invoice.items} />
           <PortalDocumentTotals doc={invoice} />
-          <PaymentDetails details={payload.payment_details} balance={invoice.balance} reference={invoice.invoice_number} />
           <div className="cf-doc-actions">
             <PdfLink token={token} doc={invoice} label="Download invoice PDF" />
           </div>
           <div style={{ marginTop: '1.25rem' }}>
-            <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Amount</th>
-                    <th>Date</th>
-                    <th>Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(!invoice.payments || invoice.payments.length === 0) && (
-                    <tr>
-                      <td colSpan={3} className="empty">No payments recorded yet.</td>
-                    </tr>
-                  )}
-                  {invoice.payments?.map((p) => (
-                    <tr key={p.id}>
-                      <td><strong>{kes(p.amount)}</strong></td>
-                      <td>{p.paid_at ? new Date(p.paid_at).toLocaleString() : '—'}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{p.notes || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payments</h4>
+            <PortalPaySection token={token} invoice={invoice} details={payload.payment_details} onSubmitted={reload} />
           </div>
         </section>
       )}
@@ -760,7 +1076,7 @@ function PortalJobDetail() {
   const isPast = job.status === 'completed' || job.status === 'cancelled';
   const tasks = job.tasks || [];
   const tasksDone = tasks.filter(isTaskCompleted).length;
-  const vehicle = [job.vehicle?.registration, job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ') || '—';
+  const carName = [job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ');
 
   return (
     <div className="customer-portal cf-compact">
@@ -768,66 +1084,24 @@ function PortalJobDetail() {
         ← All jobs
       </Link>
       <div className="cf-eyebrow">Workshop job · {jobStatusLabel(job.status)}</div>
-      <h1 className="page-title">{job.job_number}</h1>
+      <h1 className="page-title cf-job-title">
+        <span>{customer.name}</span>
+        {job.vehicle?.registration && <span className="cf-job-reg">{job.vehicle.registration}</span>}
+      </h1>
       <p className="cf-meta-line">
-        {customer.name} · {vehicle} · In {formatPortalDate(job.created_at)}
+        Job <strong>{job.job_number}</strong>
+        {carName ? ` · ${carName}` : ''} · In {formatPortalDate(job.created_at)}
         {job.completed_at ? ` · Out ${formatPortalDate(job.completed_at)}` : ''}
       </p>
 
       {saving && <p className="cf-saving">Saving…</p>}
 
+      {job.status === 'vehicle_released' && <CollectionBanner job={job} />}
+      {(job.status === 'in_progress' || job.status === 'pending') && <InProgressStrip job={job} />}
+
+      {allowQuoteApproval && <ApprovalNotice count={quoteItemsAwaiting(job.quote)} />}
+
       <JobProgressBar items={job.invoice?.items} tasks={tasks} vehicleTested={!!job.vehicle_tested_at} />
-
-      {job.quote && (
-        <QuoteSection
-          quote={job.quote}
-          allowApprove={allowQuoteApproval}
-          onToggleApprove={toggleApprove}
-          onApproveAllQuote={approveAllQuote}
-          showVehicleTested
-          vehicleTestedAt={job.vehicle_tested_at}
-          token={token}
-        />
-      )}
-
-      <section className="card">
-        <div className="cf-card-head">
-          <h3>Invoice</h3>
-          {job.invoice && (
-            <span className="cf-card-head-meta">
-              <strong>{job.invoice.invoice_number}</strong>
-              {job.invoice.status ? ` · ${job.invoice.status}` : ''}
-              <PdfLink token={token} doc={job.invoice} />
-            </span>
-          )}
-        </div>
-        {!job.invoice && (
-          <p className="empty cf-empty-sm">No invoice yet. Items you approve on the quote will appear here.</p>
-        )}
-        {job.invoice && (
-          <>
-            <PortalLineItemsTable items={job.invoice.items} showPartProgress />
-            <PortalDocumentTotals doc={job.invoice} />
-            {job.vehicle_tested_at && (
-              <VehicleTestedTick id={`portal-invoice-vehicle-tested-${job.id}`} at={job.vehicle_tested_at} />
-            )}
-            <PaymentDetails
-              details={payload.payment_details}
-              balance={job.invoice.balance}
-              reference={job.invoice.invoice_number}
-            />
-          </>
-        )}
-      </section>
-
-      {job.invoice && (
-        <Collapsible
-          title="Payments"
-          meta={`Paid ${kes(job.invoice.amount_paid)} · Balance ${kes(job.invoice.balance)}`}
-        >
-          <PaymentHistoryTable payments={job.invoice.payments} />
-        </Collapsible>
-      )}
 
       {tasks.length > 0 && (
         <Collapsible title="Tasks" meta={`${tasksDone} of ${tasks.length} done`}>
@@ -842,6 +1116,69 @@ function PortalJobDetail() {
               );
             })}
           </ul>
+        </Collapsible>
+      )}
+
+      {job.quote && (
+        <QuoteSection
+          quote={job.quote}
+          allowApprove={allowQuoteApproval}
+          onToggleApprove={toggleApprove}
+          onApproveAllQuote={approveAllQuote}
+          showVehicleTested
+          vehicleTestedAt={job.vehicle_tested_at}
+          token={token}
+        />
+      )}
+
+      <Collapsible
+        title="Invoice"
+        meta={
+          job.invoice
+            ? [
+                job.invoice.invoice_number,
+                kes(job.invoice.total),
+                Number(job.invoice.balance) > 0 ? `${kes(job.invoice.balance)} due` : 'Paid',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : 'Not issued yet'
+        }
+      >
+        {!job.invoice && (
+          <p className="empty cf-empty-sm">No invoice yet. Items you approve on the quote will appear here.</p>
+        )}
+        {job.invoice && (
+          <>
+            <div className="cf-doc-bar">
+              <span className="cf-muted">
+                <strong>{job.invoice.invoice_number}</strong>
+                {job.invoice.status ? ` · ${job.invoice.status}` : ''} · open a line's progress to see each step
+              </span>
+              <PdfLink token={token} doc={job.invoice} />
+            </div>
+            <PortalLineItemsTable items={job.invoice.items} showPartProgress />
+            <PortalDocumentTotals doc={job.invoice} />
+            {job.vehicle_tested_at && (
+              <VehicleTestedTick id={`portal-invoice-vehicle-tested-${job.id}`} at={job.vehicle_tested_at} />
+            )}
+            {Number(job.invoice.balance) > 0 && (
+              <button type="button" className="cf-pay-pointer" onClick={() => openSection('portal-payments')}>
+                Balance {kes(job.invoice.balance)} · how to pay by M-Pesa ↓
+              </button>
+            )}
+          </>
+        )}
+      </Collapsible>
+
+      {job.invoice && (
+        <Collapsible
+          title="Payments"
+          id="portal-payments"
+          meta={paymentsMeta(job.invoice)}
+          defaultOpen={job.status === 'vehicle_released' && Number(job.invoice.balance) > 0}
+        >
+          <PortalPaySection token={token} invoice={job.invoice} details={payload.payment_details} onSubmitted={reload} />
         </Collapsible>
       )}
 
@@ -1017,11 +1354,20 @@ function PortalDocumentTotals({ doc }) {
 }
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote, showVehicleTested = false, vehicleTestedAt = null, token = null }) {
-  const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
+  // The labour line isn't approved item by item, so it isn't counted as waiting for approval.
+  const quotePendingCount = quoteItemsAwaiting(quote);
+  const declinedCount = (quote?.items || []).filter((i) => !isHeaderLine(i) && isQuoteLineDeclined(i)).length;
   const needsApproval = quotePendingCount > 0 && allowApprove;
   const meta = [
     quote.invoice_number,
-    quotePendingCount > 0 ? `${quotePendingCount} to approve` : 'All approved',
+    needsApproval
+      ? null
+      : quotePendingCount > 0
+        ? `${quotePendingCount} not approved`
+        : declinedCount > 0
+          ? 'All decided'
+          : 'All approved',
+    declinedCount > 0 ? `${declinedCount} declined` : null,
     kes(quote.total),
     showVehicleTested && vehicleTestedAt ? 'Vehicle tested ✓' : null,
   ]
@@ -1029,18 +1375,27 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
     .join(' · ');
 
   return (
-    <Collapsible title="Quote" meta={meta} defaultOpen={needsApproval}>
+    <Collapsible
+      title="Quote"
+      id="portal-quote"
+      badge={needsApproval ? `${quotePendingCount} to approve` : null}
+      meta={meta}
+      defaultOpen={needsApproval}
+    >
       {(needsApproval || (!allowApprove && quotePendingCount > 0)) && (
         <div className="cf-quote-bar">
           {needsApproval ? (
             <>
-              <span>Approve the items you would like us to go ahead with. Approved items move to your invoice.</span>
-              {(quote.items?.length ?? 0) >= 2 && (
+              <span>
+                Approve the items you would like us to go ahead with, or decline the ones you don't. Approved items move to
+                your invoice and are final; declined items can still be approved later.
+              </span>
+              {quotePendingCount >= 2 && (
                 <button
                   type="button"
                   className="btn primary"
                   onClick={() => {
-                    if (!window.confirm('Are you sure you would like to approve all lines?')) return;
+                    if (!window.confirm("Approve all the remaining items? Once approved they can't be changed here.")) return;
                     onApproveAllQuote(quote.id);
                   }}
                 >
@@ -1088,22 +1443,54 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
               return (
                 <tr key={item.id}>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    {isQuoteLineApproved(item) ? (
+                    {isLabourLine(item) ? (
+                      <span className="cf-muted cf-small" title="Labour is charged for the work done; it is not approved item by item">
+                        Labour
+                      </span>
+                    ) : isQuoteLineApproved(item) ? (
                       <span className="cf-approved">
                         ✓ Approved
                         {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
                       </span>
+                    ) : isQuoteLineDeclined(item) ? (
+                      <span className="cf-declined">
+                        ✕ Declined
+                        {allowApprove && (
+                          <button
+                            type="button"
+                            className="cf-change"
+                            onClick={() => {
+                              if (!window.confirm(`Approve "${item.description}" after all? Once approved it can't be changed here.`)) return;
+                              onToggleApprove(quote.id, item.id, true);
+                            }}
+                          >
+                            Change
+                          </button>
+                        )}
+                      </span>
                     ) : allowApprove ? (
-                      <button
-                        type="button"
-                        className="btn primary cf-btn-sm"
-                        onClick={() => {
-                          if (!window.confirm('Are you sure you would like to approve?')) return;
-                          onToggleApprove(quote.id, item.id, true);
-                        }}
-                      >
-                        Approve
-                      </button>
+                      <span className="cf-decide">
+                        <button
+                          type="button"
+                          className="btn primary cf-btn-sm"
+                          onClick={() => {
+                            if (!window.confirm(`Approve "${item.description}"? Once approved it can't be changed here.`)) return;
+                            onToggleApprove(quote.id, item.id, true);
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="btn cf-btn-sm cf-decline-btn"
+                          onClick={() => {
+                            if (!window.confirm(`Decline "${item.description}"? We won't go ahead with it. You can change your mind later.`)) return;
+                            onToggleApprove(quote.id, item.id, false);
+                          }}
+                        >
+                          Decline
+                        </button>
+                      </span>
                     ) : (
                       <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Pending</span>
                     )}
@@ -1219,6 +1606,17 @@ function FeedbackSection({ job, onSubmitRating }) {
         <>
           <p style={{ margin: '0.25rem 0' }}>Rating: {'★'.repeat(rating)}{'☆'.repeat(5 - rating)}</p>
           {feedback && <p style={{ margin: 0 }}>{feedback}</p>}
+          {rating >= 4 && (
+            <div className="cf-review">
+              <div>
+                <strong>Thank you!</strong> Would you share that on Google? It takes a minute and really helps other
+                drivers find us.
+              </div>
+              <a className="btn primary cf-btn-sm" href={GOOGLE_REVIEW_URL} target="_blank" rel="noopener noreferrer">
+                Leave a Google review ★
+              </a>
+            </div>
+          )}
         </>
       ) : (
         <>

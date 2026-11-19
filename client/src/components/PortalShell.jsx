@@ -3,16 +3,23 @@
  * (thechequeredflag.net): white header with the flag logo, warm off-white page,
  * and a footer with the workshop's location, hours and contact details.
  */
-const SITE = 'https://www.thechequeredflag.net';
-const PHONE_DISPLAY = '+254 720 514965';
-const PHONE_TEL = 'tel:+254720514965';
+export const SITE = 'https://www.thechequeredflag.net';
+export const PHONE_DISPLAY = '+254 720 514965';
+export const PHONE_TEL = 'tel:+254720514965';
+export const VEHICLE_HIRE = `${SITE}/vehicle-hire`;
+/**
+ * Where happy customers leave a Google review. This is the workshop's Google Maps listing (from the
+ * main website). For a link that opens the review box directly, paste the "Ask for reviews" link from
+ * Google Business Profile here (it looks like https://g.page/r/.../review).
+ */
+export const GOOGLE_REVIEW_URL = 'https://maps.app.goo.gl/sHBMUxznsrspjmfX7';
 export const WHATSAPP = 'https://wa.me/254720514965';
 
 /** WhatsApp link with a message already typed in (customer just presses send). */
 export function whatsappWithText(text) {
   return `${WHATSAPP}?text=${encodeURIComponent(text)}`;
 }
-const MAPS = 'https://www.google.com/maps/search/?api=1&query=Chequered+Flag+Ngong+Road+Karen+Nairobi';
+export const MAPS = 'https://www.google.com/maps/search/?api=1&query=Chequered+Flag+Ngong+Road+Karen+Nairobi';
 
 function Brand() {
   return (

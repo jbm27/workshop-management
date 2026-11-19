@@ -111,7 +111,18 @@ function fullInvoicePayload(invoiceId) {
   const amount_paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const total = Number(inv.total) || 0;
   const balance = inv.type === 'invoice' ? Math.round((total - amount_paid) * 100) / 100 : null;
-  return { ...inv, items: quoteItems, payments, amount_paid, balance };
+  const payment_claims =
+    inv.type === 'invoice'
+      ? db
+          .prepare(`
+            SELECT pc.id, pc.amount, pc.mpesa_code, pc.payer_phone, pc.status, pc.reject_reason, pc.created_at, pc.reviewed_at,
+              COALESCE(au.display_name, au.username) AS reviewed_by
+            FROM portal_payment_claims pc LEFT JOIN admin_users au ON au.id = pc.reviewed_by_admin_user_id
+            WHERE pc.invoice_id = ? ORDER BY pc.created_at DESC, pc.id DESC
+          `)
+          .all(invoiceId)
+      : [];
+  return { ...inv, items: quoteItems, payments, amount_paid, balance, payment_claims };
 }
 
 function syncInvoicePaymentStatus(invoiceId) {
@@ -776,6 +787,47 @@ invoicesRouter.post('/:id/payments', requireAdminPermission('can_record_invoice_
     return res.status(400).json({ error: e.message || 'Payment could not be applied: insufficient stock' });
   }
   res.status(201).json(fullInvoicePayload(req.params.id));
+});
+
+/**
+ * Confirm an M-Pesa code the customer submitted in the portal: records it as a real payment (same as
+ * "Record payment") once staff have checked it on the M-Pesa statement. Amount can be corrected.
+ */
+invoicesRouter.post('/:id/payment-claims/:claimId/confirm', requireAdminPermission('can_record_invoice_payments'), (req, res) => {
+  const claim = db
+    .prepare('SELECT * FROM portal_payment_claims WHERE id = ? AND invoice_id = ?')
+    .get(req.params.claimId, req.params.id);
+  if (!claim) return res.status(404).json({ error: 'Payment code not found' });
+  if (claim.status !== 'pending') return res.status(400).json({ error: `This code was already ${claim.status}` });
+  const amount = req.body?.amount != null && req.body.amount !== '' ? Number(req.body.amount) : Number(claim.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
+  const pay = db
+    .prepare(`INSERT INTO invoice_payments (invoice_id, amount, paid_at, notes) VALUES (?, ?, datetime('now'), ?)`)
+    .run(req.params.id, amount, `M-Pesa ${claim.mpesa_code} (customer portal)`);
+  try {
+    syncInvoicePaymentStatus(req.params.id);
+  } catch (e) {
+    db.prepare('DELETE FROM invoice_payments WHERE id = ?').run(pay.lastInsertRowid);
+    return res.status(400).json({ error: e.message || 'Payment could not be applied' });
+  }
+  db.prepare(
+    "UPDATE portal_payment_claims SET status = 'confirmed', amount = ?, payment_id = ?, reviewed_by_admin_user_id = ?, reviewed_at = datetime('now') WHERE id = ?",
+  ).run(amount, pay.lastInsertRowid, req.admin?.id ?? null, claim.id);
+  res.json(fullInvoicePayload(req.params.id));
+});
+
+/** Reject a submitted code that doesn't match the M-Pesa statement (the customer sees the reason). */
+invoicesRouter.post('/:id/payment-claims/:claimId/reject', requireAdminPermission('can_record_invoice_payments'), (req, res) => {
+  const claim = db
+    .prepare('SELECT * FROM portal_payment_claims WHERE id = ? AND invoice_id = ?')
+    .get(req.params.claimId, req.params.id);
+  if (!claim) return res.status(404).json({ error: 'Payment code not found' });
+  if (claim.status !== 'pending') return res.status(400).json({ error: `This code was already ${claim.status}` });
+  const reason = String(req.body?.reason || '').trim().slice(0, 300) || 'We could not find this payment on our M-Pesa statement.';
+  db.prepare(
+    "UPDATE portal_payment_claims SET status = 'rejected', reject_reason = ?, reviewed_by_admin_user_id = ?, reviewed_at = datetime('now') WHERE id = ?",
+  ).run(reason, req.admin?.id ?? null, claim.id);
+  res.json(fullInvoicePayload(req.params.id));
 });
 
 invoicesRouter.delete('/:id/payments/:paymentId', requireAdminPermission('can_record_invoice_payments'), (req, res) => {

@@ -74,6 +74,15 @@ export const api = {
       const qs = sp.toString();
       return api.get(`/admin/team-stats/${adminUserId}/hours` + (qs ? `?${qs}` : ''));
     },
+    teamStatsErrors: (adminUserId, params) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set('from', params.from);
+      if (params?.to) sp.set('to', params.to);
+      const qs = sp.toString();
+      return api.get(`/admin/team-stats/${adminUserId}/errors` + (qs ? `?${qs}` : ''));
+    },
+    logTeamError: (body) => api.post('/admin/team-stats/errors', body),
+    deleteTeamError: (errorId) => api.delete(`/admin/team-stats/errors/${errorId}`),
   },
 
   attendance: {
@@ -199,6 +208,10 @@ export const api = {
     create: (data) => api.post('/invoices', data),
     update: (id, data) => api.patch(`/invoices/${id}`, data),
     addPayment: (id, data) => api.post(`/invoices/${id}/payments`, data),
+    confirmPaymentClaim: (invId, claimId, amount) =>
+      api.post(`/invoices/${invId}/payment-claims/${claimId}/confirm`, amount != null ? { amount } : {}),
+    rejectPaymentClaim: (invId, claimId, reason) =>
+      api.post(`/invoices/${invId}/payment-claims/${claimId}/reject`, { reason }),
     deletePayment: (invId, paymentId) => api.delete(`/invoices/${invId}/payments/${paymentId}`),
     reorderItems: (id, item_ids) => api.put(`/invoices/${id}/items/reorder`, { item_ids }),
     addItem: (invId, data) => api.post(`/invoices/${invId}/items`, data),
@@ -311,6 +324,8 @@ export const api = {
       api.post(`/customer-portal/${encodeURIComponent(token)}/quotes/${quoteId}/items/${itemId}/approve`, { approved }),
     approveAllQuote: (token, quoteId) =>
       api.post(`/customer-portal/${encodeURIComponent(token)}/quotes/${quoteId}/approve-all`, {}),
+    submitPaymentClaim: (token, invoiceId, data) =>
+      api.post(`/customer-portal/${encodeURIComponent(token)}/invoices/${invoiceId}/payment-claims`, data),
     submitRating: (token, jobId, rating, feedback) =>
       api.post(`/customer-portal/${encodeURIComponent(token)}/jobs/${jobId}/rating`, { rating, feedback }),
   },

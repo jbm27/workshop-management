@@ -205,6 +205,36 @@ CREATE TABLE IF NOT EXISTS job_time_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_job_time_logs_job ON job_time_logs(job_id);
 
+-- Customer portal: M-Pesa confirmation codes customers submit; staff confirm them into real payments
+CREATE TABLE IF NOT EXISTS portal_payment_claims (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  customer_id INTEGER REFERENCES customers(id),
+  amount REAL NOT NULL,
+  mpesa_code TEXT NOT NULL,
+  payer_phone TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'rejected')),
+  reject_reason TEXT,
+  payment_id INTEGER REFERENCES invoice_payments(id) ON DELETE SET NULL,
+  reviewed_by_admin_user_id INTEGER REFERENCES admin_users(id),
+  reviewed_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_portal_payment_claims_invoice ON portal_payment_claims(invoice_id, status);
+
+-- Team Stats: minor / major errors made by team members
+CREATE TABLE IF NOT EXISTS team_member_errors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_user_id INTEGER NOT NULL REFERENCES admin_users(id),
+  severity TEXT NOT NULL CHECK (severity IN ('minor', 'major')),
+  description TEXT NOT NULL,
+  job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  occurred_on TEXT NOT NULL,
+  logged_by_admin_user_id INTEGER REFERENCES admin_users(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_team_member_errors_user ON team_member_errors(admin_user_id, occurred_on);
+
 -- Bookings (diary)
 CREATE TABLE IF NOT EXISTS bookings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -271,6 +301,7 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   tested_at TEXT,
   tested_by TEXT,
   moved_to_invoice_at TEXT,
+  declined_at TEXT,
   quote_item_id INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
 );

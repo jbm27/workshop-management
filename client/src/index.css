@@ -1039,3 +1039,119 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .vh-more { padding: 0.15rem 0.5rem; min-width: 2rem; justify-content: center; }
 .vh-due { font-size: 0.78rem; color: var(--danger); font-weight: 600; }
 .vh-paid { font-size: 0.78rem; color: var(--success); font-weight: 600; }
+
+/* ---------- Team Stats: errors ---------- */
+.ts-err-sub { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.02em; text-transform: none; }
+.ts-err-cell { display: inline-flex; gap: 0.3rem; padding: 0.1rem; border: 0; background: none; cursor: pointer; }
+.ts-err-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ts-err {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 1.7rem; height: 1.5rem; padding: 0 0.35rem;
+  border-radius: 999px; font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--bg); color: var(--text-muted); border: 1px solid var(--border);
+}
+.ts-err.minor.on { background: rgba(154, 103, 0, 0.12); color: var(--warning); border-color: rgba(154, 103, 0, 0.35); }
+.ts-err.major.on { background: rgba(207, 34, 46, 0.12); color: var(--danger); border-color: rgba(207, 34, 46, 0.35); }
+.ts-err-label { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.78rem; font-weight: 700; }
+.ts-err-label.minor { background: rgba(154, 103, 0, 0.12); color: var(--warning); }
+.ts-err-label.major { background: rgba(207, 34, 46, 0.12); color: var(--danger); }
+.ts-sev-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.ts-sev { display: grid; gap: 0.15rem; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; }
+.ts-sev input { position: absolute; opacity: 0; pointer-events: none; }
+.ts-sev span { color: var(--text-muted); font-size: 0.78rem; }
+.ts-sev.minor.on { border-color: var(--warning); background: rgba(154, 103, 0, 0.08); }
+.ts-sev.major.on { border-color: var(--danger); background: rgba(207, 34, 46, 0.08); }
+.ts-sev:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.form-group label.ts-sev { display: grid; margin: 0; color: var(--text); font-weight: 400; position: relative; }
+.ts-sev strong { font-size: 0.9rem; }
+.cf-doc-bar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; font-size: 0.85rem; }
+
+/* ---------- Portal: ready for collection, in-progress strip, review prompt ---------- */
+.cf-ready {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.75rem 1.25rem; flex-wrap: wrap;
+  margin: 0 0 0.75rem; padding: 0.85rem 1rem; border-radius: 12px;
+  background: rgba(26, 127, 55, 0.08); border: 1px solid rgba(26, 127, 55, 0.35);
+}
+.cf-ready-title { font-weight: 800; font-size: 1.05rem; color: #1a7f37; margin-bottom: 0.15rem; }
+.cf-ready-text { font-size: 0.88rem; color: #262626; }
+.cf-ready-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.cf-strip {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.4rem 1rem; flex-wrap: wrap;
+  margin: 0 0 0.75rem; padding: 0.55rem 0.9rem; border-radius: 10px; border: 1px solid #e5e5e5; background: #fff; font-size: 0.88rem;
+}
+.cf-portal a.cf-strip-hire { color: #171717; text-decoration: none; }
+.cf-portal a.cf-strip-hire:hover strong { text-decoration: underline; }
+.cf-review {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.6rem 1rem; flex-wrap: wrap;
+  margin-top: 0.75rem; padding: 0.65rem 0.8rem; border-radius: 10px; background: #fafaf8; border: 1px solid #ececea; font-size: 0.88rem;
+}
+@media (max-width: 640px) {
+  .cf-ready-actions { width: 100%; }
+  .cf-ready-actions .btn { flex: 1; }
+}
+/* Portal job page: customer name and registration as the heading, job number underneath */
+.cf-portal .cf-job-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.6rem; }
+.cf-job-reg { display: inline-block; padding: 0.05em 0.35em; border: 2px solid #171717; border-radius: 6px; font-size: 0.72em; letter-spacing: 0.02em; line-height: 1.15; background: #fff; }
+
+/* Portal: approval needed notices */
+.cf-attn { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem 1.25rem; flex-wrap: wrap; margin: 0 0 0.75rem; padding: 0.8rem 1rem; border-radius: 12px; background: #fff8e6; border: 1px solid #e8b931; }
+.cf-attn-title { font-weight: 800; color: #7a4d00; }
+.cf-attn-text { font-size: 0.88rem; color: #3f3f3f; }
+.cf-attn-list { list-style: none; margin: 0.15rem 0 0; padding: 0; font-size: 0.88rem; }
+.cf-portal .cf-attn-list a { color: #3f3f3f; }
+.cf-attn-badge { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px; background: #e8b931; color: #3d2600; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
+.cf-attn-badge-sm { margin-top: 0.2rem; font-size: 0.7rem; padding: 0.08rem 0.45rem; }
+.cf-collapse > summary .cf-attn-badge { margin-right: auto; }
+.cf-collapse > summary .cf-attn-badge + .cf-collapse-meta { flex: 0 1 auto; }
+@keyframes cf-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 185, 49, 0.55); } 50% { box-shadow: 0 0 0 5px rgba(232, 185, 49, 0); } }
+.cf-collapse:not([open]) > summary .cf-attn-badge { animation: cf-pulse 2s ease-in-out 3; }
+@media (prefers-reduced-motion: reduce) { .cf-collapse:not([open]) > summary .cf-attn-badge { animation: none; } }
+.cf-attn-badge.cf-attn-badge-sm { display: table; }
+.cf-attn-badge.cf-attn-badge-sm { padding: 0.1rem 0.55rem; margin-top: 0.25rem; }
+
+/* Portal quote: approve / decline / change */
+.cf-decide { display: inline-flex; flex-direction: column; gap: 0.3rem; align-items: stretch; }
+.cf-portal .cf-decline-btn { background: #fff; color: #595959; border-color: #d4d4d4; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.cf-portal .cf-decline-btn:hover { border-color: #cf222e; color: #cf222e; }
+.cf-declined { display: inline-flex; flex-direction: column; align-items: center; color: #8a8a8a; font-weight: 600; font-size: 0.82rem; line-height: 1.2; }
+.cf-change { margin-top: 0.15rem; padding: 0; border: 0; background: none; font: inherit; font-size: 0.72rem; font-weight: 600; color: #171717; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 0; }
+.cf-change:hover { color: #000; }
+.cf-history-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; justify-content: flex-end; }
+.vh-doc-btns { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.vh-doc-btns .btn { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+.vh-doc-btns .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Portal payments: M-Pesa pay + confirmation code */
+.cf-pay-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; }
+.cf-pay-summary > div { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem 0.7rem; border: 1px solid #e5e5e5; border-radius: 8px; background: #fff; font-size: 0.85rem; }
+.cf-pay-summary strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.cf-pay-summary-due { border-color: #c8102e !important; }
+.cf-pay-summary-due strong { color: #c8102e; }
+.cf-mpesa { margin-top: 0; border-color: #2e7d32; background: #f4faf4; }
+.cf-pay-till { font-size: 1.35rem; }
+.cf-mpesa-steps { margin: 0 0 0.7rem; padding-left: 1.2rem; font-size: 0.85rem; line-height: 1.5; }
+.cf-claim-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem 0.75rem; }
+.cf-claim-form label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: #595959; flex: 1 1 160px; }
+.cf-claim-form input { font-size: 1rem; padding: 0.5rem 0.6rem; border: 1px solid #cfcfcf; border-radius: 6px; background: #fff; min-width: 0; }
+.cf-claim-form label:first-child input { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.cf-claim-form .btn { flex: 0 0 auto; }
+.cf-claim-err { margin-top: 0.5rem; color: #c8102e; font-size: 0.85rem; }
+.cf-claim-ok { margin-top: 0.5rem; color: #2e7d32; font-size: 0.85rem; }
+.cf-claims { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.cf-claim { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: baseline; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.85rem; border: 1px solid #e5e5e5; }
+.cf-claim-pending { background: #fff8e6; border-color: #f0c36d; }
+.cf-claim-rejected { background: #fdeeee; border-color: #e8a3a3; }
+.cf-claim-status { font-weight: 600; }
+.cf-paid-full { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.9rem; border: 1px solid #2e7d32; border-radius: 10px; background: #f4faf4; }
+.cf-paid-full-tick { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #2e7d32; color: #fff; font-weight: 700; flex: 0 0 auto; }
+.cf-pay-history-title { margin: 1rem 0 0.5rem; font-size: 0.95rem; }
+.cf-pay-pointer { margin-top: 0.75rem; background: none; border: 0; padding: 0; color: #c8102e; font-weight: 600; cursor: pointer; font-size: 0.88rem; text-decoration: underline; }
+@media (max-width: 520px) { .cf-pay-summary { grid-template-columns: 1fr 1fr 1fr; } .cf-pay-summary > div { padding: 0.4rem 0.5rem; font-size: 0.75rem; } }
+
+/* Staff job page: M-Pesa codes submitted in the customer portal */
+.portal-claims { margin-bottom: 1rem; padding: 0.75rem 1rem; border: 1px solid #f0c36d; background: #fff8e6; border-radius: var(--radius); }
+.portal-claims-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; }
+.portal-claim-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; padding: 0.4rem 0; border-top: 1px solid #f3dca8; }
+.portal-claim-row:first-of-type { border-top: 0; }
+.portal-claim-code { letter-spacing: 0.06em; font-family: ui-monospace, monospace; }
+.portal-claim-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+.cf-claim-form label:first-child input::placeholder { text-transform: none; letter-spacing: normal; font-weight: 400; }

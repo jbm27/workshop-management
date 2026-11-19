@@ -289,6 +289,9 @@ function NextServiceEditor({ job, onSaved }) {
 /** Quote line → invoice status for staff: awaiting approval, ready to move, or already on the invoice. */
 function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
   const muted = { fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
+  if (!isQuoteLineApproved(line) && line.declined_at) {
+    return <span style={{ ...muted, color: 'var(--danger)' }}>Declined by customer</span>;
+  }
   if (!isQuoteLineApproved(line)) return <span style={muted}>Awaiting approval</span>;
   if (line.moved_to_invoice_at) return <span style={{ ...muted, color: 'var(--success)' }}>Moved to invoice</span>;
   if (!canMove) return <span style={muted}>Approved · moves when invoice is created</span>;
@@ -911,6 +914,42 @@ export default function JobDetail() {
     if (!invoice?.id) return;
     const inv = await api.invoices.get(invoice.id);
     setInvoice(inv);
+  };
+
+  const [claimBusy, setClaimBusy] = useState(null);
+  const confirmPortalClaim = async (claim) => {
+    if (!invoice?.id || !canRecordInvoicePayments) return;
+    const entered = window.prompt(
+      `Confirm M-Pesa ${claim.mpesa_code} after checking it on the M-Pesa statement.\nAmount received (KES):`,
+      String(claim.amount),
+    );
+    if (entered == null) return;
+    const amount = Number(entered);
+    if (!(amount > 0)) return alert('Enter a positive amount');
+    setClaimBusy(claim.id);
+    try {
+      setInvoice(await api.invoices.confirmPaymentClaim(invoice.id, claim.id, amount));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setClaimBusy(null);
+    }
+  };
+  const rejectPortalClaim = async (claim) => {
+    if (!invoice?.id || !canRecordInvoicePayments) return;
+    const reason = window.prompt(
+      `Reject M-Pesa ${claim.mpesa_code}? The customer will see this reason:`,
+      'We could not find this payment on our M-Pesa statement.',
+    );
+    if (reason == null) return;
+    setClaimBusy(claim.id);
+    try {
+      setInvoice(await api.invoices.rejectPaymentClaim(invoice.id, claim.id, reason));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setClaimBusy(null);
+    }
   };
 
   const addCustomerPayment = async (e) => {
@@ -2714,6 +2753,37 @@ export default function JobDetail() {
                 </div>
               </div>
 
+              {(invoice?.payment_claims || []).some((c) => c.status === 'pending') && (
+                <div className="portal-claims">
+                  <div className="portal-claims-title">
+                    M-Pesa codes sent by the customer in the portal: check each on the M-Pesa statement
+                  </div>
+                  {invoice.payment_claims
+                    .filter((c) => c.status === 'pending')
+                    .map((c) => (
+                      <div key={c.id} className="portal-claim-row">
+                        <strong className="portal-claim-code">{c.mpesa_code}</strong>
+                        <span>{formatKes(c.amount)}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          sent {new Date(String(c.created_at).replace(' ', 'T') + 'Z').toLocaleString()}
+                        </span>
+                        {canRecordInvoicePayments ? (
+                          <span className="portal-claim-actions">
+                            <button type="button" className="btn primary" disabled={claimBusy === c.id} onClick={() => confirmPortalClaim(c)}>
+                              Confirm payment
+                            </button>
+                            <button type="button" className="btn" disabled={claimBusy === c.id} onClick={() => rejectPortalClaim(c)}>
+                              Reject
+                            </button>
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Awaiting a manager to confirm</span>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
+
               <form
                 onSubmit={addCustomerPayment}
                 style={{ marginBottom: '1.25rem', padding: '1rem', background: 'var(--bg)', borderRadius: 'var(--radius)' }}
@@ -3057,7 +3127,13 @@ export default function JobDetail() {
                       ) : (
                         <>
                           <td style={{ textAlign: 'center' }}>
-                            {isQuoteLineApproved(it) ? <span style={{ color: 'green', fontWeight: 600 }}>✔</span> : ''}
+                            {isQuoteLineApproved(it) ? (
+                              <span style={{ color: 'green', fontWeight: 600 }} title="Approved by the customer">✔</span>
+                            ) : it.declined_at ? (
+                              <span style={{ color: 'var(--danger)', fontWeight: 600 }} title="Declined by the customer">✕</span>
+                            ) : (
+                              ''
+                            )}
                           </td>
                           <td>
                             {labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}

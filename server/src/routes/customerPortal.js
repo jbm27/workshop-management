@@ -186,6 +186,14 @@ function portalDocumentForCustomer(inv, items) {
     amount_paid: inv.type === 'invoice' ? amount_paid : 0,
     balance,
     pdf_available: true,
+    payment_claims:
+      inv.type === 'invoice'
+        ? db
+            .prepare(
+              'SELECT id, amount, mpesa_code, status, reject_reason, created_at, reviewed_at FROM portal_payment_claims WHERE invoice_id = ? ORDER BY created_at DESC, id DESC',
+            )
+            .all(inv.id)
+        : [],
     pdf_provisional: inv.type === 'invoice' && !pdfAvailable(inv),
   };
 }
@@ -202,7 +210,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, declined_at, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
     ? db
@@ -227,6 +235,8 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     status: job.status,
     created_at: job.created_at,
     completed_at: job.completed_at,
+    due_date: job.due_date || null,
+    vehicle_released_at: job.vehicle_released_at || null,
     vehicle: {
       registration: job.registration,
       make: job.make,
@@ -275,7 +285,7 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const isQuote = docType === 'quote';
   const items = isQuote
     ? db
-        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
+        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, declined_at, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
         .all(inv.id)
     : db
         .prepare(
@@ -304,6 +314,49 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
     quote_approval_allowed: isQuote,
     payment_details: paymentDetails(),
   });
+});
+
+/**
+ * Customer paid by M-Pesa and enters the confirmation code. It is NOT a payment yet: staff check it on
+ * the M-Pesa statement and confirm it on the job page, which records the payment.
+ */
+customerPortalRouter.post('/:token/invoices/:invoiceId/payment-claims', (req, res) => {
+  const customer = findCustomerByToken(req.params.token);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const inv = db
+    .prepare("SELECT * FROM invoices WHERE id = ? AND customer_id = ? AND type = 'invoice'")
+    .get(Number(req.params.invoiceId), customer.id);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+
+  const code = String(req.body?.mpesa_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!/^[A-Z0-9]{10}$/.test(code)) {
+    return res.status(400).json({ error: 'Enter the 10-character M-Pesa confirmation code from your SMS (e.g. SKL7ABC123).' });
+  }
+  const amount = Math.round(Number(req.body?.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'Enter the amount you paid.' });
+  const totals = refreshInvoiceTotalsFromLineItems(inv.id);
+  const paid = Number(db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM invoice_payments WHERE invoice_id = ?').get(inv.id)?.s) || 0;
+  const pending = Number(
+    db.prepare("SELECT COALESCE(SUM(amount), 0) AS s FROM portal_payment_claims WHERE invoice_id = ? AND status = 'pending'").get(inv.id)?.s,
+  ) || 0;
+  const balance = Math.round(((Number(totals?.total ?? inv.total) || 0) - paid) * 100) / 100;
+  if (balance <= 0) return res.status(400).json({ error: 'This invoice is already paid in full.' });
+  if (amount > balance - pending + 1) {
+    return res.status(400).json({ error: `That is more than the balance still to confirm (KES ${Math.max(0, balance - pending).toLocaleString()}).` });
+  }
+  const dup =
+    db.prepare("SELECT 1 FROM portal_payment_claims WHERE mpesa_code = ? AND status != 'rejected' LIMIT 1").get(code) ||
+    db.prepare('SELECT 1 FROM invoice_payments WHERE UPPER(COALESCE(notes, \'\')) LIKE ? LIMIT 1').get(`%${code}%`);
+  if (dup) return res.status(400).json({ error: 'This confirmation code has already been submitted.' });
+  const openClaims = Number(
+    db.prepare("SELECT COUNT(*) AS n FROM portal_payment_claims WHERE invoice_id = ? AND status = 'pending'").get(inv.id)?.n,
+  ) || 0;
+  if (openClaims >= 5) return res.status(429).json({ error: 'Please wait for us to confirm the codes you already sent.' });
+  const phone = String(req.body?.payer_phone || '').trim().slice(0, 20) || null;
+  db.prepare(
+    'INSERT INTO portal_payment_claims (invoice_id, customer_id, amount, mpesa_code, payer_phone) VALUES (?, ?, ?, ?, ?)',
+  ).run(inv.id, customer.id, amount, code, phone);
+  res.status(201).json({ ok: true });
 });
 
 /** Download a quote / invoice PDF (same document staff print). */
@@ -340,7 +393,9 @@ customerPortalRouter.get('/:token/vehicles/:vehicleId', (req, res) => {
       odometer_in: j.odometer_in,
       odometer_out: j.odometer_out,
       work: jobWorkSummary(j.id),
+      invoice_id: invoice ? invoice.id : null,
       invoice_total: invoice ? Number(totals?.total ?? invoice.total) || 0 : null,
+      invoice_provisional: invoice ? !pdfAvailable({ type: 'invoice', job_id: j.id }) : false,
     };
   });
   const lastOdo = jobs.map((j) => Number(j.odometer_out ?? j.odometer_in)).find((n) => Number.isFinite(n) && n > 0) ?? null;
@@ -451,18 +506,22 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
 
+  // "Approve all" approves everything still undecided; items the customer declined stay declined.
   db.prepare(
-    "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header'",
+    "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header' AND declined_at IS NULL",
   ).run(quote.id);
   // Approved items go straight onto the job invoice (if there is one yet)
   if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 
-customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req, res) => {
+/**
+ * Customer approves or declines one quote item. Approving is final (the item moves onto the job
+ * invoice and can't be changed from the portal); a declined item can still be approved later.
+ */
+function decideQuoteItem(req, res, decision) {
   const customer = findCustomerByToken(req.params.token);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const approved = !!req.body.approved;
   const quote = db
     .prepare("SELECT * FROM invoices WHERE id = ? AND type = 'quote' AND customer_id = ?")
     .get(req.params.quoteId, customer.id);
@@ -472,24 +531,39 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
   } catch (e) {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
-
-  const item = db
-    .prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?')
-    .get(req.params.itemId, quote.id);
+  const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, quote.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
   if (isHeaderLine(item)) return res.status(400).json({ error: 'Section headers do not require approval' });
+  if (String(item.type || '').toLowerCase() === 'labour') {
+    return res.status(400).json({ error: 'The labour line is not approved item by item' });
+  }
 
-  const already = item.approved ? 1 : 0;
-  if (!approved) {
-    if (already) return res.status(400).json({ error: 'Approval cannot be removed once it has been given.' });
+  if (decision === 'approve') {
+    db.prepare("UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')), declined_at = NULL WHERE id = ?").run(item.id);
+    if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
     return res.status(204).send();
   }
-  if (already) return res.status(204).send();
-  db.prepare("UPDATE invoice_items SET approved = 1, approved_at = datetime('now') WHERE id = ?").run(item.id);
-  // Approved items go straight onto the job invoice (if there is one yet)
-  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
-  res.status(204).send();
+  // decline: only items not yet approved (approval is final)
+  if (Number(item.approved) === 1) {
+    return res.status(409).json({
+      error: 'This item is already approved and can no longer be changed here. Please call or WhatsApp us if you need to discuss it.',
+    });
+  }
+  db.prepare("UPDATE invoice_items SET declined_at = COALESCE(declined_at, datetime('now')) WHERE id = ?").run(item.id);
+  return res.status(204).send();
+}
+
+customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/decision', (req, res) => {
+  const decision = String(req.body?.decision || '').toLowerCase();
+  if (decision !== 'approve' && decision !== 'decline') return res.status(400).json({ error: 'decision must be approve or decline' });
+  return decideQuoteItem(req, res, decision);
 });
+
+/** Older endpoint kept for compatibility: { approved: true } approves, { approved: false } declines. */
+customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req, res) =>
+  decideQuoteItem(req, res, req.body?.approved ? 'approve' : 'decline'),
+);
+
 
 customerPortalRouter.post('/:token/jobs/:jobId/rating', (req, res) => {
   const customer = findCustomerByToken(req.params.token);
