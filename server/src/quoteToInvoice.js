@@ -2,6 +2,47 @@ import { db } from './db.js';
 import { nextInvoiceItemSortOrder } from './invoiceLineSections.js';
 import { syncLabourLinesForJob } from './jobInvoiceLabour.js';
 
+/** The invoice line an approved quote line was moved to, if any. */
+function invoiceLineForQuoteLine(quoteLineId) {
+  return db
+    .prepare(`
+      SELECT ii.*, i.job_id FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
+      WHERE ii.quote_item_id = ? AND i.type = 'invoice'
+      ORDER BY ii.id LIMIT 1
+    `)
+    .get(quoteLineId);
+}
+
+/**
+ * Has work started on this quote item, so the customer can no longer change their mind in the portal?
+ * Locked once an LPO / IPR line is attached to the invoice line it moved to, or that line has been
+ * ticked LPO issued / received / fitted, or stock has been taken for it. Returns a reason or null.
+ */
+export function quoteLineLock(quoteLineId) {
+  const line = invoiceLineForQuoteLine(quoteLineId);
+  if (!line) return null;
+  const parts =
+    db.prepare('SELECT 1 FROM lpo_lines WHERE invoice_item_id = ? LIMIT 1').get(line.id) ||
+    db.prepare('SELECT 1 FROM ipr_lines WHERE invoice_item_id = ? LIMIT 1').get(line.id);
+  if (parts || line.lpo_issued_at) return 'parts_ordered';
+  if (line.received_at || line.fitted_at) return 'work_started';
+  if (Number(line.stock_deducted_qty) > 0) return 'stock_used';
+  return null;
+}
+
+/**
+ * Customer changed an approved item to declined (and it isn't locked): take it back off the invoice
+ * and clear the hand-off mark so it moves again if they approve it later.
+ */
+export function withdrawQuoteLineFromInvoice(quoteLineId) {
+  const line = invoiceLineForQuoteLine(quoteLineId);
+  if (line) {
+    db.prepare('DELETE FROM invoice_items WHERE id = ?').run(line.id);
+    if (line.job_id) syncLabourLinesForJob(line.job_id); // also refreshes invoice totals
+  }
+  db.prepare('UPDATE invoice_items SET moved_to_invoice_at = NULL WHERE id = ?').run(quoteLineId);
+}
+
 function sameDescription(a, b) {
   return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }

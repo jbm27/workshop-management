@@ -329,6 +329,8 @@ function migrate(db) {
       'tested_by',
       // Quote line → invoice line hand-off: set on the quote line once moved, so it moves only once.
       'moved_to_invoice_at',
+      // Customer declined this quote item in the portal (they can change their mind later)
+      'declined_at',
     ]) {
       if (iiCols.length && !iiCols.includes(col)) {
         db.run(`ALTER TABLE invoice_items ADD COLUMN ${col} TEXT`);

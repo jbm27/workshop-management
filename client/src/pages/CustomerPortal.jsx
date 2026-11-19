@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Routes, Route, useParams, Link } from 'react-router-dom';
 import { api } from '../api';
 import { testDriveComputedRows, handoverComputed, formatKmDelta } from '../utils/jobMileageFuel';
@@ -218,8 +218,15 @@ function InProgressStrip({ job }) {
 const QUOTE_APPROVAL_STATUSES = ['pending', 'in_progress', 'vehicle_released'];
 
 /** Quote items still waiting for the customer (headers and the labour line don't count). */
+function isQuoteLineDeclined(line) {
+  return !isQuoteLineApproved(line) && !!line?.declined_at;
+}
+
+/** Quote items the customer hasn't decided on yet (headers, the labour line and declined items don't count). */
 function quoteItemsAwaiting(quote) {
-  return (quote?.items || []).filter((i) => !isHeaderLine(i) && !isLabourLine(i) && !isQuoteLineApproved(i)).length;
+  return (quote?.items || []).filter(
+    (i) => !isHeaderLine(i) && !isLabourLine(i) && !isQuoteLineApproved(i) && !isQuoteLineDeclined(i),
+  ).length;
 }
 
 function jobApprovalsNeeded(job) {
@@ -255,8 +262,15 @@ function ApprovalNotice({ count }) {
 
 /** A card that opens and closes; the summary line stays visible when it is closed. */
 function Collapsible({ title, meta, badge, id, defaultOpen = false, children }) {
+  // Opens itself when something needs attention (e.g. new items to approve after a refresh), but never
+  // closes itself: the customer decides when to close it.
+  const ref = useRef(null);
+  const [initiallyOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (defaultOpen && ref.current) ref.current.open = true;
+  }, [defaultOpen]);
   return (
-    <details className="card cf-collapse" id={id} open={defaultOpen || undefined}>
+    <details ref={ref} className="card cf-collapse" id={id} open={initiallyOpen || undefined}>
       <summary>
         <span className="cf-collapse-title">{title}</span>
         {badge ? <span className="cf-attn-badge">{badge}</span> : null}
@@ -1181,12 +1195,19 @@ function PortalDocumentTotals({ doc }) {
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote, showVehicleTested = false, vehicleTestedAt = null, token = null }) {
   // The labour line isn't approved item by item, so it isn't counted as waiting for approval.
-  const quotePendingCount =
-    quote?.items?.filter((i) => !isHeaderLine(i) && !isLabourLine(i) && !isQuoteLineApproved(i)).length ?? 0;
+  const quotePendingCount = quoteItemsAwaiting(quote);
+  const declinedCount = (quote?.items || []).filter((i) => !isHeaderLine(i) && isQuoteLineDeclined(i)).length;
   const needsApproval = quotePendingCount > 0 && allowApprove;
   const meta = [
     quote.invoice_number,
-    needsApproval ? null : quotePendingCount > 0 ? `${quotePendingCount} not approved` : 'All approved',
+    needsApproval
+      ? null
+      : quotePendingCount > 0
+        ? `${quotePendingCount} not approved`
+        : declinedCount > 0
+          ? 'All decided'
+          : 'All approved',
+    declinedCount > 0 ? `${declinedCount} declined` : null,
     kes(quote.total),
     showVehicleTested && vehicleTestedAt ? 'Vehicle tested ✓' : null,
   ]
@@ -1205,7 +1226,10 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
         <div className="cf-quote-bar">
           {needsApproval ? (
             <>
-              <span>Approve the items you would like us to go ahead with. Approved items move to your invoice.</span>
+              <span>
+                Approve the items you would like us to go ahead with, or decline the ones you don't. Approved items move to
+                your invoice. You can change your mind until we start on an item.
+              </span>
               {quotePendingCount >= 2 && (
                 <button
                   type="button"
@@ -1266,19 +1290,67 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
                     ) : isQuoteLineApproved(item) ? (
                       <span className="cf-approved">
                         ✓ Approved
-                        {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
+                        {item.locked ? (
+                          <span className="cf-approved-sub" title="We have started on this item. To change it, please call or WhatsApp us.">
+                            Parts ordered
+                          </span>
+                        ) : (
+                          <>
+                            {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
+                            {allowApprove && (
+                              <button
+                                type="button"
+                                className="cf-change"
+                                onClick={() => {
+                                  if (!window.confirm(`Change "${item.description}" to declined? We won't go ahead with it, and it comes off your invoice.`)) return;
+                                  onToggleApprove(quote.id, item.id, false);
+                                }}
+                              >
+                                Change
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </span>
+                    ) : isQuoteLineDeclined(item) ? (
+                      <span className="cf-declined">
+                        ✕ Declined
+                        {allowApprove && (
+                          <button
+                            type="button"
+                            className="cf-change"
+                            onClick={() => {
+                              if (!window.confirm(`Approve "${item.description}" after all?`)) return;
+                              onToggleApprove(quote.id, item.id, true);
+                            }}
+                          >
+                            Change
+                          </button>
+                        )}
                       </span>
                     ) : allowApprove ? (
-                      <button
-                        type="button"
-                        className="btn primary cf-btn-sm"
-                        onClick={() => {
-                          if (!window.confirm('Are you sure you would like to approve?')) return;
-                          onToggleApprove(quote.id, item.id, true);
-                        }}
-                      >
-                        Approve
-                      </button>
+                      <span className="cf-decide">
+                        <button
+                          type="button"
+                          className="btn primary cf-btn-sm"
+                          onClick={() => {
+                            if (!window.confirm(`Approve "${item.description}"?`)) return;
+                            onToggleApprove(quote.id, item.id, true);
+                          }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="btn cf-btn-sm cf-decline-btn"
+                          onClick={() => {
+                            if (!window.confirm(`Decline "${item.description}"? We won't go ahead with it. You can change your mind later.`)) return;
+                            onToggleApprove(quote.id, item.id, false);
+                          }}
+                        >
+                          Decline
+                        </button>
+                      </span>
                     ) : (
                       <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Pending</span>
                     )}

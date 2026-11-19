@@ -3,7 +3,7 @@ import { db } from '../db.js';
 import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
 import { attachInvoiceLineProgress } from '../invoiceLineProgress.js';
-import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
+import { moveApprovedQuoteLinesToInvoice, quoteLineLock, withdrawQuoteLineFromInvoice } from '../quoteToInvoice.js';
 import { checkInvoicePdfAllowedForJobStatus } from '../jobCardRules.js';
 import { config } from '../config.js';
 import { sendInvoicePdf } from './invoices.js';
@@ -202,8 +202,12 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, declined_at, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
+  // Approved items the workshop has started on can't be changed from the portal any more
+  for (const qi of quoteItems) {
+    qi.locked = Number(qi.approved) === 1 && !!quoteLineLock(qi.id);
+  }
   const invoiceItems = invoice
     ? db
         .prepare(
@@ -277,7 +281,7 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const isQuote = docType === 'quote';
   const items = isQuote
     ? db
-        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
+        .prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, declined_at, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id')
         .all(inv.id)
     : db
         .prepare(
@@ -453,18 +457,23 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
 
+  // "Approve all" approves everything still undecided; items the customer declined stay declined.
   db.prepare(
-    "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header'",
+    "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header' AND declined_at IS NULL",
   ).run(quote.id);
   // Approved items go straight onto the job invoice (if there is one yet)
   if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 
-customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req, res) => {
+/**
+ * Customer approves or declines one quote item, and can change their mind later — until the workshop
+ * has started on it (LPO/IPR issued, received, fitted or stock taken; see quoteLineLock).
+ * Approving moves it onto the job invoice; changing an approved item to declined takes it back off.
+ */
+function decideQuoteItem(req, res, decision) {
   const customer = findCustomerByToken(req.params.token);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
-  const approved = !!req.body.approved;
   const quote = db
     .prepare("SELECT * FROM invoices WHERE id = ? AND type = 'quote' AND customer_id = ?")
     .get(req.params.quoteId, customer.id);
@@ -474,24 +483,40 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
   } catch (e) {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
-
-  const item = db
-    .prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?')
-    .get(req.params.itemId, quote.id);
+  const item = db.prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?').get(req.params.itemId, quote.id);
   if (!item) return res.status(404).json({ error: 'Item not found' });
   if (isHeaderLine(item)) return res.status(400).json({ error: 'Section headers do not require approval' });
+  if (String(item.type || '').toLowerCase() === 'labour') {
+    return res.status(400).json({ error: 'The labour line is not approved item by item' });
+  }
 
-  const already = item.approved ? 1 : 0;
-  if (!approved) {
-    if (already) return res.status(400).json({ error: 'Approval cannot be removed once it has been given.' });
+  if (decision === 'approve') {
+    db.prepare("UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')), declined_at = NULL WHERE id = ?").run(item.id);
+    if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
     return res.status(204).send();
   }
-  if (already) return res.status(204).send();
-  db.prepare("UPDATE invoice_items SET approved = 1, approved_at = datetime('now') WHERE id = ?").run(item.id);
-  // Approved items go straight onto the job invoice (if there is one yet)
-  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
-  res.status(204).send();
+  // decline
+  if (Number(item.approved) === 1 && quoteLineLock(item.id)) {
+    return res.status(409).json({
+      error: 'We have already started on this item (parts ordered or fitted), so it can no longer be changed here. Please call or WhatsApp us.',
+    });
+  }
+  db.prepare("UPDATE invoice_items SET approved = 0, approved_at = NULL, declined_at = datetime('now') WHERE id = ?").run(item.id);
+  withdrawQuoteLineFromInvoice(item.id);
+  return res.status(204).send();
+}
+
+customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/decision', (req, res) => {
+  const decision = String(req.body?.decision || '').toLowerCase();
+  if (decision !== 'approve' && decision !== 'decline') return res.status(400).json({ error: 'decision must be approve or decline' });
+  return decideQuoteItem(req, res, decision);
 });
+
+/** Older endpoint kept for compatibility: { approved: true } approves, { approved: false } declines. */
+customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req, res) =>
+  decideQuoteItem(req, res, req.body?.approved ? 'approve' : 'decline'),
+);
+
 
 customerPortalRouter.post('/:token/jobs/:jobId/rating', (req, res) => {
   const customer = findCustomerByToken(req.params.token);

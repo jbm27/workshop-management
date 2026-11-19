@@ -1107,3 +1107,11 @@ tr.lp-row:hover > td { background: #fafaf8; }
 @media (prefers-reduced-motion: reduce) { .cf-collapse:not([open]) > summary .cf-attn-badge { animation: none; } }
 .cf-attn-badge.cf-attn-badge-sm { display: table; }
 .cf-attn-badge.cf-attn-badge-sm { padding: 0.1rem 0.55rem; margin-top: 0.25rem; }
+
+/* Portal quote: approve / decline / change */
+.cf-decide { display: inline-flex; flex-direction: column; gap: 0.3rem; align-items: stretch; }
+.cf-portal .cf-decline-btn { background: #fff; color: #595959; border-color: #d4d4d4; font-weight: 600; text-transform: none; letter-spacing: 0; }
+.cf-portal .cf-decline-btn:hover { border-color: #cf222e; color: #cf222e; }
+.cf-declined { display: inline-flex; flex-direction: column; align-items: center; color: #8a8a8a; font-weight: 600; font-size: 0.82rem; line-height: 1.2; }
+.cf-change { margin-top: 0.15rem; padding: 0; border: 0; background: none; font: inherit; font-size: 0.72rem; font-weight: 600; color: #171717; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 0; }
+.cf-change:hover { color: #000; }

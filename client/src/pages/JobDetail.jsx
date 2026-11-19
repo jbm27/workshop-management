@@ -289,6 +289,9 @@ function NextServiceEditor({ job, onSaved }) {
 /** Quote line → invoice status for staff: awaiting approval, ready to move, or already on the invoice. */
 function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
   const muted = { fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
+  if (!isQuoteLineApproved(line) && line.declined_at) {
+    return <span style={{ ...muted, color: 'var(--danger)' }}>Declined by customer</span>;
+  }
   if (!isQuoteLineApproved(line)) return <span style={muted}>Awaiting approval</span>;
   if (line.moved_to_invoice_at) return <span style={{ ...muted, color: 'var(--success)' }}>Moved to invoice</span>;
   if (!canMove) return <span style={muted}>Approved · moves when invoice is created</span>;
@@ -3057,7 +3060,13 @@ export default function JobDetail() {
                       ) : (
                         <>
                           <td style={{ textAlign: 'center' }}>
-                            {isQuoteLineApproved(it) ? <span style={{ color: 'green', fontWeight: 600 }}>✔</span> : ''}
+                            {isQuoteLineApproved(it) ? (
+                              <span style={{ color: 'green', fontWeight: 600 }} title="Approved by the customer">✔</span>
+                            ) : it.declined_at ? (
+                              <span style={{ color: 'var(--danger)', fontWeight: 600 }} title="Declined by the customer">✕</span>
+                            ) : (
+                              ''
+                            )}
                           </td>
                           <td>
                             {labour ? <span style={{ fontWeight: 600 }}>Labour</span> : it.description}
