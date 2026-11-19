@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 
 export default function Vehicles() {
@@ -114,7 +115,10 @@ export default function Vehicles() {
                   <td>{v.registration || '—'}</td>
                   <td>{[v.make, v.model].filter(Boolean).join(' ') || '—'}</td>
                   <td>{v.customer_name || '—'}</td>
-                  <td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <Link className="btn primary" to={`/vehicles/${v.id}/history`} style={{ marginRight: '0.4rem' }}>
+                      Service history
+                    </Link>
                     <button type="button" className="btn" onClick={() => openEdit(v)}>Edit</button>
                   </td>
                 </tr>

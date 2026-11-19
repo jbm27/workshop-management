@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
@@ -23,6 +23,8 @@ import InvoiceDocumentDiscountPanel from '../components/InvoiceDocumentDiscountP
 import InvoiceTotalsSummary from '../components/InvoiceTotalsSummary';
 import InvoiceDocumentNotesPanel from '../components/InvoiceDocumentNotesPanel';
 import EditableDocumentNumber from '../components/EditableDocumentNumber';
+import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
+import { isItemLine, isTrackableLine, LINE_PROGRESS_STAGES, formatStageDate } from '../utils/lineProgress';
 import { useInvoiceLineDragReorder } from '../hooks/useInvoiceLineDragReorder';
 import { testDriveComputedRows, handoverComputed, formatKmDelta, FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 import {
@@ -200,6 +202,103 @@ function buildQuotePortalMessage({ customerName, quoteNumber, jobNumber, vehicle
   return lines.join('\n');
 }
 
+/**
+ * "Next service due" for the job's vehicle. Shown to the customer in the portal with a "Book it" button.
+ * If left empty, the portal shows an estimate (last visit + 10,000 km / 6 months), labelled as such.
+ */
+function NextServiceEditor({ job, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [km, setKm] = useState('');
+  const [date, setDate] = useState('');
+  const [busy, setBusy] = useState(false);
+  const hasValue = job.next_service_km != null || !!job.next_service_date;
+  const label = [
+    job.next_service_km != null ? `${Number(job.next_service_km).toLocaleString()} km` : null,
+    job.next_service_date
+      ? new Date(`${job.next_service_date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' or ');
+
+  const start = () => {
+    const suggestKm = Number(job.odometer_out ?? job.odometer_in);
+    setKm(job.next_service_km != null ? String(job.next_service_km) : Number.isFinite(suggestKm) && suggestKm > 0 ? String(suggestKm + 10000) : '');
+    if (job.next_service_date) setDate(job.next_service_date);
+    else {
+      const d = new Date();
+      d.setMonth(d.getMonth() + 6);
+      setDate(d.toISOString().slice(0, 10));
+    }
+    setEditing(true);
+  };
+  const save = async (clear = false) => {
+    try {
+      setBusy(true);
+      const row = await api.vehicles.update(job.vehicle_id, {
+        next_service_km: clear ? null : km === '' ? null : Number(km),
+        next_service_date: clear ? null : date || null,
+      });
+      onSaved?.(row);
+      setEditing(false);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="next-service-box">
+      <div className="next-service-head">
+        <strong>Next service due</strong>
+        {!editing && (
+          <button type="button" className="btn" style={{ padding: '0.2rem 0.6rem', fontSize: '0.8rem' }} onClick={start}>
+            {hasValue ? 'Edit' : 'Set'}
+          </button>
+        )}
+      </div>
+      {!editing && (
+        <div style={{ fontSize: '0.9rem', color: hasValue ? 'var(--text)' : 'var(--text-muted)' }}>
+          {hasValue ? label : 'Not set (customer sees an estimate: +10,000 km / 6 months)'}
+        </div>
+      )}
+      {editing && (
+        <div className="next-service-form">
+          <label>
+            <span>At km</span>
+            <input type="number" min="0" step="500" value={km} onChange={(e) => setKm(e.target.value)} />
+          </label>
+          <label>
+            <span>Or by date</span>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </label>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn primary" disabled={busy} onClick={() => save(false)}>Save</button>
+            {hasValue && (
+              <button type="button" className="btn" disabled={busy} onClick={() => save(true)}>Clear</button>
+            )}
+            <button type="button" className="btn" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Quote line → invoice status for staff: awaiting approval, ready to move, or already on the invoice. */
+function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
+  const muted = { fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
+  if (!isQuoteLineApproved(line)) return <span style={muted}>Awaiting approval</span>;
+  if (line.moved_to_invoice_at) return <span style={{ ...muted, color: 'var(--success)' }}>Moved to invoice</span>;
+  if (!canMove) return <span style={muted}>Approved · moves when invoice is created</span>;
+  return (
+    <button type="button" className="btn primary" onClick={onMove}>
+      Move to invoice
+    </button>
+  );
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -226,6 +325,10 @@ export default function JobDetail() {
   const [addQuoteHeader, setAddQuoteHeader] = useState(false);
   const [quoteHeaderTitle, setQuoteHeaderTitle] = useState('');
   const [editingItemId, setEditingItemId] = useState(null);
+  /** Quote lines whose progress tracker is expanded (all start collapsed). */
+  const [openProgressLines, setOpenProgressLines] = useState(() => new Set());
+  const [progressSavingId, setProgressSavingId] = useState(null);
+  const [vehicleTestedSaving, setVehicleTestedSaving] = useState(false);
   const [editingHeaderTitle, setEditingHeaderTitle] = useState('');
   const [invoice, setInvoice] = useState(null);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
@@ -240,6 +343,9 @@ export default function JobDetail() {
   const [invoiceEditStock, setInvoiceEditStock] = useState({ query: '', stockItemId: null });
   const [testDriveOdo, setTestDriveOdo] = useState('');
   const [testDriveFuel, setTestDriveFuel] = useState('');
+  const [testDriveNotes, setTestDriveNotes] = useState('');
+  const [editingTdId, setEditingTdId] = useState(null);
+  const [editTdNotes, setEditTdNotes] = useState('');
   const [testDriveBusy, setTestDriveBusy] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -418,10 +524,25 @@ export default function JobDetail() {
     if (!testDriveFuel) return alert('Select fuel in on return');
     setTestDriveBusy(true);
     try {
-      const j = await api.jobs.addTestDrive(id, { odometer: odo, fuel: testDriveFuel });
+      const j = await api.jobs.addTestDrive(id, { odometer: odo, fuel: testDriveFuel, notes: testDriveNotes });
       setJob(j);
       setTestDriveOdo('');
       setTestDriveFuel('');
+      setTestDriveNotes('');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setTestDriveBusy(false);
+    }
+  };
+
+  /** Save the notes on an already-logged test drive. */
+  const saveTestDriveNotes = async (tdId, notes) => {
+    try {
+      setTestDriveBusy(true);
+      const j = await api.jobs.updateTestDrive(id, tdId, { notes });
+      setJob(j);
+      setEditingTdId(null);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -582,6 +703,47 @@ export default function JobDetail() {
     }
   };
 
+  const toggleProgressLine = (itemId) =>
+    setOpenProgressLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+
+  /** "Vehicle tested" is one tick for the whole job, shown under the quote total. */
+  const setVehicleTested = async (done) => {
+    if (!done && !window.confirm('Untick "Vehicle tested"? The customer will see the vehicle as not tested yet.')) return;
+    try {
+      setVehicleTestedSaving(true);
+      const row = await api.jobs.setVehicleTested(id, done);
+      setJob((j) => (j ? { ...j, ...row } : j));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setVehicleTestedSaving(false);
+    }
+  };
+
+  const setInvoiceLineProgress = async (itemId, stage, done) => {
+    if (!invoice) return;
+    if (!done) {
+      const label = LINE_PROGRESS_STAGES.find((s) => s.key === stage)?.label || stage;
+      if (!window.confirm(`Untick "${label}" for this line? The customer will see it as not done.`)) return;
+    }
+    try {
+      setProgressSavingId(itemId);
+      const updated = await api.invoices.setItemProgress(invoice.id, itemId, stage, done);
+      setInvoice((inv) =>
+        inv ? { ...inv, items: inv.items.map((x) => (x.id === itemId ? { ...x, ...updated } : x)) } : inv,
+      );
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setProgressSavingId(null);
+    }
+  };
+
   const removeQuoteItem = async (itemId) => {
     if (!confirm('Remove this line from the quote?')) return;
     try {
@@ -634,7 +796,10 @@ export default function JobDetail() {
     const purchase_price = Number(invoiceLineDraft.purchasePrice || fd.get('purchase_price')) || 0;
     const unit_price = Number(invoiceLineDraft.unitPrice || fd.get('unit_price')) || 0;
     if (!description) return alert('Item description is required');
-    if (descriptionMatchesUnapprovedQuote(quote, description) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) {
+    if (descriptionMatchesUnapprovedQuote(quote, description)) {
+      alert(
+        'This item is on the quote but the customer has not approved it yet. It will move to the invoice automatically once approved.',
+      );
       return;
     }
     let vat;
@@ -828,6 +993,23 @@ export default function JobDetail() {
     }
   };
 
+
+  /** Server moves every approved, not-yet-moved quote line onto the job invoice (unapproved lines never move). */
+  const moveApprovedQuoteLinesToInvoice = async () => {
+    if (!invoice) {
+      alert('Create an invoice first (see Invoice section above).');
+      return;
+    }
+    try {
+      const { moved } = await api.jobs.moveApprovedQuoteLines(id);
+      const [inv, q] = await Promise.all([api.invoices.get(invoice.id), quote ? api.invoices.get(quote.id) : null]);
+      setInvoice(inv);
+      if (q) setQuote(q);
+      if (!moved) alert('Nothing to move: only items the customer has approved on the quote can go to the invoice.');
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   const copyQuoteToInvoice = async () => {
     if (!quote || !invoice) {
@@ -1139,11 +1321,8 @@ export default function JobDetail() {
   const canInvoicePdf = canDownloadJobInvoicePdf(job);
   const billingLockMessage = intakeHandoverBlockedMessage();
 
+  // Before the vehicle is released the invoice PDF still downloads, marked PROVISIONAL.
   const handleDownloadInvoicePdf = () => {
-    if (!canInvoicePdf) {
-      alert(invoicePdfBlockedMessage());
-      return;
-    }
     api.invoices.downloadPDF(invoice.id);
   };
 
@@ -1485,7 +1664,14 @@ export default function JobDetail() {
                 </button>
               )}
             </div>
-            <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
+            <p>
+              <strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong>
+              {!isMechanic && job.vehicle_id && (
+                <Link to={`/vehicles/${job.vehicle_id}/history`} style={{ marginLeft: '0.5rem', fontSize: '0.85rem' }}>
+                  Service history →
+                </Link>
+              )}
+            </p>
             {job.vin && (
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>VIN: {job.vin}</p>
             )}
@@ -1504,6 +1690,12 @@ export default function JobDetail() {
             )}
             <p>{job.customer_phone || '—'}</p>
             <p>{job.customer_email || '—'}</p>
+            <NextServiceEditor
+              job={job}
+              onSaved={(row) =>
+                setJob((j) => (j ? { ...j, next_service_km: row.next_service_km, next_service_date: row.next_service_date } : j))
+              }
+            />
           </div>
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Job details</h3>
@@ -1808,11 +2000,48 @@ export default function JobDetail() {
               {tdComputed.map((row) => {
                 const tdRow = testDrivesList[row.index];
                 const who = tdRow?.logged_by_display_name || tdRow?.logged_by_username || '—';
+                const editingNotes = editingTdId === row.id;
                 return (
-                  <div key={row.id} style={rowStyle}>
-                    <strong>Test drive {row.index + 1}:</strong>
-                    Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
-                    <span style={{ color: 'var(--text-muted)' }}> · Logged by {who}</span>
+                  <div key={row.id} className="td-row">
+                    <div style={{ ...rowStyle, marginBottom: 0 }}>
+                      <strong>Test drive {row.index + 1}:</strong>
+                      Mileage covered {formatKmDelta(row.covered)}, Fuel used {row.used}
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {' '}· back at {tdRow?.odometer != null ? `${Number(tdRow.odometer).toLocaleString()} km` : '—'}
+                        {tdRow?.created_at ? ` · ${formatStageDate(tdRow.created_at)}` : ''} · Logged by {who}
+                      </span>
+                      {canLogTestDrives && !editingNotes && (
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{ padding: '0.1rem 0.45rem', fontSize: '0.78rem' }}
+                          onClick={() => {
+                            setEditingTdId(row.id);
+                            setEditTdNotes(tdRow?.notes || '');
+                          }}
+                        >
+                          {tdRow?.notes ? 'Edit notes' : 'Add notes'}
+                        </button>
+                      )}
+                    </div>
+                    {!editingNotes && tdRow?.notes && <div className="td-notes">{tdRow.notes}</div>}
+                    {editingNotes && (
+                      <div className="td-notes-edit">
+                        <textarea
+                          rows={2}
+                          value={editTdNotes}
+                          onChange={(e) => setEditTdNotes(e.target.value)}
+                          placeholder="What did the driver notice? e.g. slight pull left under braking, no noises over bumps"
+                          maxLength={1000}
+                        />
+                        <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          <button type="button" className="btn primary" disabled={testDriveBusy} onClick={() => saveTestDriveNotes(row.id, editTdNotes)}>
+                            Save notes
+                          </button>
+                          <button type="button" className="btn" onClick={() => setEditingTdId(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1839,6 +2068,14 @@ export default function JobDetail() {
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                  <input
+                    type="text"
+                    value={testDriveNotes}
+                    onChange={(e) => setTestDriveNotes(e.target.value)}
+                    placeholder="Notes (optional): what did the driver notice?"
+                    maxLength={1000}
+                    style={{ ...inlineInp, width: 'min(26rem, 100%)' }}
+                  />
                   <button type="button" className="btn primary" onClick={submitTestDrive} disabled={testDriveBusy} style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem' }}>
                     {testDriveBusy ? '…' : 'Add'}
                   </button>
@@ -1994,9 +2231,14 @@ export default function JobDetail() {
               ) : (
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>{invoice.invoice_number}</span>
               )}
-              {billingUnlocked && quote && quote.items && quote.items.length > 0 && (
-                <button type="button" className="btn" onClick={copyQuoteToInvoice}>
-                  Copy from quote
+              {billingUnlocked && quote && quote.items?.some((l) => isQuoteLineApproved(l) && !l.moved_to_invoice_at && isItemLine(l)) && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={moveApprovedQuoteLinesToInvoice}
+                  title="Move items the customer has approved on the quote onto this invoice"
+                >
+                  Move approved items
                 </button>
               )}
               {invoice.items && invoice.items.length > 0 && (
@@ -2004,9 +2246,13 @@ export default function JobDetail() {
                   type="button"
                   className="btn primary"
                   onClick={handleDownloadInvoicePdf}
-                  title={!canInvoicePdf ? invoicePdfBlockedMessage() : undefined}
+                  title={
+                    !canInvoicePdf
+                      ? 'The vehicle is not released yet, so the PDF is marked PROVISIONAL (amounts may still change).'
+                      : undefined
+                  }
                 >
-                  Download PDF
+                  {canInvoicePdf ? 'Download PDF' : 'Download PDF (provisional)'}
                 </button>
               )}
             </div>
@@ -2126,11 +2372,15 @@ export default function JobDetail() {
                 </button>
               </div>
             )}
+            <div style={{ marginBottom: '0.75rem' }}>
+              <JobProgressBar items={invoice.items} tasks={job?.tasks} vehicleTested={!!job?.vehicle_tested_at} />
+            </div>
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th style={{ width: '1.75rem' }} aria-label="Reorder" />
+                    <th>Progress</th>
                     <th>Item</th>
                     <th>Qty</th>
                     <th>Purchase (unit cost)</th>
@@ -2142,7 +2392,7 @@ export default function JobDetail() {
                 </thead>
                 <tbody>
                   {(!invoice.items || invoice.items.length === 0) && (
-                    <tr><td colSpan={8} className="empty">No invoice lines yet. Add items above.</td></tr>
+                    <tr><td colSpan={9} className="empty">No invoice lines yet. Add items above.</td></tr>
                   )}
                   {enrichItemsWithSectionTotals(invoice.items).map((row) => {
                     if (row.kind === 'header') {
@@ -2152,7 +2402,7 @@ export default function JobDetail() {
                           key={it.id}
                           item={it}
                           sectionNet={row.sectionNet}
-                          labelColSpan={5}
+                          labelColSpan={6}
                           formatMoney={(n) => `KES ${Number(n).toLocaleString()}`}
                           editable
                           editing={editingInvoiceItemId === it.id}
@@ -2188,13 +2438,34 @@ export default function JobDetail() {
                     const purchaseFromAlloc =
                       Number(it.lpo_line_count) > 0 || Number(it.ipr_line_count) > 0;
                     const labour = isLabourLine(it);
+                    const tracked = isTrackableLine(it);
+                    const progressOpen = tracked && openProgressLines.has(it.id);
+                    const progressId = `invoice-line-progress-${it.id}`;
                     return (
-                    <tr key={it.id} {...invoiceLineDrag.rowProps(it.id)}>
+                    <Fragment key={it.id}>
+                    <tr {...invoiceLineDrag.rowProps(it.id)}>
                       <InvoiceLineDragHandle
                         disabled={!invoiceLineDrag.sortable}
                         onDragStart={invoiceLineDrag.handleDragStart(it.id)}
                         onDragEnd={invoiceLineDrag.handleDragEnd}
                       />
+                      <td style={{ textAlign: 'center' }}>
+                        {tracked ? (
+                          <LineProgressToggle
+                            item={it}
+                            open={progressOpen}
+                            onToggle={() => toggleProgressLine(it.id)}
+                            controlsId={progressId}
+                          />
+                        ) : !labour ? (
+                          <span
+                            style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}
+                            title="Added directly to the invoice, not approved on the quote, so it has no progress tracker"
+                          >
+                            Not from quote
+                          </span>
+                        ) : null}
+                      </td>
                       {editingInvoiceItemId === it.id ? (
                         <>
                           <td>
@@ -2360,6 +2631,27 @@ export default function JobDetail() {
                         </>
                       )}
                     </tr>
+                    {progressOpen && (
+                      <tr className="lp-row">
+                        <td />
+                        <td colSpan={8}>
+                          <LineProgressSteps
+                            id={progressId}
+                            item={it}
+                            showWho
+                            busy={progressSavingId === it.id}
+                            canTick={(stage, info) => stage !== 'approved' && !info.auto}
+                            onTick={(stage, done) => setInvoiceLineProgress(it.id, stage, done)}
+                          >
+                            <p className="lp-note">
+                              Approved is set by the customer on the quote. LPO issued, Received and Fitted tick
+                              themselves from the LPO / IPR below; tick them here only for parts sourced another way.
+                            </p>
+                          </LineProgressSteps>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                     );
                   })}
                 </tbody>
@@ -2383,6 +2675,15 @@ export default function JobDetail() {
                   amountPaid={invoicePaidTotal}
                   showPayments
                 />
+                {job?.vehicle_tested_at && (
+                  <VehicleTestedTick
+                    id={`invoice-vehicle-tested-${job.id}`}
+                    at={job.vehicle_tested_at}
+                    by={job.vehicle_tested_by}
+                    busy={vehicleTestedSaving}
+                    onChange={setVehicleTested}
+                  />
+                )}
               </>
             )}
 
@@ -2781,10 +3082,12 @@ export default function JobDetail() {
                               >
                                 Edit
                               </button>
-                              {invoice && !invoiceLoading && !isHeaderLine(it) && String(it.type || '').toLowerCase() !== 'labour' && (
-                                <button type="button" className="btn primary" onClick={() => addQuoteLineToInvoice(it)}>
-                                  Add to invoice
-                                </button>
+                              {!labour && !isHeaderLine(it) && (
+                                <QuoteLineInvoiceStatus
+                                  line={it}
+                                  canMove={!!invoice && !invoiceLoading && billingUnlocked}
+                                  onMove={moveApprovedQuoteLinesToInvoice}
+                                />
                               )}
                               {!labour && (
                                 <button type="button" className="btn danger" onClick={() => removeQuoteItem(it.id)}>Remove</button>
@@ -2814,6 +3117,13 @@ export default function JobDetail() {
                 <InvoiceTotalsSummary items={quote.items} discountPercent={quote.discount_percent} />
               </>
             )}
+            <VehicleTestedTick
+              id={`vehicle-tested-${job.id}`}
+              at={job.vehicle_tested_at}
+              by={job.vehicle_tested_by}
+              busy={vehicleTestedSaving}
+              onChange={setVehicleTested}
+            />
           </>
         )}
       </div>

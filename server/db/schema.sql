@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS vehicles (
   vin TEXT,
   odometer INTEGER,
   notes TEXT,
+  next_service_km INTEGER,
+  next_service_date TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -154,6 +156,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   fuel_in TEXT,
   fuel_out TEXT,
   valuables_in_vehicle TEXT,
+  vehicle_tested_at TEXT,
+  vehicle_tested_by TEXT,
   due_date TEXT,
   completed_at TEXT,
   vehicle_released_at TEXT,
@@ -185,6 +189,7 @@ CREATE TABLE IF NOT EXISTS job_test_drives (
   admin_user_id INTEGER REFERENCES admin_users(id),
   odometer INTEGER NOT NULL,
   fuel TEXT,
+  notes TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -256,6 +261,17 @@ CREATE TABLE IF NOT EXISTS invoice_items (
   sort_order INTEGER DEFAULT 0,
   subtext TEXT,
   discount_percent REAL DEFAULT 0,
+  approved_at TEXT,
+  lpo_issued_at TEXT,
+  lpo_issued_by TEXT,
+  received_at TEXT,
+  received_by TEXT,
+  fitted_at TEXT,
+  fitted_by TEXT,
+  tested_at TEXT,
+  tested_by TEXT,
+  moved_to_invoice_at TEXT,
+  quote_item_id INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

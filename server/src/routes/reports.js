@@ -148,7 +148,7 @@ function jobBayDays(createdAt, vehicleReleasedAt, completedAt) {
 }
 
 /** Collect all repeat-visit job ids under a mother (any depth). */
-function collectRepeatJobIdsUnderRoot(rootId) {
+export function collectRepeatJobIdsUnderRoot(rootId) {
   const ids = [];
   const queue = [Number(rootId)];
   const seen = new Set();
@@ -189,7 +189,7 @@ function emptyJobsFinancialSummary() {
   };
 }
 
-function loadInvoiceItemsByInvoiceIds(invIds) {
+export function loadInvoiceItemsByInvoiceIds(invIds) {
   const itemsByInvoice = new Map();
   if (!invIds.length) return itemsByInvoice;
   const iph = invIds.map(() => '?').join(',');

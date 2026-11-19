@@ -2,6 +2,95 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
+import { attachInvoiceLineProgress } from '../invoiceLineProgress.js';
+import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
+import { checkInvoicePdfAllowedForJobStatus } from '../jobCardRules.js';
+import { config } from '../config.js';
+import { sendInvoicePdf } from './invoices.js';
+
+/** How customers can pay (shown in the portal next to an invoice balance). */
+function paymentDetails() {
+  const c = config.company;
+  return {
+    mpesa_till: c.mpesa?.tillNumber || null,
+    bank: c.bank ? { name: c.bank.name, branch: c.bank.branch, account_name: c.legalName, account_number: c.bank.accountNumber, swift_code: c.bank.swiftCode } : null,
+    terms: c.paymentTerms || null,
+  };
+}
+
+/** Can the customer download this quote / invoice as a PDF yet? (Job invoices follow the same rule as staff.) */
+function pdfAvailable(inv) {
+  if (!inv) return false;
+  if (inv.type !== 'invoice' || !inv.job_id) return true;
+  const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(inv.job_id);
+  return !!job && checkInvoicePdfAllowedForJobStatus(job.status).ok;
+}
+
+/** Default service interval used for an estimate when staff have not set the next service themselves. */
+const SERVICE_INTERVAL_KM = 10000;
+const SERVICE_INTERVAL_MONTHS = 6;
+
+/**
+ * Next service due for a vehicle: what staff set on the vehicle, otherwise an estimate from the
+ * last finished job (odometer + 10,000 km / date + 6 months). Null when there is nothing to go on.
+ */
+function nextServiceFor(vehicle, jobs) {
+  if (vehicle.next_service_km != null || vehicle.next_service_date) {
+    return { km: vehicle.next_service_km ?? null, date: vehicle.next_service_date || null, estimated: false };
+  }
+  const finished = jobs
+    .filter((j) => j.status === 'completed' || j.status === 'vehicle_released')
+    .sort((a, b) => String(b.completed_at || b.created_at).localeCompare(String(a.completed_at || a.created_at)));
+  const last = finished[0];
+  if (!last) return null;
+  const odo = Number(last.odometer_out ?? last.odometer_in);
+  const base = new Date(`${String(last.completed_at || last.created_at).replace(' ', 'T')}Z`);
+  let date = null;
+  if (!Number.isNaN(base.getTime())) {
+    base.setUTCMonth(base.getUTCMonth() + SERVICE_INTERVAL_MONTHS);
+    date = base.toISOString().slice(0, 10);
+  }
+  return { km: Number.isFinite(odo) && odo > 0 ? odo + SERVICE_INTERVAL_KM : null, date, estimated: true };
+}
+
+/** Vehicles the customer owns or has had work done on. */
+function customerVehicles(customerId) {
+  return db
+    .prepare(`
+      SELECT v.id, v.registration, v.make, v.model, v.year, v.next_service_km, v.next_service_date
+      FROM vehicles v
+      WHERE v.customer_id = ? OR v.id IN (SELECT vehicle_id FROM jobs WHERE customer_id = ?)
+      ORDER BY v.registration
+    `)
+    .all(customerId, customerId);
+}
+
+function vehicleJobsForCustomer(vehicleId, customerId) {
+  return db
+    .prepare(`
+      SELECT id, job_number, status, description, created_at, completed_at, odometer_in, odometer_out
+      FROM jobs WHERE vehicle_id = ? AND customer_id = ?
+      ORDER BY created_at DESC
+    `)
+    .all(vehicleId, customerId);
+}
+
+/** Short summary of what was done on a job: the invoice's item lines, or the approved quote lines. */
+function jobWorkSummary(jobId) {
+  const pick = (type, onlyApproved) =>
+    db
+      .prepare(`
+        SELECT ii.description FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
+        WHERE i.job_id = ? AND i.type = ? AND COALESCE(ii.type, '') NOT IN ('header', 'labour')
+          ${onlyApproved ? 'AND COALESCE(ii.approved, 0) = 1' : ''}
+        ORDER BY ii.sort_order, ii.id
+      `)
+      .all(jobId, type)
+      .map((r) => r.description)
+      .filter(Boolean);
+  const fromInvoice = pick('invoice', false);
+  return fromInvoice.length ? fromInvoice : pick('quote', true);
+}
 
 export const customerPortalRouter = Router();
 
@@ -96,6 +185,8 @@ function portalDocumentForCustomer(inv, items) {
     payments: inv.type === 'invoice' ? payments : [],
     amount_paid: inv.type === 'invoice' ? amount_paid : 0,
     balance,
+    pdf_available: true,
+    pdf_provisional: inv.type === 'invoice' && !pdfAvailable(inv),
   };
 }
 
@@ -111,16 +202,24 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     ORDER BY created_at DESC LIMIT 1
   `).get(job.id);
   const quoteItems = quote
-    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
+    ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
   const invoiceItems = invoice
-    ? db.prepare('SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoice.id)
+    ? db
+        .prepare(
+          `SELECT id, description, quantity, unit_price, purchase_price, type, sort_order, subtext, vat_rate, vat_exempt, discount_percent,
+                  approved, approved_at, quote_item_id, lpo_issued_at, received_at, fitted_at
+           FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id`,
+        )
+        .all(invoice.id)
     : [];
   if (withTasks && invoice) {
     const partsByItem = portalPartsForInvoice(invoice.id);
     for (const item of invoiceItems) {
       item.parts = partsByItem.get(item.id) || [];
     }
+    // Line progress (dates only; staff names stay internal)
+    attachInvoiceLineProgress(invoice.id, invoiceItems);
   }
   const out = {
     id: job.id,
@@ -135,6 +234,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     },
     quote: quote ? portalDocumentForCustomer(quote, quoteItems) : null,
     invoice: invoice ? portalDocumentForCustomer(invoice, invoiceItems) : null,
+    vehicle_tested_at: job.vehicle_tested_at || null,
     rating: job.customer_rating,
     feedback: job.customer_feedback,
   };
@@ -149,7 +249,7 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     out.fuel_in = job.fuel_in;
     out.fuel_out = job.fuel_out;
     out.test_drives = db
-      .prepare('SELECT id, odometer, fuel, created_at FROM job_test_drives WHERE job_id = ? ORDER BY id ASC')
+      .prepare('SELECT id, odometer, fuel, notes, created_at FROM job_test_drives WHERE job_id = ? ORDER BY id ASC')
       .all(job.id);
   }
   return out;
@@ -202,6 +302,53 @@ customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
     quote,
     invoice,
     quote_approval_allowed: isQuote,
+    payment_details: paymentDetails(),
+  });
+});
+
+/** Download a quote / invoice PDF (same document staff print). */
+customerPortalRouter.get('/:token/documents/:invoiceId/pdf', (req, res) => {
+  const customer = findCustomerByToken(req.params.token);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const inv = db
+    .prepare("SELECT id, type, job_id FROM invoices WHERE id = ? AND customer_id = ? AND type IN ('quote', 'invoice')")
+    .get(Number(req.params.invoiceId), customer.id);
+  if (!inv) return res.status(404).json({ error: 'Document not found' });
+  // Invoices for jobs still in progress come out marked PROVISIONAL.
+  return sendInvoicePdf(inv.id, res, { allowProvisional: true });
+});
+
+/** One vehicle's history with this customer, plus when the next service is due. */
+customerPortalRouter.get('/:token/vehicles/:vehicleId', (req, res) => {
+  const customer = findCustomerByToken(req.params.token);
+  if (!customer) return res.status(404).json({ error: 'Customer not found' });
+  const vehicle = customerVehicles(customer.id).find((v) => v.id === Number(req.params.vehicleId));
+  if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' });
+  const jobs = vehicleJobsForCustomer(vehicle.id, customer.id);
+  const history = jobs.map((j) => {
+    const invoice = db
+      .prepare("SELECT id, total FROM invoices WHERE job_id = ? AND type = 'invoice' ORDER BY created_at DESC LIMIT 1")
+      .get(j.id);
+    const totals = invoice ? refreshInvoiceTotalsFromLineItems(invoice.id) : null;
+    return {
+      id: j.id,
+      job_number: j.job_number,
+      status: j.status,
+      description: j.description,
+      created_at: j.created_at,
+      completed_at: j.completed_at,
+      odometer_in: j.odometer_in,
+      odometer_out: j.odometer_out,
+      work: jobWorkSummary(j.id),
+      invoice_total: invoice ? Number(totals?.total ?? invoice.total) || 0 : null,
+    };
+  });
+  const lastOdo = jobs.map((j) => Number(j.odometer_out ?? j.odometer_in)).find((n) => Number.isFinite(n) && n > 0) ?? null;
+  res.json({
+    customer: { id: customer.id, name: customer.name },
+    vehicle: { id: vehicle.id, registration: vehicle.registration, make: vehicle.make, model: vehicle.model, year: vehicle.year, last_odometer: lastOdo },
+    next_service: nextServiceFor(vehicle, jobs),
+    history,
   });
 });
 
@@ -230,6 +377,7 @@ customerPortalRouter.get('/:token/jobs/:jobId', (req, res) => {
     },
     job: portalJobPayload(job, { withTasks: true, withMileage: true }),
     quote_approval_allowed: jobAllowsQuoteApproval(job.status),
+    payment_details: paymentDetails(),
   });
 });
 
@@ -274,6 +422,19 @@ customerPortalRouter.get('/:token', (req, res) => {
     },
     jobs: resultJobs,
     standalone_documents: standaloneDocs,
+    vehicles: customerVehicles(customer.id).map((v) => {
+      const vJobs = vehicleJobsForCustomer(v.id, customer.id);
+      return {
+        id: v.id,
+        registration: v.registration,
+        make: v.make,
+        model: v.model,
+        year: v.year,
+        visits: vJobs.length,
+        last_visit: vJobs[0]?.created_at || null,
+        next_service: nextServiceFor(v, vJobs),
+      };
+    }),
   });
 });
 
@@ -290,7 +451,11 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
     return res.status(e.statusCode || 500).json({ error: e.message });
   }
 
-  db.prepare("UPDATE invoice_items SET approved = 1 WHERE invoice_id = ? AND COALESCE(type, '') != 'header'").run(quote.id);
+  db.prepare(
+    "UPDATE invoice_items SET approved = 1, approved_at = COALESCE(approved_at, datetime('now')) WHERE invoice_id = ? AND COALESCE(type, '') != 'header'",
+  ).run(quote.id);
+  // Approved items go straight onto the job invoice (if there is one yet)
+  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 
@@ -320,7 +485,9 @@ customerPortalRouter.post('/:token/quotes/:quoteId/items/:itemId/approve', (req,
     return res.status(204).send();
   }
   if (already) return res.status(204).send();
-  db.prepare('UPDATE invoice_items SET approved = 1 WHERE id = ?').run(item.id);
+  db.prepare("UPDATE invoice_items SET approved = 1, approved_at = datetime('now') WHERE id = ?").run(item.id);
+  // Approved items go straight onto the job invoice (if there is one yet)
+  if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
   res.status(204).send();
 });
 

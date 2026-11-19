@@ -91,6 +91,22 @@ function migrate(db) {
     if (jobCols.length && !jobCols.includes('valuables_in_vehicle')) {
       db.run('ALTER TABLE jobs ADD COLUMN valuables_in_vehicle TEXT');
     }
+    // Next service due (set by staff; the customer portal shows it with a "Book it" button)
+    const vehInfo = db.exec('PRAGMA table_info(vehicles)');
+    const vehCols = (vehInfo[0]?.values || []).map((row) => row[1]);
+    if (vehCols.length && !vehCols.includes('next_service_km')) {
+      db.run('ALTER TABLE vehicles ADD COLUMN next_service_km INTEGER');
+    }
+    if (vehCols.length && !vehCols.includes('next_service_date')) {
+      db.run('ALTER TABLE vehicles ADD COLUMN next_service_date TEXT');
+    }
+    // "Vehicle tested" is one tick for the whole job (shown next to the quote total)
+    if (jobCols.length && !jobCols.includes('vehicle_tested_at')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_at TEXT');
+    }
+    if (jobCols.length && !jobCols.includes('vehicle_tested_by')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_by TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
@@ -129,6 +145,10 @@ function migrate(db) {
     const tdCols = (tdInfo[0]?.values || []).map((row) => row[1]);
     if (tdCols.length && !tdCols.includes('admin_user_id')) {
       db.run('ALTER TABLE job_test_drives ADD COLUMN admin_user_id INTEGER REFERENCES admin_users(id)');
+    }
+    // Test drive notes (what the driver noticed), shown on the job page and in the customer portal
+    if (tdCols.length && !tdCols.includes('notes')) {
+      db.run('ALTER TABLE job_test_drives ADD COLUMN notes TEXT');
     }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
@@ -280,6 +300,29 @@ function migrate(db) {
     if (iiCols.length && !iiCols.includes('discount_percent')) {
       db.run('ALTER TABLE invoice_items ADD COLUMN discount_percent REAL DEFAULT 0');
       db.run('UPDATE invoice_items SET discount_percent = 0 WHERE discount_percent IS NULL');
+    }
+    // Invoice line progress (approved → LPO issued → received → fitted → vehicle tested).
+    // *_at/*_by are manual ticks by staff; LPO/IPR part ticks also count (see invoiceLineProgress.js).
+    for (const col of [
+      'approved_at',
+      'lpo_issued_at',
+      'lpo_issued_by',
+      'received_at',
+      'received_by',
+      'fitted_at',
+      'fitted_by',
+      'tested_at',
+      'tested_by',
+      // Quote line → invoice line hand-off: set on the quote line once moved, so it moves only once.
+      'moved_to_invoice_at',
+    ]) {
+      if (iiCols.length && !iiCols.includes(col)) {
+        db.run(`ALTER TABLE invoice_items ADD COLUMN ${col} TEXT`);
+      }
+    }
+    // Invoice line → the approved quote line it came from (null for items typed straight onto the invoice).
+    if (iiCols.length && !iiCols.includes('quote_item_id')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN quote_item_id INTEGER');
     }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');
