@@ -1119,3 +1119,39 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .vh-doc-btns { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .vh-doc-btns .btn { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
 .vh-doc-btns .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Portal payments: M-Pesa pay + confirmation code */
+.cf-pay-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; }
+.cf-pay-summary > div { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem 0.7rem; border: 1px solid #e5e5e5; border-radius: 8px; background: #fff; font-size: 0.85rem; }
+.cf-pay-summary strong { font-size: 1rem; font-variant-numeric: tabular-nums; }
+.cf-pay-summary-due { border-color: #c8102e !important; }
+.cf-pay-summary-due strong { color: #c8102e; }
+.cf-mpesa { margin-top: 0; border-color: #2e7d32; background: #f4faf4; }
+.cf-pay-till { font-size: 1.35rem; }
+.cf-mpesa-steps { margin: 0 0 0.7rem; padding-left: 1.2rem; font-size: 0.85rem; line-height: 1.5; }
+.cf-claim-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem 0.75rem; }
+.cf-claim-form label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.78rem; color: #595959; flex: 1 1 160px; }
+.cf-claim-form input { font-size: 1rem; padding: 0.5rem 0.6rem; border: 1px solid #cfcfcf; border-radius: 6px; background: #fff; min-width: 0; }
+.cf-claim-form label:first-child input { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.cf-claim-form .btn { flex: 0 0 auto; }
+.cf-claim-err { margin-top: 0.5rem; color: #c8102e; font-size: 0.85rem; }
+.cf-claim-ok { margin-top: 0.5rem; color: #2e7d32; font-size: 0.85rem; }
+.cf-claims { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.cf-claim { display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; align-items: baseline; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.85rem; border: 1px solid #e5e5e5; }
+.cf-claim-pending { background: #fff8e6; border-color: #f0c36d; }
+.cf-claim-rejected { background: #fdeeee; border-color: #e8a3a3; }
+.cf-claim-status { font-weight: 600; }
+.cf-paid-full { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.9rem; border: 1px solid #2e7d32; border-radius: 10px; background: #f4faf4; }
+.cf-paid-full-tick { display: inline-grid; place-items: center; width: 2rem; height: 2rem; border-radius: 50%; background: #2e7d32; color: #fff; font-weight: 700; flex: 0 0 auto; }
+.cf-pay-history-title { margin: 1rem 0 0.5rem; font-size: 0.95rem; }
+.cf-pay-pointer { margin-top: 0.75rem; background: none; border: 0; padding: 0; color: #c8102e; font-weight: 600; cursor: pointer; font-size: 0.88rem; text-decoration: underline; }
+@media (max-width: 520px) { .cf-pay-summary { grid-template-columns: 1fr 1fr 1fr; } .cf-pay-summary > div { padding: 0.4rem 0.5rem; font-size: 0.75rem; } }
+
+/* Staff job page: M-Pesa codes submitted in the customer portal */
+.portal-claims { margin-bottom: 1rem; padding: 0.75rem 1rem; border: 1px solid #f0c36d; background: #fff8e6; border-radius: var(--radius); }
+.portal-claims-title { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; }
+.portal-claim-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; padding: 0.4rem 0; border-top: 1px solid #f3dca8; }
+.portal-claim-row:first-of-type { border-top: 0; }
+.portal-claim-code { letter-spacing: 0.06em; font-family: ui-monospace, monospace; }
+.portal-claim-actions { display: flex; gap: 0.5rem; margin-left: auto; }
+.cf-claim-form label:first-child input::placeholder { text-transform: none; letter-spacing: normal; font-weight: 400; }

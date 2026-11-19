@@ -113,6 +113,172 @@ function PaymentDetails({ details, balance, reference }) {
 }
 
 /**
+ * Payments section for an invoice: "Paid in full" once settled; otherwise how to pay (M-Pesa till /
+ * bank), a form for the M-Pesa confirmation code, the codes waiting for us to confirm, and the history.
+ */
+function PortalPaySection({ token, invoice, details, onSubmitted }) {
+  const balance = Number(invoice?.balance) || 0;
+  const claims = invoice?.payment_claims || [];
+  const pending = claims.filter((c) => c.status === 'pending');
+  const rejected = balance > 0 ? claims.filter((c) => c.status === 'rejected') : [];
+  const pendingTotal = pending.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+  const toConfirm = Math.max(0, Math.round((balance - pendingTotal) * 100) / 100);
+  const [code, setCode] = useState('');
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [sent, setSent] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    setSent('');
+    const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (clean.length !== 10) {
+      setErr('The M-Pesa confirmation code is 10 letters and numbers, e.g. SKL7ABC123.');
+      return;
+    }
+    const amt = amount === '' ? toConfirm : Number(amount);
+    if (!(amt > 0)) {
+      setErr('Enter the amount you paid.');
+      return;
+    }
+    try {
+      setBusy(true);
+      await api.customerPortal.submitPaymentClaim(token, invoice.id, { mpesa_code: clean, amount: amt });
+      setCode('');
+      setAmount('');
+      setSent(clean);
+      await onSubmitted?.();
+    } catch (ex) {
+      setErr(ex.message || 'Could not send the code');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {balance <= 0 ? (
+        <div className="cf-paid-full">
+          <span className="cf-paid-full-tick" aria-hidden="true">✓</span>
+          <div>
+            <strong>Paid in full</strong>
+            <div className="cf-pay-sub">Thank you. {kes(invoice.amount_paid)} received for {invoice.invoice_number}.</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="cf-pay-summary">
+            <div>
+              <span className="cf-muted">Total</span>
+              <strong>{kes(invoice.total)}</strong>
+            </div>
+            <div>
+              <span className="cf-muted">Paid</span>
+              <strong>{kes(invoice.amount_paid)}</strong>
+            </div>
+            <div className="cf-pay-summary-due">
+              <span className="cf-muted">Balance due</span>
+              <strong>{kes(balance)}</strong>
+            </div>
+          </div>
+          {details?.mpesa_till && (
+            <div className="cf-pay cf-mpesa">
+              <div className="cf-pay-title">Pay with M-Pesa · Buy Goods and Services</div>
+              <div className="cf-pay-row" style={{ marginBottom: '0.45rem' }}>
+                Till number <strong className="cf-pay-num cf-pay-till">{details.mpesa_till}</strong>{' '}
+                <CopyButton value={details.mpesa_till} />
+              </div>
+              <ol className="cf-mpesa-steps">
+                <li>Open M-Pesa and choose <strong>Lipa na M-Pesa</strong> → <strong>Buy Goods and Services</strong>.</li>
+                <li>Enter till number <strong>{details.mpesa_till}</strong> and the amount ({kes(toConfirm || balance)}).</li>
+                <li>Enter your PIN and send. You will get an SMS with a confirmation code.</li>
+                <li>Enter that code below so we can match your payment.</li>
+              </ol>
+              <form className="cf-claim-form" onSubmit={submit}>
+                <label>
+                  <span>M-Pesa confirmation code</span>
+                  <input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. SKL7ABC123"
+                    maxLength={14}
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label="M-Pesa confirmation code"
+                  />
+                </label>
+                <label>
+                  <span>Amount paid (KES)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="1"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    placeholder={String(toConfirm || balance)}
+                    aria-label="Amount paid"
+                  />
+                </label>
+                <button type="submit" className="btn primary" disabled={busy}>
+                  {busy ? 'Sending…' : 'Submit payment'}
+                </button>
+              </form>
+              {err && <div className="cf-claim-err">{err}</div>}
+              {sent && (
+                <div className="cf-claim-ok">
+                  Thanks, we've received code <strong>{sent}</strong>. We'll confirm it shortly and this page will update.
+                </div>
+              )}
+            </div>
+          )}
+          <PaymentDetails details={details ? { ...details, mpesa_till: null } : null} balance={balance} reference={invoice.invoice_number} />
+        </>
+      )}
+
+      {(pending.length > 0 || rejected.length > 0) && (
+        <ul className="cf-claims">
+          {pending.map((c) => (
+            <li key={c.id} className="cf-claim cf-claim-pending">
+              <span className="cf-claim-status">⏳ Awaiting confirmation</span>
+              <span>
+                M-Pesa <strong>{c.mpesa_code}</strong> · {kes(c.amount)}
+              </span>
+              <span className="cf-muted">sent {new Date(c.created_at.replace(' ', 'T') + 'Z').toLocaleString()}</span>
+            </li>
+          ))}
+          {rejected.map((c) => (
+            <li key={c.id} className="cf-claim cf-claim-rejected">
+              <span className="cf-claim-status">✕ Not matched</span>
+              <span>
+                M-Pesa <strong>{c.mpesa_code}</strong> · {kes(c.amount)}
+              </span>
+              <span className="cf-muted">
+                {String(c.reject_reason || 'We could not find this payment').replace(/[.\s]*$/, '.')} Please check the code or call us on {PHONE_DISPLAY}.
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h4 className="cf-pay-history-title">Payment history</h4>
+      <PaymentHistoryTable payments={invoice.payments} />
+    </>
+  );
+}
+
+/** Short meta line for the Payments drop-down header. */
+function paymentsMeta(invoice) {
+  if (!invoice) return '';
+  if (!(Number(invoice.balance) > 0)) return `Paid in full ✓ · ${kes(invoice.amount_paid)}`;
+  const pending = (invoice.payment_claims || []).filter((c) => c.status === 'pending').length;
+  return [`${kes(invoice.balance)} due`, pending ? 'awaiting confirmation' : 'pay by M-Pesa'].join(' · ');
+}
+
+/**
  * "Download PDF" link for a quote / invoice. While the job is still in progress the invoice
  * comes out marked PROVISIONAL (amounts may still change), and the button says so.
  */
@@ -235,7 +401,11 @@ function jobApprovalsNeeded(job) {
 
 /** Opens the quote drop-down and scrolls to it. */
 function openQuote() {
-  const el = document.getElementById('portal-quote');
+  openSection('portal-quote');
+}
+
+function openSection(id) {
+  const el = document.getElementById(id);
   if (!el) return;
   el.open = true;
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -824,37 +994,12 @@ function PortalStandaloneDocument() {
           </p>
           <PortalLineItemsTable items={invoice.items} />
           <PortalDocumentTotals doc={invoice} />
-          <PaymentDetails details={payload.payment_details} balance={invoice.balance} reference={invoice.invoice_number} />
           <div className="cf-doc-actions">
             <PdfLink token={token} doc={invoice} label="Download invoice PDF" />
           </div>
           <div style={{ marginTop: '1.25rem' }}>
-            <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payment history</h4>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Amount</th>
-                    <th>Date</th>
-                    <th>Note</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(!invoice.payments || invoice.payments.length === 0) && (
-                    <tr>
-                      <td colSpan={3} className="empty">No payments recorded yet.</td>
-                    </tr>
-                  )}
-                  {invoice.payments?.map((p) => (
-                    <tr key={p.id}>
-                      <td><strong>{kes(p.amount)}</strong></td>
-                      <td>{p.paid_at ? new Date(p.paid_at).toLocaleString() : '—'}</td>
-                      <td style={{ color: 'var(--text-muted)' }}>{p.notes || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <h4 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Payments</h4>
+            <PortalPaySection token={token} invoice={invoice} details={payload.payment_details} onSubmitted={reload} />
           </div>
         </section>
       )}
@@ -1017,11 +1162,11 @@ function PortalJobDetail() {
             {job.vehicle_tested_at && (
               <VehicleTestedTick id={`portal-invoice-vehicle-tested-${job.id}`} at={job.vehicle_tested_at} />
             )}
-            <PaymentDetails
-              details={payload.payment_details}
-              balance={job.invoice.balance}
-              reference={job.invoice.invoice_number}
-            />
+            {Number(job.invoice.balance) > 0 && (
+              <button type="button" className="cf-pay-pointer" onClick={() => openSection('portal-payments')}>
+                Balance {kes(job.invoice.balance)} · how to pay by M-Pesa ↓
+              </button>
+            )}
           </>
         )}
       </Collapsible>
@@ -1029,9 +1174,11 @@ function PortalJobDetail() {
       {job.invoice && (
         <Collapsible
           title="Payments"
-          meta={`Paid ${kes(job.invoice.amount_paid)} · Balance ${kes(job.invoice.balance)}`}
+          id="portal-payments"
+          meta={paymentsMeta(job.invoice)}
+          defaultOpen={job.status === 'vehicle_released' && Number(job.invoice.balance) > 0}
         >
-          <PaymentHistoryTable payments={job.invoice.payments} />
+          <PortalPaySection token={token} invoice={job.invoice} details={payload.payment_details} onSubmitted={reload} />
         </Collapsible>
       )}
 

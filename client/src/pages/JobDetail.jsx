@@ -916,6 +916,42 @@ export default function JobDetail() {
     setInvoice(inv);
   };
 
+  const [claimBusy, setClaimBusy] = useState(null);
+  const confirmPortalClaim = async (claim) => {
+    if (!invoice?.id || !canRecordInvoicePayments) return;
+    const entered = window.prompt(
+      `Confirm M-Pesa ${claim.mpesa_code} after checking it on the M-Pesa statement.\nAmount received (KES):`,
+      String(claim.amount),
+    );
+    if (entered == null) return;
+    const amount = Number(entered);
+    if (!(amount > 0)) return alert('Enter a positive amount');
+    setClaimBusy(claim.id);
+    try {
+      setInvoice(await api.invoices.confirmPaymentClaim(invoice.id, claim.id, amount));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setClaimBusy(null);
+    }
+  };
+  const rejectPortalClaim = async (claim) => {
+    if (!invoice?.id || !canRecordInvoicePayments) return;
+    const reason = window.prompt(
+      `Reject M-Pesa ${claim.mpesa_code}? The customer will see this reason:`,
+      'We could not find this payment on our M-Pesa statement.',
+    );
+    if (reason == null) return;
+    setClaimBusy(claim.id);
+    try {
+      setInvoice(await api.invoices.rejectPaymentClaim(invoice.id, claim.id, reason));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setClaimBusy(null);
+    }
+  };
+
   const addCustomerPayment = async (e) => {
     e.preventDefault();
     if (!invoice?.id) return;
@@ -2716,6 +2752,37 @@ export default function JobDetail() {
                   <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>{formatKes(invoiceBalance)}</div>
                 </div>
               </div>
+
+              {(invoice?.payment_claims || []).some((c) => c.status === 'pending') && (
+                <div className="portal-claims">
+                  <div className="portal-claims-title">
+                    M-Pesa codes sent by the customer in the portal: check each on the M-Pesa statement
+                  </div>
+                  {invoice.payment_claims
+                    .filter((c) => c.status === 'pending')
+                    .map((c) => (
+                      <div key={c.id} className="portal-claim-row">
+                        <strong className="portal-claim-code">{c.mpesa_code}</strong>
+                        <span>{formatKes(c.amount)}</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          sent {new Date(String(c.created_at).replace(' ', 'T') + 'Z').toLocaleString()}
+                        </span>
+                        {canRecordInvoicePayments ? (
+                          <span className="portal-claim-actions">
+                            <button type="button" className="btn primary" disabled={claimBusy === c.id} onClick={() => confirmPortalClaim(c)}>
+                              Confirm payment
+                            </button>
+                            <button type="button" className="btn" disabled={claimBusy === c.id} onClick={() => rejectPortalClaim(c)}>
+                              Reject
+                            </button>
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Awaiting a manager to confirm</span>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
 
               <form
                 onSubmit={addCustomerPayment}
