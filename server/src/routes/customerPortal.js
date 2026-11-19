@@ -227,6 +227,8 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
     status: job.status,
     created_at: job.created_at,
     completed_at: job.completed_at,
+    due_date: job.due_date || null,
+    vehicle_released_at: job.vehicle_released_at || null,
     vehicle: {
       registration: job.registration,
       make: job.make,

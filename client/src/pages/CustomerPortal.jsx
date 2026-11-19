@@ -10,7 +10,14 @@ import { InvoiceLineSubtextView } from '../components/InvoiceLineSubtext';
 import { InvoiceLineDiscountView } from '../components/InvoiceLineDiscount';
 import { LineProgressToggle, LineProgressSteps, JobProgressBar, VehicleTestedTick } from '../components/LineProgress';
 import { isTrackableLine, formatStageDate } from '../utils/lineProgress';
-import { whatsappWithText } from '../components/PortalShell';
+import {
+  whatsappWithText,
+  PHONE_TEL,
+  PHONE_DISPLAY,
+  MAPS,
+  VEHICLE_HIRE,
+  GOOGLE_REVIEW_URL,
+} from '../components/PortalShell';
 
 /**
  * Keeps an open portal page up to date with what the workshop changes (new quote items, ticks,
@@ -145,6 +152,68 @@ function bookServiceLink(vehicle, next) {
   );
 }
 
+function isLabourLine(item) {
+  return String(item?.type || '').toLowerCase() === 'labour';
+}
+
+/** Vehicle released: big, clear "ready for collection" message with hours, directions and how to arrange. */
+function CollectionBanner({ job }) {
+  const car = [job.vehicle?.registration, [job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ')]
+    .filter(Boolean)
+    .join(' – ');
+  const due = job.invoice && Number(job.invoice.balance) > 0 ? job.invoice.balance : 0;
+  return (
+    <section className="cf-ready" aria-live="polite">
+      <div className="cf-ready-main">
+        <div className="cf-ready-title">✓ Your vehicle is ready for collection</div>
+        <div className="cf-ready-text">
+          Collect from our workshop on Ngong Road, Karen · Mon–Fri 8:00am – 5:00pm, Sat 8:00am – 1:00pm
+          (closed Sundays & public holidays).
+        </div>
+        {due > 0 && (
+          <div className="cf-ready-text">
+            Balance to pay at collection: <strong>{kes(due)}</strong> (see <em>How to pay</em> under the invoice).
+          </div>
+        )}
+      </div>
+      <div className="cf-ready-actions">
+        <a
+          className="btn primary cf-btn-sm"
+          href={whatsappWithText(`Hello Chequered Flag, I would like to arrange collection of ${car || 'my vehicle'} (job ${job.job_number}).`)}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Arrange collection
+        </a>
+        <a className="btn cf-btn-sm" href={PHONE_TEL}>Call {PHONE_DISPLAY}</a>
+        <a className="btn cf-btn-sm" href={MAPS} target="_blank" rel="noopener noreferrer">Directions</a>
+      </div>
+    </section>
+  );
+}
+
+/** While the work is in progress: expected ready date (if set) and a hire-car suggestion. */
+function InProgressStrip({ job }) {
+  const ready = job.due_date ? formatDueDate(job.due_date) : null;
+  return (
+    <section className="cf-strip">
+      <div>
+        {ready ? (
+          <>
+            Expected ready <strong>{ready}</strong>
+            <span className="cf-muted"> · we will message you if that changes</span>
+          </>
+        ) : (
+          <span className="cf-muted">We are working on your vehicle. We will message you when it is ready.</span>
+        )}
+      </div>
+      <a className="cf-strip-hire" href={VEHICLE_HIRE} target="_blank" rel="noopener noreferrer">
+        Need a car while yours is in? <strong>See hire vehicles →</strong>
+      </a>
+    </section>
+  );
+}
+
 /** A card that opens and closes; the summary line stays visible when it is closed. */
 function Collapsible({ title, meta, defaultOpen = false, children }) {
   return (
@@ -162,7 +231,7 @@ function Collapsible({ title, meta, defaultOpen = false, children }) {
 const JOB_STATUS_LABEL = {
   pending: 'In progress',
   in_progress: 'In progress',
-  vehicle_released: 'Vehicle released',
+  vehicle_released: 'Ready for collection',
   completed: 'Complete',
   cancelled: 'Cancelled',
 };
@@ -776,6 +845,9 @@ function PortalJobDetail() {
 
       {saving && <p className="cf-saving">Saving…</p>}
 
+      {job.status === 'vehicle_released' && <CollectionBanner job={job} />}
+      {(job.status === 'in_progress' || job.status === 'pending') && <InProgressStrip job={job} />}
+
       <JobProgressBar items={job.invoice?.items} tasks={tasks} vehicleTested={!!job.vehicle_tested_at} />
 
       {job.quote && (
@@ -1027,7 +1099,9 @@ function PortalDocumentTotals({ doc }) {
 }
 
 function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote, showVehicleTested = false, vehicleTestedAt = null, token = null }) {
-  const quotePendingCount = quote?.items?.filter((i) => !isHeaderLine(i) && !isQuoteLineApproved(i)).length ?? 0;
+  // The labour line isn't approved item by item, so it isn't counted as waiting for approval.
+  const quotePendingCount =
+    quote?.items?.filter((i) => !isHeaderLine(i) && !isLabourLine(i) && !isQuoteLineApproved(i)).length ?? 0;
   const needsApproval = quotePendingCount > 0 && allowApprove;
   const meta = [
     quote.invoice_number,
@@ -1045,7 +1119,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
           {needsApproval ? (
             <>
               <span>Approve the items you would like us to go ahead with. Approved items move to your invoice.</span>
-              {(quote.items?.length ?? 0) >= 2 && (
+              {quotePendingCount >= 2 && (
                 <button
                   type="button"
                   className="btn primary"
@@ -1098,7 +1172,11 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
               return (
                 <tr key={item.id}>
                   <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    {isQuoteLineApproved(item) ? (
+                    {isLabourLine(item) ? (
+                      <span className="cf-muted cf-small" title="Labour is charged for the work done; it is not approved item by item">
+                        Labour
+                      </span>
+                    ) : isQuoteLineApproved(item) ? (
                       <span className="cf-approved">
                         ✓ Approved
                         {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
@@ -1229,6 +1307,17 @@ function FeedbackSection({ job, onSubmitRating }) {
         <>
           <p style={{ margin: '0.25rem 0' }}>Rating: {'★'.repeat(rating)}{'☆'.repeat(5 - rating)}</p>
           {feedback && <p style={{ margin: 0 }}>{feedback}</p>}
+          {rating >= 4 && (
+            <div className="cf-review">
+              <div>
+                <strong>Thank you!</strong> Would you share that on Google? It takes a minute and really helps other
+                drivers find us.
+              </div>
+              <a className="btn primary cf-btn-sm" href={GOOGLE_REVIEW_URL} target="_blank" rel="noopener noreferrer">
+                Leave a Google review ★
+              </a>
+            </div>
+          )}
         </>
       ) : (
         <>
