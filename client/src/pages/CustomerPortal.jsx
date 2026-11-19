@@ -214,12 +214,52 @@ function InProgressStrip({ job }) {
   );
 }
 
-/** A card that opens and closes; the summary line stays visible when it is closed. */
-function Collapsible({ title, meta, defaultOpen = false, children }) {
+/** Job statuses where the customer can still approve quote items (same rule as the server). */
+const QUOTE_APPROVAL_STATUSES = ['pending', 'in_progress', 'vehicle_released'];
+
+/** Quote items still waiting for the customer (headers and the labour line don't count). */
+function quoteItemsAwaiting(quote) {
+  return (quote?.items || []).filter((i) => !isHeaderLine(i) && !isLabourLine(i) && !isQuoteLineApproved(i)).length;
+}
+
+function jobApprovalsNeeded(job) {
+  return QUOTE_APPROVAL_STATUSES.includes(job?.status) ? quoteItemsAwaiting(job?.quote) : 0;
+}
+
+/** Opens the quote drop-down and scrolls to it. */
+function openQuote() {
+  const el = document.getElementById('portal-quote');
+  if (!el) return;
+  el.open = true;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/** "Action needed" notice at the top of a job while quote items wait for approval. */
+function ApprovalNotice({ count }) {
+  if (!count) return null;
   return (
-    <details className="card cf-collapse" open={defaultOpen || undefined}>
+    <section className="cf-attn" role="status">
+      <div>
+        <div className="cf-attn-title">Action needed: approval</div>
+        <div className="cf-attn-text">
+          {count === 1 ? '1 item on your quote is' : `${count} items on your quote are`} waiting for your approval. We
+          only go ahead with the items you approve.
+        </div>
+      </div>
+      <button type="button" className="btn primary cf-btn-sm" onClick={openQuote}>
+        Review & approve
+      </button>
+    </section>
+  );
+}
+
+/** A card that opens and closes; the summary line stays visible when it is closed. */
+function Collapsible({ title, meta, badge, id, defaultOpen = false, children }) {
+  return (
+    <details className="card cf-collapse" id={id} open={defaultOpen || undefined}>
       <summary>
         <span className="cf-collapse-title">{title}</span>
+        {badge ? <span className="cf-attn-badge">{badge}</span> : null}
         {meta ? <span className="cf-collapse-meta">{meta}</span> : null}
         <span className="cf-collapse-chevron" aria-hidden="true">▾</span>
       </summary>
@@ -296,6 +336,7 @@ function PortalJobsList() {
   if (error || !data) return <div className="page-title">Link not found or expired.</div>;
 
   const { customer, jobs, standalone_documents: standaloneDocs = [], vehicles = [] } = data;
+  const jobsNeedingApproval = jobs.filter((j) => jobApprovalsNeeded(j) > 0);
   const q = portalSearch.trim().toLowerCase();
   const filteredJobs = !q
     ? jobs
@@ -345,6 +386,37 @@ function PortalJobsList() {
       <p className="cf-meta-line">
         {[customer.email, customer.phone].filter(Boolean).join(' · ') || '—'}
       </p>
+
+      {jobsNeedingApproval.length > 0 && (
+        <section className="cf-attn" role="status">
+          <div>
+            <div className="cf-attn-title">
+              Action needed: {jobsNeedingApproval.length === 1 ? '1 job needs' : `${jobsNeedingApproval.length} jobs need`} your
+              approval
+            </div>
+            <ul className="cf-attn-list">
+              {jobsNeedingApproval.map((j) => {
+                const n = jobApprovalsNeeded(j);
+                return (
+                  <li key={j.id}>
+                    <Link to={`job/${j.id}`}>
+                      <strong>{j.vehicle?.registration || j.job_number}</strong>
+                      {j.vehicle?.registration ? ` · job ${j.job_number}` : ''}
+                      {' · '}
+                      {n} {n === 1 ? 'item' : 'items'} to approve
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          {jobsNeedingApproval.length === 1 && (
+            <Link className="btn primary cf-btn-sm" to={`job/${jobsNeedingApproval[0].id}`}>
+              Review & approve
+            </Link>
+          )}
+        </section>
+      )}
 
       {(jobs.length > 0 || standaloneDocs.length > 0) && (
         <div className="cf-search">
@@ -452,7 +524,10 @@ function PortalJobsList() {
                         <td>{job.vehicle?.registration || '—'}</td>
                         <td>{formatPortalDate(job.created_at)}</td>
                         <td>{formatPortalDate(job.completed_at)}</td>
-                        <td>{jobStatusLabel(job.status)}</td>
+                        <td>
+                          {jobStatusLabel(job.status)}
+                          {jobApprovalsNeeded(job) > 0 && <div className="cf-attn-badge cf-attn-badge-sm">Approval needed</div>}
+                        </td>
                         <td>
                           {job.quote ? (
                             <span title={job.quote.invoice_number ? `Quote ${job.quote.invoice_number}` : undefined}>
@@ -852,6 +927,8 @@ function PortalJobDetail() {
       {job.status === 'vehicle_released' && <CollectionBanner job={job} />}
       {(job.status === 'in_progress' || job.status === 'pending') && <InProgressStrip job={job} />}
 
+      {allowQuoteApproval && <ApprovalNotice count={quoteItemsAwaiting(job.quote)} />}
+
       <JobProgressBar items={job.invoice?.items} tasks={tasks} vehicleTested={!!job.vehicle_tested_at} />
 
       {job.quote && (
@@ -1109,7 +1186,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
   const needsApproval = quotePendingCount > 0 && allowApprove;
   const meta = [
     quote.invoice_number,
-    quotePendingCount > 0 ? `${quotePendingCount} to approve` : 'All approved',
+    needsApproval ? null : quotePendingCount > 0 ? `${quotePendingCount} not approved` : 'All approved',
     kes(quote.total),
     showVehicleTested && vehicleTestedAt ? 'Vehicle tested ✓' : null,
   ]
@@ -1117,7 +1194,13 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
     .join(' · ');
 
   return (
-    <Collapsible title="Quote" meta={meta} defaultOpen={needsApproval}>
+    <Collapsible
+      title="Quote"
+      id="portal-quote"
+      badge={needsApproval ? `${quotePendingCount} to approve` : null}
+      meta={meta}
+      defaultOpen={needsApproval}
+    >
       {(needsApproval || (!allowApprove && quotePendingCount > 0)) && (
         <div className="cf-quote-bar">
           {needsApproval ? (

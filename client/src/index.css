@@ -1091,3 +1091,19 @@ tr.lp-row:hover > td { background: #fafaf8; }
 /* Portal job page: customer name and registration as the heading, job number underneath */
 .cf-portal .cf-job-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.6rem; }
 .cf-job-reg { display: inline-block; padding: 0.05em 0.35em; border: 2px solid #171717; border-radius: 6px; font-size: 0.72em; letter-spacing: 0.02em; line-height: 1.15; background: #fff; }
+
+/* Portal: approval needed notices */
+.cf-attn { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem 1.25rem; flex-wrap: wrap; margin: 0 0 0.75rem; padding: 0.8rem 1rem; border-radius: 12px; background: #fff8e6; border: 1px solid #e8b931; }
+.cf-attn-title { font-weight: 800; color: #7a4d00; }
+.cf-attn-text { font-size: 0.88rem; color: #3f3f3f; }
+.cf-attn-list { list-style: none; margin: 0.15rem 0 0; padding: 0; font-size: 0.88rem; }
+.cf-portal .cf-attn-list a { color: #3f3f3f; }
+.cf-attn-badge { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px; background: #e8b931; color: #3d2600; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
+.cf-attn-badge-sm { margin-top: 0.2rem; font-size: 0.7rem; padding: 0.08rem 0.45rem; }
+.cf-collapse > summary .cf-attn-badge { margin-right: auto; }
+.cf-collapse > summary .cf-attn-badge + .cf-collapse-meta { flex: 0 1 auto; }
+@keyframes cf-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232, 185, 49, 0.55); } 50% { box-shadow: 0 0 0 5px rgba(232, 185, 49, 0); } }
+.cf-collapse:not([open]) > summary .cf-attn-badge { animation: cf-pulse 2s ease-in-out 3; }
+@media (prefers-reduced-motion: reduce) { .cf-collapse:not([open]) > summary .cf-attn-badge { animation: none; } }
+.cf-attn-badge.cf-attn-badge-sm { display: table; }
+.cf-attn-badge.cf-attn-badge-sm { padding: 0.1rem 0.55rem; margin-top: 0.25rem; }
