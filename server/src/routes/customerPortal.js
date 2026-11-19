@@ -3,7 +3,7 @@ import { db } from '../db.js';
 import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
 import { attachInvoiceLineProgress } from '../invoiceLineProgress.js';
-import { moveApprovedQuoteLinesToInvoice, quoteLineLock, withdrawQuoteLineFromInvoice } from '../quoteToInvoice.js';
+import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
 import { checkInvoicePdfAllowedForJobStatus } from '../jobCardRules.js';
 import { config } from '../config.js';
 import { sendInvoicePdf } from './invoices.js';
@@ -204,10 +204,6 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
   const quoteItems = quote
     ? db.prepare('SELECT id, description, quantity, unit_price, type, sort_order, subtext, approved, declined_at, vat_rate, vat_exempt, discount_percent, moved_to_invoice_at FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(quote.id)
     : [];
-  // Approved items the workshop has started on can't be changed from the portal any more
-  for (const qi of quoteItems) {
-    qi.locked = Number(qi.approved) === 1 && !!quoteLineLock(qi.id);
-  }
   const invoiceItems = invoice
     ? db
         .prepare(
@@ -467,9 +463,8 @@ customerPortalRouter.post('/:token/quotes/:quoteId/approve-all', (req, res) => {
 });
 
 /**
- * Customer approves or declines one quote item, and can change their mind later — until the workshop
- * has started on it (LPO/IPR issued, received, fitted or stock taken; see quoteLineLock).
- * Approving moves it onto the job invoice; changing an approved item to declined takes it back off.
+ * Customer approves or declines one quote item. Approving is final (the item moves onto the job
+ * invoice and can't be changed from the portal); a declined item can still be approved later.
  */
 function decideQuoteItem(req, res, decision) {
   const customer = findCustomerByToken(req.params.token);
@@ -495,14 +490,13 @@ function decideQuoteItem(req, res, decision) {
     if (quote.job_id) moveApprovedQuoteLinesToInvoice(quote.job_id);
     return res.status(204).send();
   }
-  // decline
-  if (Number(item.approved) === 1 && quoteLineLock(item.id)) {
+  // decline: only items not yet approved (approval is final)
+  if (Number(item.approved) === 1) {
     return res.status(409).json({
-      error: 'We have already started on this item (parts ordered or fitted), so it can no longer be changed here. Please call or WhatsApp us.',
+      error: 'This item is already approved and can no longer be changed here. Please call or WhatsApp us if you need to discuss it.',
     });
   }
-  db.prepare("UPDATE invoice_items SET approved = 0, approved_at = NULL, declined_at = datetime('now') WHERE id = ?").run(item.id);
-  withdrawQuoteLineFromInvoice(item.id);
+  db.prepare("UPDATE invoice_items SET declined_at = COALESCE(declined_at, datetime('now')) WHERE id = ?").run(item.id);
   return res.status(204).send();
 }
 

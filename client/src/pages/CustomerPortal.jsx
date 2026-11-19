@@ -1228,14 +1228,14 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
             <>
               <span>
                 Approve the items you would like us to go ahead with, or decline the ones you don't. Approved items move to
-                your invoice. You can change your mind until we start on an item.
+                your invoice and are final; declined items can still be approved later.
               </span>
               {quotePendingCount >= 2 && (
                 <button
                   type="button"
                   className="btn primary"
                   onClick={() => {
-                    if (!window.confirm('Are you sure you would like to approve all lines?')) return;
+                    if (!window.confirm("Approve all the remaining items? Once approved they can't be changed here.")) return;
                     onApproveAllQuote(quote.id);
                   }}
                 >
@@ -1290,27 +1290,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
                     ) : isQuoteLineApproved(item) ? (
                       <span className="cf-approved">
                         ✓ Approved
-                        {item.locked ? (
-                          <span className="cf-approved-sub" title="We have started on this item. To change it, please call or WhatsApp us.">
-                            Parts ordered
-                          </span>
-                        ) : (
-                          <>
-                            {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
-                            {allowApprove && (
-                              <button
-                                type="button"
-                                className="cf-change"
-                                onClick={() => {
-                                  if (!window.confirm(`Change "${item.description}" to declined? We won't go ahead with it, and it comes off your invoice.`)) return;
-                                  onToggleApprove(quote.id, item.id, false);
-                                }}
-                              >
-                                Change
-                              </button>
-                            )}
-                          </>
-                        )}
+                        {item.moved_to_invoice_at && <span className="cf-approved-sub">On invoice ↓</span>}
                       </span>
                     ) : isQuoteLineDeclined(item) ? (
                       <span className="cf-declined">
@@ -1320,7 +1300,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
                             type="button"
                             className="cf-change"
                             onClick={() => {
-                              if (!window.confirm(`Approve "${item.description}" after all?`)) return;
+                              if (!window.confirm(`Approve "${item.description}" after all? Once approved it can't be changed here.`)) return;
                               onToggleApprove(quote.id, item.id, true);
                             }}
                           >
@@ -1334,7 +1314,7 @@ function QuoteSection({ quote, allowApprove, onToggleApprove, onApproveAllQuote,
                           type="button"
                           className="btn primary cf-btn-sm"
                           onClick={() => {
-                            if (!window.confirm(`Approve "${item.description}"?`)) return;
+                            if (!window.confirm(`Approve "${item.description}"? Once approved it can't be changed here.`)) return;
                             onToggleApprove(quote.id, item.id, true);
                           }}
                         >
