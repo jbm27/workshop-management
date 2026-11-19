@@ -1088,3 +1088,6 @@ tr.lp-row:hover > td { background: #fafaf8; }
   .cf-ready-actions { width: 100%; }
   .cf-ready-actions .btn { flex: 1; }
 }
+/* Portal job page: customer name and registration as the heading, job number underneath */
+.cf-portal .cf-job-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.6rem; }
+.cf-job-reg { display: inline-block; padding: 0.05em 0.35em; border: 2px solid #171717; border-radius: 6px; font-size: 0.72em; letter-spacing: 0.02em; line-height: 1.15; background: #fff; }

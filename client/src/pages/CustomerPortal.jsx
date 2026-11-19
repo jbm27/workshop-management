@@ -829,7 +829,7 @@ function PortalJobDetail() {
   const isPast = job.status === 'completed' || job.status === 'cancelled';
   const tasks = job.tasks || [];
   const tasksDone = tasks.filter(isTaskCompleted).length;
-  const vehicle = [job.vehicle?.registration, job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ') || '—';
+  const carName = [job.vehicle?.make, job.vehicle?.model].filter(Boolean).join(' ');
 
   return (
     <div className="customer-portal cf-compact">
@@ -837,9 +837,13 @@ function PortalJobDetail() {
         ← All jobs
       </Link>
       <div className="cf-eyebrow">Workshop job · {jobStatusLabel(job.status)}</div>
-      <h1 className="page-title">{job.job_number}</h1>
+      <h1 className="page-title cf-job-title">
+        <span>{customer.name}</span>
+        {job.vehicle?.registration && <span className="cf-job-reg">{job.vehicle.registration}</span>}
+      </h1>
       <p className="cf-meta-line">
-        {customer.name} · {vehicle} · In {formatPortalDate(job.created_at)}
+        Job <strong>{job.job_number}</strong>
+        {carName ? ` · ${carName}` : ''} · In {formatPortalDate(job.created_at)}
         {job.completed_at ? ` · Out ${formatPortalDate(job.completed_at)}` : ''}
       </p>
 
