@@ -279,21 +279,21 @@ function paymentsMeta(invoice) {
 }
 
 /**
- * "Download PDF" link for a quote / invoice. While the job is still in progress the invoice
- * comes out marked PROVISIONAL (amounts may still change), and the button says so.
+ * "Download PDF" link for a quote / invoice. A job's invoice can only be downloaded once the job is
+ * completed (so customers never keep a half-finished invoice); until then a note says so.
  */
 function PdfLink({ token, doc, label = 'Download PDF' }) {
-  if (!doc || doc.pdf_available === false) return null;
-  const provisional = !!doc.pdf_provisional;
+  if (!doc) return null;
+  if (doc.pdf_available === false) {
+    return (
+      <span className="cf-pdf-locked" title="Items and amounts may still change until the job is completed">
+        🔒 PDF available once the job is completed
+      </span>
+    );
+  }
   return (
-    <a
-      className="btn cf-btn-sm"
-      href={api.customerPortal.documentPdfUrl(token, doc.id)}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={provisional ? 'Work is still in progress, so items and amounts may change' : undefined}
-    >
-      ⤓ {provisional ? `${label} (provisional)` : label}
+    <a className="btn cf-btn-sm" href={api.customerPortal.documentPdfUrl(token, doc.id)} target="_blank" rel="noopener noreferrer">
+      ⤓ {label}
     </a>
   );
 }
@@ -869,15 +869,15 @@ function PortalVehicle() {
                     <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
                       View
                     </Link>
-                    {h.invoice_id && (
+                    {h.invoice_id && h.invoice_pdf_available && (
                       <a
                         className="btn cf-btn-sm"
                         href={api.customerPortal.documentPdfUrl(token, h.invoice_id)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title={h.invoice_provisional ? 'Work still in progress, so the PDF is marked provisional' : 'Download the invoice for this visit'}
+                        title="Download the invoice for this visit"
                       >
-                        ⤓ {h.invoice_provisional ? 'PDF (provisional)' : 'PDF'}
+                        ⤓ PDF
                       </a>
                     )}
                   </div>

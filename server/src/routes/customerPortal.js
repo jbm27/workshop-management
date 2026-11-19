@@ -4,7 +4,6 @@ import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
 import { attachInvoiceLineProgress } from '../invoiceLineProgress.js';
 import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
-import { checkInvoicePdfAllowedForJobStatus } from '../jobCardRules.js';
 import { config } from '../config.js';
 import { sendInvoicePdf } from './invoices.js';
 
@@ -19,12 +18,17 @@ function paymentDetails() {
 }
 
 /** Can the customer download this quote / invoice as a PDF yet? (Job invoices follow the same rule as staff.) */
+/**
+ * Customers may only download a job's invoice once staff have set the job to Completed, so they never
+ * get a half-finished invoice. Quotes, and invoices not tied to a job, can always be downloaded.
+ */
 function pdfAvailable(inv) {
   if (!inv) return false;
   if (inv.type !== 'invoice' || !inv.job_id) return true;
   const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(inv.job_id);
-  return !!job && checkInvoicePdfAllowedForJobStatus(job.status).ok;
+  return job?.status === 'completed';
 }
+const INVOICE_NOT_READY = 'Your invoice can be downloaded once the job has been completed.';
 
 /** Default service interval used for an estimate when staff have not set the next service themselves. */
 const SERVICE_INTERVAL_KM = 10000;
@@ -185,7 +189,7 @@ function portalDocumentForCustomer(inv, items) {
     payments: inv.type === 'invoice' ? payments : [],
     amount_paid: inv.type === 'invoice' ? amount_paid : 0,
     balance,
-    pdf_available: true,
+    pdf_available: pdfAvailable(inv),
     payment_claims:
       inv.type === 'invoice'
         ? db
@@ -194,7 +198,6 @@ function portalDocumentForCustomer(inv, items) {
             )
             .all(inv.id)
         : [],
-    pdf_provisional: inv.type === 'invoice' && !pdfAvailable(inv),
   };
 }
 
@@ -367,8 +370,8 @@ customerPortalRouter.get('/:token/documents/:invoiceId/pdf', (req, res) => {
     .prepare("SELECT id, type, job_id FROM invoices WHERE id = ? AND customer_id = ? AND type IN ('quote', 'invoice')")
     .get(Number(req.params.invoiceId), customer.id);
   if (!inv) return res.status(404).json({ error: 'Document not found' });
-  // Invoices for jobs still in progress come out marked PROVISIONAL.
-  return sendInvoicePdf(inv.id, res, { allowProvisional: true });
+  if (!pdfAvailable(inv)) return res.status(403).json({ error: INVOICE_NOT_READY });
+  return sendInvoicePdf(inv.id, res);
 });
 
 /** One vehicle's history with this customer, plus when the next service is due. */
@@ -395,7 +398,7 @@ customerPortalRouter.get('/:token/vehicles/:vehicleId', (req, res) => {
       work: jobWorkSummary(j.id),
       invoice_id: invoice ? invoice.id : null,
       invoice_total: invoice ? Number(totals?.total ?? invoice.total) || 0 : null,
-      invoice_provisional: invoice ? !pdfAvailable({ type: 'invoice', job_id: j.id }) : false,
+      invoice_pdf_available: invoice ? pdfAvailable({ type: 'invoice', job_id: j.id }) : false,
     };
   });
   const lastOdo = jobs.map((j) => Number(j.odometer_out ?? j.odometer_in)).find((n) => Number.isFinite(n) && n > 0) ?? null;

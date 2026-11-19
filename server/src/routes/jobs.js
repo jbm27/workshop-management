@@ -174,9 +174,17 @@ function fullJob(jobId) {
     total_labour_hours = time_logs.reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
     total_labour_cost = Math.round(total_labour_hours * average_labour_cost_per_hour * 100) / 100;
   }
+  const assigned_mechanics = db
+    .prepare(
+      `SELECT au.id, au.display_name, au.username, jm.assigned_at
+       FROM job_mechanics jm JOIN admin_users au ON au.id = jm.admin_user_id
+       WHERE jm.job_id = ? ORDER BY au.display_name, au.username`,
+    )
+    .all(jobId);
   let out = {
     ...job,
     tasks,
+    assigned_mechanics,
     test_drives,
     time_logs,
     average_labour_cost_per_hour,
@@ -277,6 +285,68 @@ jobsRouter.get('/', requireAdminAuth, (req, res) => {
     rows = stmt.all();
   }
   res.json(isM ? rows.map(stripJobForMechanic) : rows);
+});
+
+/** Is this mechanic assigned to the job by a supervisor? */
+function mechanicAssignedToJob(jobId, adminUserId) {
+  return !!db.prepare('SELECT 1 FROM job_mechanics WHERE job_id = ? AND admin_user_id = ?').get(jobId, adminUserId);
+}
+
+/**
+ * Jobs offered in the Time logs job picker. Mechanics only see jobs a supervisor assigned them to that
+ * are still In progress (released / completed jobs drop off). Other staff see all in-progress jobs.
+ */
+jobsRouter.get('/for-time-log', requireAdminAuth, (req, res) => {
+  const isM = !!req.admin.is_mechanic;
+  const q = String(req.query.q || '').trim();
+  const like = `%${q}%`;
+  const rows = db
+    .prepare(
+      `
+      SELECT j.id, j.job_number, j.status, j.description, j.created_at, v.registration, v.make, v.model,
+        c.name AS customer_name
+      FROM jobs j
+      JOIN vehicles v ON v.id = j.vehicle_id
+      LEFT JOIN customers c ON c.id = j.customer_id
+      WHERE j.status = 'in_progress'
+        ${isM ? 'AND EXISTS (SELECT 1 FROM job_mechanics jm WHERE jm.job_id = j.id AND jm.admin_user_id = ?)' : ''}
+        AND (? = '' OR j.job_number LIKE ? OR IFNULL(v.registration, '') LIKE ? OR IFNULL(v.make, '') LIKE ?
+          OR IFNULL(v.model, '') LIKE ? OR IFNULL(c.name, '') LIKE ? OR IFNULL(j.description, '') LIKE ?)
+      ORDER BY j.created_at DESC, j.id DESC
+      LIMIT 200
+    `,
+    )
+    .all(...(isM ? [req.admin.id] : []), q, like, like, like, like, like, like);
+  res.json(isM ? rows.map(stripJobForMechanic) : rows);
+});
+
+/** Supervisors set which mechanics are assigned to a job. Body: { admin_user_ids: [..] } */
+jobsRouter.put('/:id/mechanics', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
+  const job = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  const ids = [...new Set((Array.isArray(req.body?.admin_user_ids) ? req.body.admin_user_ids : []).map(Number))].filter(
+    (n) => Number.isInteger(n) && n > 0,
+  );
+  for (const id of ids) {
+    const u = db.prepare('SELECT id, is_mechanic, active FROM admin_users WHERE id = ?').get(id);
+    if (!u || !u.active || !u.is_mechanic) return res.status(400).json({ error: 'Only active mechanics can be assigned' });
+  }
+  const current = db.prepare('SELECT admin_user_id FROM job_mechanics WHERE job_id = ?').all(job.id).map((r) => r.admin_user_id);
+  for (const id of current) {
+    if (!ids.includes(id)) db.prepare('DELETE FROM job_mechanics WHERE job_id = ? AND admin_user_id = ?').run(job.id, id);
+  }
+  for (const id of ids) {
+    if (!current.includes(id)) {
+      db.prepare('INSERT INTO job_mechanics (job_id, admin_user_id, assigned_by_admin_user_id) VALUES (?, ?, ?)').run(
+        job.id,
+        id,
+        req.admin.id,
+      );
+    }
+  }
+  const full = fullJob(job.id);
+  res.json(full);
 });
 
 jobsRouter.get('/time-logs/mine', requireAdminAuth, (req, res) => {
@@ -786,6 +856,14 @@ jobsRouter.post('/:id/time-logs', requireAdminAuth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Job not found' });
   if (row.status === 'completed') {
     return res.status(400).json({ error: 'Cannot add time logs to a completed job' });
+  }
+  if (req.admin.is_mechanic) {
+    if (row.status !== 'in_progress') {
+      return res.status(400).json({ error: 'Hours can only be logged while the job is In progress' });
+    }
+    if (!mechanicAssignedToJob(row.id, req.admin.id)) {
+      return res.status(403).json({ error: 'You are not assigned to this job. Ask your supervisor to assign you.' });
+    }
   }
   const hours = Number(req.body?.hours);
   if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'hours must be a positive number' });

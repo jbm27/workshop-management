@@ -302,6 +302,84 @@ function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
   );
 }
 
+/**
+ * Supervisors choose which mechanics work on this job. Mechanics can only log hours on jobs they're
+ * assigned to while the job is In progress.
+ */
+function AssignedMechanicsEditor({ job, onSaved }) {
+  const [mechanics, setMechanics] = useState(null);
+  const [adding, setAdding] = useState('');
+  const [busy, setBusy] = useState(false);
+  const assigned = job.assigned_mechanics || [];
+  const editable = job.status !== 'completed' && job.status !== 'cancelled';
+  useEffect(() => {
+    api.admin.users
+      .assignable()
+      .then((rows) => setMechanics((rows || []).filter((u) => u.is_mechanic)))
+      .catch(() => setMechanics([]));
+  }, []);
+  const save = async (ids) => {
+    setBusy(true);
+    try {
+      onSaved(await api.jobs.setMechanics(job.id, ids));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const available = (mechanics || []).filter((m) => !assigned.some((a) => a.id === m.id));
+  return (
+    <div className="assigned-mechanics">
+      <div className="assigned-mechanics-label">Assigned mechanics</div>
+      <div className="assigned-mechanics-chips">
+        {assigned.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>None yet</span>}
+        {assigned.map((m) => (
+          <span key={m.id} className="assigned-mechanic-chip">
+            {m.display_name || m.username}
+            {editable && (
+              <button
+                type="button"
+                aria-label={`Remove ${m.display_name || m.username}`}
+                disabled={busy}
+                onClick={() => save(assigned.filter((a) => a.id !== m.id).map((a) => a.id))}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      {editable && available.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+          <select value={adding} onChange={(e) => setAdding(e.target.value)} disabled={busy} aria-label="Mechanic to assign">
+            <option value="">— Add mechanic —</option>
+            {available.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.display_name || m.username}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn"
+            disabled={!adding || busy}
+            onClick={async () => {
+              await save([...assigned.map((a) => a.id), Number(adding)]);
+              setAdding('');
+            }}
+          >
+            Assign
+          </button>
+        </div>
+      )}
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+        Mechanics can log hours on this job only while it's In progress.
+      </div>
+    </div>
+  );
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -1745,6 +1823,7 @@ export default function JobDetail() {
             {job.order_number && (
               <p><strong>Order no:</strong> {job.order_number}</p>
             )}
+            <AssignedMechanicsEditor job={job} onSaved={(full) => setJob((j) => (j ? { ...j, assigned_mechanics: full.assigned_mechanics } : j))} />
             <div
               style={{
                 marginTop: '0.75rem',

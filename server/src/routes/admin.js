@@ -138,7 +138,7 @@ adminRouter.post('/change-password', requireAdminAuth, (req, res) => {
 
 adminRouter.get('/users/assignable', requireAdminAuth, denyMechanics, (req, res) => {
   const rows = db
-    .prepare('SELECT id, username, display_name FROM admin_users WHERE active = 1 ORDER BY display_name, username')
+    .prepare('SELECT id, username, display_name, is_mechanic FROM admin_users WHERE active = 1 ORDER BY display_name, username')
     .all();
   res.json(rows);
 });

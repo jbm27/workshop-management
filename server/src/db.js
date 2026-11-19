@@ -91,6 +91,17 @@ function migrate(db) {
     if (jobCols.length && !jobCols.includes('valuables_in_vehicle')) {
       db.run('ALTER TABLE jobs ADD COLUMN valuables_in_vehicle TEXT');
     }
+    // Mechanics a supervisor has assigned to a job (they can only log hours on these while in progress)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS job_mechanics (
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        admin_user_id INTEGER NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
+        assigned_by_admin_user_id INTEGER REFERENCES admin_users(id),
+        assigned_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (job_id, admin_user_id)
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_job_mechanics_user ON job_mechanics(admin_user_id)');
     // Customer portal: M-Pesa confirmation codes customers submit; staff confirm them into real payments
     db.run(`
       CREATE TABLE IF NOT EXISTS portal_payment_claims (

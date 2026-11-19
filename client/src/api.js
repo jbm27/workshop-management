@@ -148,6 +148,8 @@ export const api = {
     addIdleTimeLog: (body) => api.post('/jobs/time-logs/idle', body),
     deleteTimeLog: (jobId, logId) => api.delete(`/jobs/${jobId}/time-logs/${logId}`),
     deleteIdleTimeLog: (logId) => api.delete(`/jobs/time-logs/idle/${logId}`),
+    forTimeLog: (q) => api.get('/jobs/for-time-log' + (q ? `?q=${encodeURIComponent(q)}` : '')),
+    setMechanics: (jobId, admin_user_ids) => api.put(`/jobs/${jobId}/mechanics`, { admin_user_ids }),
     myTimeLogs: (date) => api.get('/jobs/time-logs/mine' + (date ? `?date=${encodeURIComponent(date)}` : '')),
     downloadJobSummaryPdf: async (jobId) => {
       const token = typeof window !== 'undefined' ? window.localStorage.getItem('admin_token') : null;
