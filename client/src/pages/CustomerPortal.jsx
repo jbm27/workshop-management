@@ -945,6 +945,22 @@ function PortalJobDetail() {
 
       <JobProgressBar items={job.invoice?.items} tasks={tasks} vehicleTested={!!job.vehicle_tested_at} />
 
+      {tasks.length > 0 && (
+        <Collapsible title="Tasks" meta={`${tasksDone} of ${tasks.length} done`}>
+          <ul className="cf-task-list">
+            {tasks.map((t) => {
+              const done = isTaskCompleted(t);
+              return (
+                <li key={t.id} className={done ? 'done' : undefined}>
+                  <span className="cf-task-tick" aria-hidden="true">{done ? '✓' : ''}</span>
+                  <span>{t.description}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </Collapsible>
+      )}
+
       {job.quote && (
         <QuoteSection
           quote={job.quote}
@@ -1003,22 +1019,6 @@ function PortalJobDetail() {
           meta={`Paid ${kes(job.invoice.amount_paid)} · Balance ${kes(job.invoice.balance)}`}
         >
           <PaymentHistoryTable payments={job.invoice.payments} />
-        </Collapsible>
-      )}
-
-      {tasks.length > 0 && (
-        <Collapsible title="Tasks" meta={`${tasksDone} of ${tasks.length} done`}>
-          <ul className="cf-task-list">
-            {tasks.map((t) => {
-              const done = isTaskCompleted(t);
-              return (
-                <li key={t.id} className={done ? 'done' : undefined}>
-                  <span className="cf-task-tick" aria-hidden="true">{done ? '✓' : ''}</span>
-                  <span>{t.description}</span>
-                </li>
-              );
-            })}
-          </ul>
         </Collapsible>
       )}
 
