@@ -1010,3 +1010,32 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .cf-td-head .cf-muted { font-size: 0.8rem; }
 .cf-td-facts { display: flex; gap: 0.35rem 1rem; flex-wrap: wrap; font-size: 0.85rem; margin-top: 0.1rem; }
 .cf-td-notes { margin-top: 0.35rem; font-size: 0.88rem; white-space: pre-wrap; color: #262626; }
+
+/* ---------- Vehicle service history (staff) ---------- */
+.vh-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.vh-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; margin-bottom: 0.75rem; }
+.vh-stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.8rem; }
+.vh-stat-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 0.15rem; }
+.vh-stat-value { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vh-stat-sub, .vh-sub { font-size: 0.78rem; color: var(--text-muted); }
+.vh-top-parts { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; align-items: center; margin-bottom: 0.9rem; }
+.vh-top-parts .vh-stat-label { margin: 0 0.25rem 0 0; }
+.vh-chip { font-size: 0.8rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
+.vh-table td, .vh-table th { vertical-align: top; }
+.vh-table td { font-variant-numeric: tabular-nums; }
+.vh-work { min-width: 14rem; max-width: 22rem; }
+.vh-more { padding: 0.2rem 0.55rem; font-size: 0.8rem; white-space: nowrap; }
+.vh-table tr.vh-open > td { background: rgba(9, 105, 218, 0.04); }
+.vh-table tr.vh-detail > td { background: var(--bg); }
+.vh-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; padding: 0.25rem 0; font-size: 0.88rem; }
+.vh-parts { width: 100%; }
+.vh-parts td { padding: 0.2rem 0.4rem; border-bottom: 1px dashed var(--border); }
+.vh-table tfoot td { border-top: 2px solid var(--border); background: var(--bg); }
+.vh-table { font-size: 0.9rem; }
+.vh-table th { font-size: 0.75rem; }
+.vh-table td, .vh-table th { padding: 0.5rem 0.55rem; }
+.vh-table tfoot td { white-space: nowrap; }
+.vh-work { min-width: 11rem; max-width: 18rem; }
+.vh-more { padding: 0.15rem 0.5rem; min-width: 2rem; justify-content: center; }
+.vh-due { font-size: 0.78rem; color: var(--danger); font-weight: 600; }
+.vh-paid { font-size: 0.78rem; color: var(--success); font-weight: 600; }

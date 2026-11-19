@@ -1664,7 +1664,14 @@ export default function JobDetail() {
                 </button>
               )}
             </div>
-            <p><strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong></p>
+            <p>
+              <strong>{[job.registration, job.make, job.model].filter(Boolean).join(' ')}</strong>
+              {!isMechanic && job.vehicle_id && (
+                <Link to={`/vehicles/${job.vehicle_id}/history`} style={{ marginLeft: '0.5rem', fontSize: '0.85rem' }}>
+                  Service history →
+                </Link>
+              )}
+            </p>
             {job.vin && (
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>VIN: {job.vin}</p>
             )}

@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Vehicles from './pages/Vehicles';
+import VehicleHistory from './pages/VehicleHistory';
 import Jobs from './pages/Jobs';
 import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
@@ -263,6 +264,7 @@ function AdminShell({ location }) {
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/vehicles" element={<Vehicles />} />
+        <Route path="/vehicles/:id/history" element={<VehicleHistory />} />
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/stores" element={<Stores />} />

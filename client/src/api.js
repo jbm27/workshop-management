@@ -108,6 +108,7 @@ export const api = {
     get: (id) => api.get(`/vehicles/${id}`),
     create: (data) => api.post('/vehicles', data),
     update: (id, data) => api.patch(`/vehicles/${id}`, data),
+    serviceHistory: (id) => api.get(`/vehicles/${id}/service-history`),
     delete: (id) => api.delete(`/vehicles/${id}`),
   },
   jobs: {
