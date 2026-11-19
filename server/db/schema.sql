@@ -205,6 +205,19 @@ CREATE TABLE IF NOT EXISTS job_time_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_job_time_logs_job ON job_time_logs(job_id);
 
+-- Team Stats: minor / major errors made by team members
+CREATE TABLE IF NOT EXISTS team_member_errors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  admin_user_id INTEGER NOT NULL REFERENCES admin_users(id),
+  severity TEXT NOT NULL CHECK (severity IN ('minor', 'major')),
+  description TEXT NOT NULL,
+  job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  occurred_on TEXT NOT NULL,
+  logged_by_admin_user_id INTEGER REFERENCES admin_users(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_team_member_errors_user ON team_member_errors(admin_user_id, occurred_on);
+
 -- Bookings (diary)
 CREATE TABLE IF NOT EXISTS bookings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

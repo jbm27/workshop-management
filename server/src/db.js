@@ -91,6 +91,20 @@ function migrate(db) {
     if (jobCols.length && !jobCols.includes('valuables_in_vehicle')) {
       db.run('ALTER TABLE jobs ADD COLUMN valuables_in_vehicle TEXT');
     }
+    // Team Stats: minor / major errors made by team members (so repeated or serious mistakes are tracked)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS team_member_errors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_user_id INTEGER NOT NULL REFERENCES admin_users(id),
+        severity TEXT NOT NULL CHECK (severity IN ('minor', 'major')),
+        description TEXT NOT NULL,
+        job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        occurred_on TEXT NOT NULL,
+        logged_by_admin_user_id INTEGER REFERENCES admin_users(id),
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_team_member_errors_user ON team_member_errors(admin_user_id, occurred_on)');
     // Next service due (set by staff; the customer portal shows it with a "Book it" button)
     const vehInfo = db.exec('PRAGMA table_info(vehicles)');
     const vehCols = (vehInfo[0]?.values || []).map((row) => row[1]);

@@ -74,6 +74,15 @@ export const api = {
       const qs = sp.toString();
       return api.get(`/admin/team-stats/${adminUserId}/hours` + (qs ? `?${qs}` : ''));
     },
+    teamStatsErrors: (adminUserId, params) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set('from', params.from);
+      if (params?.to) sp.set('to', params.to);
+      const qs = sp.toString();
+      return api.get(`/admin/team-stats/${adminUserId}/errors` + (qs ? `?${qs}` : ''));
+    },
+    logTeamError: (body) => api.post('/admin/team-stats/errors', body),
+    deleteTeamError: (errorId) => api.delete(`/admin/team-stats/errors/${errorId}`),
   },
 
   attendance: {

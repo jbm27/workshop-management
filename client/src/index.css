@@ -1039,3 +1039,27 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .vh-more { padding: 0.15rem 0.5rem; min-width: 2rem; justify-content: center; }
 .vh-due { font-size: 0.78rem; color: var(--danger); font-weight: 600; }
 .vh-paid { font-size: 0.78rem; color: var(--success); font-weight: 600; }
+
+/* ---------- Team Stats: errors ---------- */
+.ts-err-sub { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.02em; text-transform: none; }
+.ts-err-cell { display: inline-flex; gap: 0.3rem; padding: 0.1rem; border: 0; background: none; cursor: pointer; }
+.ts-err-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ts-err {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 1.7rem; height: 1.5rem; padding: 0 0.35rem;
+  border-radius: 999px; font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--bg); color: var(--text-muted); border: 1px solid var(--border);
+}
+.ts-err.minor.on { background: rgba(154, 103, 0, 0.12); color: var(--warning); border-color: rgba(154, 103, 0, 0.35); }
+.ts-err.major.on { background: rgba(207, 34, 46, 0.12); color: var(--danger); border-color: rgba(207, 34, 46, 0.35); }
+.ts-err-label { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.78rem; font-weight: 700; }
+.ts-err-label.minor { background: rgba(154, 103, 0, 0.12); color: var(--warning); }
+.ts-err-label.major { background: rgba(207, 34, 46, 0.12); color: var(--danger); }
+.ts-sev-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.ts-sev { display: grid; gap: 0.15rem; padding: 0.55rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; font-size: 0.85rem; }
+.ts-sev input { position: absolute; opacity: 0; pointer-events: none; }
+.ts-sev span { color: var(--text-muted); font-size: 0.78rem; }
+.ts-sev.minor.on { border-color: var(--warning); background: rgba(154, 103, 0, 0.08); }
+.ts-sev.major.on { border-color: var(--danger); background: rgba(207, 34, 46, 0.08); }
+.ts-sev:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.form-group label.ts-sev { display: grid; margin: 0; color: var(--text); font-weight: 400; position: relative; }
+.ts-sev strong { font-size: 0.9rem; }
