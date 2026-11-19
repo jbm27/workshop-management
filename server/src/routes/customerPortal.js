@@ -342,7 +342,9 @@ customerPortalRouter.get('/:token/vehicles/:vehicleId', (req, res) => {
       odometer_in: j.odometer_in,
       odometer_out: j.odometer_out,
       work: jobWorkSummary(j.id),
+      invoice_id: invoice ? invoice.id : null,
       invoice_total: invoice ? Number(totals?.total ?? invoice.total) || 0 : null,
+      invoice_provisional: invoice ? !pdfAvailable({ type: 'invoice', job_id: j.id }) : false,
     };
   });
   const lastOdo = jobs.map((j) => Number(j.odometer_out ?? j.odometer_in)).find((n) => Number.isFinite(n) && n > 0) ?? null;

@@ -695,9 +695,22 @@ function PortalVehicle() {
                 </div>
                 <div className="cf-history-side">
                   {h.invoice_total != null && <div>{kes(h.invoice_total)}</div>}
-                  <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
-                    View
-                  </Link>
+                  <div className="cf-history-actions">
+                    <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
+                      View
+                    </Link>
+                    {h.invoice_id && (
+                      <a
+                        className="btn cf-btn-sm"
+                        href={api.customerPortal.documentPdfUrl(token, h.invoice_id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={h.invoice_provisional ? 'Work still in progress, so the PDF is marked provisional' : 'Download the invoice for this visit'}
+                      >
+                        ⤓ {h.invoice_provisional ? 'PDF (provisional)' : 'PDF'}
+                      </a>
+                    )}
+                  </div>
                 </div>
               </li>
             );

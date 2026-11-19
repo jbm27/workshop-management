@@ -232,7 +232,19 @@ export default function VehicleHistory() {
                           {r.invoice_total != null && <div className="vh-sub">{pctLabel(r.profit_margin_pct)}</div>}
                         </td>
                       )}
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {r.invoice_id && (
+                          <button
+                            type="button"
+                            className="btn vh-more"
+                            onClick={() => api.invoices.downloadPDF(r.invoice_id)}
+                            title={`Download invoice ${r.invoice_number || ''} PDF${r.status === 'vehicle_released' || r.status === 'completed' ? '' : ' (provisional)'}`}
+                            aria-label={`Download invoice PDF for ${r.job_number}`}
+                            style={{ marginRight: '0.3rem' }}
+                          >
+                            ⤓
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="btn vh-more"
@@ -278,6 +290,30 @@ export default function VehicleHistory() {
                                   </div>
                                 ))
                               )}
+                              <div className="vh-stat-label" style={{ marginTop: '0.6rem' }}>Documents</div>
+                              <div className="vh-doc-btns">
+                                {r.invoice_id ? (
+                                  <button type="button" className="btn" onClick={() => api.invoices.downloadPDF(r.invoice_id)}>
+                                    ⤓ Invoice PDF{r.status === 'vehicle_released' || r.status === 'completed' ? '' : ' (provisional)'}
+                                  </button>
+                                ) : (
+                                  <span className="vh-sub">No invoice yet.</span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="btn"
+                                  disabled={r.status !== 'completed'}
+                                  onClick={() => api.jobs.downloadJobSummaryPdf(r.job_id).catch((e) => alert(e.message))}
+                                  title={
+                                    r.status === 'completed'
+                                      ? 'Internal summary with costs and margins: for the office, not for customers'
+                                      : 'Available once the job is marked complete'
+                                  }
+                                >
+                                  ⤓ Job summary PDF (internal)
+                                </button>
+                                {r.status !== 'completed' && <span className="vh-sub">Job summary: available once the job is complete</span>}
+                              </div>
                               <div className="vh-stat-label" style={{ marginTop: '0.6rem' }}>Visit</div>
                               <div className="vh-sub">
                                 {r.invoice_number ? `Invoice ${r.invoice_number} · ` : ''}
