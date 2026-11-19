@@ -1063,3 +1063,4 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .ts-sev:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .form-group label.ts-sev { display: grid; margin: 0; color: var(--text); font-weight: 400; position: relative; }
 .ts-sev strong { font-size: 0.9rem; }
+.cf-doc-bar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; font-size: 0.85rem; }

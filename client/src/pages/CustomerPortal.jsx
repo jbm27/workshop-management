@@ -790,22 +790,32 @@ function PortalJobDetail() {
         />
       )}
 
-      <section className="card">
-        <div className="cf-card-head">
-          <h3>Invoice</h3>
-          {job.invoice && (
-            <span className="cf-card-head-meta">
-              <strong>{job.invoice.invoice_number}</strong>
-              {job.invoice.status ? ` · ${job.invoice.status}` : ''}
-              <PdfLink token={token} doc={job.invoice} />
-            </span>
-          )}
-        </div>
+      <Collapsible
+        title="Invoice"
+        meta={
+          job.invoice
+            ? [
+                job.invoice.invoice_number,
+                kes(job.invoice.total),
+                Number(job.invoice.balance) > 0 ? `${kes(job.invoice.balance)} due` : 'Paid',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : 'Not issued yet'
+        }
+      >
         {!job.invoice && (
           <p className="empty cf-empty-sm">No invoice yet. Items you approve on the quote will appear here.</p>
         )}
         {job.invoice && (
           <>
+            <div className="cf-doc-bar">
+              <span className="cf-muted">
+                <strong>{job.invoice.invoice_number}</strong>
+                {job.invoice.status ? ` · ${job.invoice.status}` : ''} · open a line's progress to see each step
+              </span>
+              <PdfLink token={token} doc={job.invoice} />
+            </div>
             <PortalLineItemsTable items={job.invoice.items} showPartProgress />
             <PortalDocumentTotals doc={job.invoice} />
             {job.vehicle_tested_at && (
@@ -818,7 +828,7 @@ function PortalJobDetail() {
             />
           </>
         )}
-      </section>
+      </Collapsible>
 
       {job.invoice && (
         <Collapsible
