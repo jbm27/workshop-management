@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAdmin } from '../auth/AdminContext';
 import { api } from '../api';
 
@@ -37,6 +38,8 @@ export default function TeamStats() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [detailModal, setDetailModal] = useState(null); // { type: 'parts'|'hours', member, rows, loading, error }
+  const [errorsModal, setErrorsModal] = useState(null); // { member, rows, allTime, loading, error }
+  const [logForm, setLogForm] = useState(null); // open "Log error" form state
 
   useEffect(() => {
     if (!canManage) return;
@@ -96,8 +99,64 @@ export default function TeamStats() {
       absentHoursSickLeave: Math.round((absentSick + Number.EPSILON) * 100) / 100,
       absentHoursCompassionateLeave: Math.round((absentCompassionate + Number.EPSILON) * 100) / 100,
       absentHours: Math.round((absentAnnual + absentSick + absentCompassionate + Number.EPSILON) * 100) / 100,
+      errorsMinor: m.reduce((s, r) => s + Number(r.errors_minor || 0), 0),
+      errorsMajor: m.reduce((s, r) => s + Number(r.errors_major || 0), 0),
     };
   }, [data]);
+
+  const openErrors = async (member) => {
+    setErrorsModal({ member, rows: [], allTime: null, loading: true, error: '' });
+    try {
+      const out = await api.admin.teamStatsErrors(member.id, { from, to });
+      setErrorsModal({ member, rows: out.rows || [], allTime: out.all_time, loading: false, error: '' });
+    } catch (e) {
+      setErrorsModal({ member, rows: [], allTime: null, loading: false, error: String(e?.message || 'Could not load errors.') });
+    }
+  };
+
+  const openLogError = (member) => {
+    setLogForm({
+      admin_user_id: member ? String(member.id) : '',
+      severity: 'minor',
+      occurred_on: new Date().toISOString().slice(0, 10),
+      job_number: '',
+      description: '',
+      busy: false,
+      error: '',
+    });
+  };
+
+  const submitLogError = async (e) => {
+    e.preventDefault();
+    if (!logForm) return;
+    setLogForm((f) => ({ ...f, busy: true, error: '' }));
+    try {
+      await api.admin.logTeamError({
+        admin_user_id: Number(logForm.admin_user_id),
+        severity: logForm.severity,
+        occurred_on: logForm.occurred_on,
+        job_number: logForm.job_number.trim() || undefined,
+        description: logForm.description,
+      });
+      const member = (data?.members || []).find((m) => String(m.id) === String(logForm.admin_user_id));
+      setLogForm(null);
+      load();
+      if (errorsModal && member && errorsModal.member.id === member.id) openErrors(member);
+    } catch (err) {
+      setLogForm((f) => ({ ...f, busy: false, error: String(err?.message || 'Could not save.') }));
+    }
+  };
+
+  const deleteError = async (row) => {
+    if (!window.confirm('Delete this error entry? Only do this if it was logged by mistake.')) return;
+    try {
+      await api.admin.deleteTeamError(row.id);
+      if (errorsModal) openErrors(errorsModal.member);
+      load();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   const partsDetailTotals = useMemo(() => {
     if (!detailModal || detailModal.type !== 'parts' || detailModal.loading) return null;
@@ -253,9 +312,16 @@ export default function TeamStats() {
           annual leave,{' '}
           <strong>{totals.absentHoursSickLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> sick leave,{' '}
           <strong>{totals.absentHoursCompassionateLeave.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>{' '}
-          compassionate leave).
+          compassionate leave),{' '}
+          <strong>{totals.errorsMinor}</strong> minor and <strong>{totals.errorsMajor}</strong> major errors.
         </p>
       )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+        <button type="button" className="btn primary" onClick={() => openLogError(null)}>
+          + Log error
+        </button>
+      </div>
 
       <div className="card">
         <div className="table-wrap">
@@ -273,18 +339,22 @@ export default function TeamStats() {
                 <th>Annual leave</th>
                 <th>Sick leave</th>
                 <th>Compassionate leave</th>
+                <th title="Mistakes logged against this person in the period. Click the numbers to see them.">
+                  Errors
+                  <div className="ts-err-sub">minor · major</div>
+                </th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={12}>Loading…</td>
+                  <td colSpan={13}>Loading…</td>
                 </tr>
               )}
               {!loading && data && data.members.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="empty">
+                  <td colSpan={13} className="empty">
                     No team members match the filters.
                   </td>
                 </tr>
@@ -318,6 +388,18 @@ export default function TeamStats() {
                       {Number(r.absent_hours_compassionate_leave || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </td>
                     <td>
+                      <button
+                        type="button"
+                        className="ts-err-cell"
+                        onClick={() => openErrors(r)}
+                        title={`${r.errors_minor || 0} minor, ${r.errors_major || 0} major — click to view or log errors`}
+                        aria-label={`${r.errors_minor || 0} minor and ${r.errors_major || 0} major errors. View errors`}
+                      >
+                        <span className={`ts-err minor${r.errors_minor ? ' on' : ''}`}>{r.errors_minor || 0}</span>
+                        <span className={`ts-err major${r.errors_major ? ' on' : ''}`}>{r.errors_major || 0}</span>
+                      </button>
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         <button type="button" className="btn" onClick={() => openHours(r)}>View hours</button>
                         <button type="button" className="btn" onClick={() => openParts(r)}>View parts</button>
@@ -329,6 +411,177 @@ export default function TeamStats() {
           </table>
         </div>
       </div>
+
+      {errorsModal && (
+        <div className="modal-overlay" onClick={() => setErrorsModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 'min(960px, 95vw)' }}>
+            <header>
+              Errors — {errorsModal.member.display_name || errorsModal.member.username}
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 400, marginTop: '0.25rem' }}>
+                Date filter: {from} to {to}
+                {errorsModal.allTime &&
+                  ` · all time: ${errorsModal.allTime.minor} minor, ${errorsModal.allTime.major} major`}
+              </div>
+            </header>
+            <div className="body">
+              {errorsModal.error ? (
+                <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', marginBottom: '0.75rem' }}>
+                  {errorsModal.error}
+                </div>
+              ) : null}
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Severity</th>
+                      <th>What went wrong</th>
+                      <th>Job / Vehicle</th>
+                      <th>Logged by</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {errorsModal.loading && (
+                      <tr>
+                        <td colSpan={6}>Loading…</td>
+                      </tr>
+                    )}
+                    {!errorsModal.loading && errorsModal.rows.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="empty">No errors logged in this period.</td>
+                      </tr>
+                    )}
+                    {errorsModal.rows.map((row) => (
+                      <tr key={row.id}>
+                        <td style={{ whiteSpace: 'nowrap' }}>{row.occurred_on}</td>
+                        <td>
+                          <span className={`ts-err-label ${row.severity}`}>{row.severity === 'major' ? 'Major' : 'Minor'}</span>
+                        </td>
+                        <td style={{ whiteSpace: 'pre-wrap', maxWidth: '26rem' }}>{row.description}</td>
+                        <td>
+                          {row.job_id ? (
+                            <Link to={`/jobs/${row.job_id}`} onClick={() => setErrorsModal(null)}>
+                              {row.job_number}
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
+                          {row.registration && (
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              {[row.registration, row.make, row.model].filter(Boolean).join(' ')}
+                            </div>
+                          )}
+                        </td>
+                        <td>{row.logged_by || '—'}</td>
+                        <td>
+                          <button type="button" className="btn danger" style={{ padding: '0.2rem 0.5rem', fontSize: '0.8rem' }} onClick={() => deleteError(row)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <footer>
+              <button type="button" className="btn" onClick={() => setErrorsModal(null)}>Close</button>
+              <button type="button" className="btn primary" onClick={() => openLogError(errorsModal.member)}>
+                + Log error for {errorsModal.member.display_name || errorsModal.member.username}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {logForm && (
+        <div className="modal-overlay" onClick={() => !logForm.busy && setLogForm(null)} style={{ zIndex: 1100 }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 'min(560px, 95vw)' }}>
+            <header>Log an error</header>
+            <form className="body" onSubmit={submitLogError}>
+              {logForm.error ? (
+                <div className="card" style={{ borderColor: 'var(--danger)', color: 'var(--danger)', marginBottom: '0.75rem' }}>
+                  {logForm.error}
+                </div>
+              ) : null}
+              <div className="form-group">
+                <label>Team member</label>
+                <select
+                  value={logForm.admin_user_id}
+                  onChange={(e) => setLogForm((f) => ({ ...f, admin_user_id: e.target.value }))}
+                  required
+                >
+                  <option value="">Choose…</option>
+                  {(userOptions.length ? userOptions : data?.members || []).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.display_name || u.username}
+                      {u.is_mechanic ? ' (mechanic)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Severity</label>
+                <div className="ts-sev-choice">
+                  {[
+                    ['minor', 'Minor', 'Small slip, quickly put right (e.g. part fitted the wrong way, missed a clip)'],
+                    ['major', 'Major', 'Serious or costly (e.g. damage, safety risk, vehicle came back)'],
+                  ].map(([val, label, hint]) => (
+                    <label key={val} className={`ts-sev ${val}${logForm.severity === val ? ' on' : ''}`}>
+                      <input
+                        type="radio"
+                        name="severity"
+                        value={val}
+                        checked={logForm.severity === val}
+                        onChange={() => setLogForm((f) => ({ ...f, severity: val }))}
+                      />
+                      <strong>{label}</strong>
+                      <span>{hint}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={logForm.occurred_on}
+                    onChange={(e) => setLogForm((f) => ({ ...f, occurred_on: e.target.value }))}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Job number (optional)</label>
+                  <input
+                    value={logForm.job_number}
+                    onChange={(e) => setLogForm((f) => ({ ...f, job_number: e.target.value }))}
+                    placeholder="e.g. J47094"
+                  />
+                </div>
+              </div>
+              <div className="form-group">
+                <label>What went wrong</label>
+                <textarea
+                  rows={3}
+                  value={logForm.description}
+                  onChange={(e) => setLogForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="What happened, and what was done to put it right"
+                  maxLength={1000}
+                  required
+                />
+              </div>
+            </form>
+            <footer>
+              <button type="button" className="btn" onClick={() => setLogForm(null)} disabled={logForm.busy}>Cancel</button>
+              <button type="button" className="btn primary" onClick={submitLogError} disabled={logForm.busy}>
+                {logForm.busy ? 'Saving…' : 'Save error'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {detailModal && (
         <div className="modal-overlay" onClick={() => setDetailModal(null)}>

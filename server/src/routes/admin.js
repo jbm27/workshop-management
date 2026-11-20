@@ -418,6 +418,74 @@ adminRouter.patch('/users/:id', requireAdminPermission('can_manage_team_members'
  * Value = sum of (line quantity × invoice item unit_price) = sale value to customer for those quantities.
  * Attribution prefers assigned_admin_user_id, with fallback to received_confirmed_by_admin_user_id for legacy rows.
  */
+/** Errors logged against one team member in a date range (newest first). */
+adminRouter.get('/team-stats/:id/errors', requireAdminPermission('can_view_statistics_reports'), (req, res) => {
+  const uid = Number(req.params.id);
+  const from = String(req.query.from || '').trim();
+  const to = String(req.query.to || '').trim();
+  if (!Number.isFinite(uid) || uid <= 0) return res.status(400).json({ error: 'Invalid team member' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    return res.status(400).json({ error: 'from and to are required as YYYY-MM-DD' });
+  }
+  const rows = db
+    .prepare(`
+      SELECT e.id, e.severity, e.description, e.occurred_on, e.created_at, e.job_id,
+        j.job_number, v.registration, v.make, v.model,
+        COALESCE(lb.display_name, lb.username) AS logged_by
+      FROM team_member_errors e
+      LEFT JOIN jobs j ON j.id = e.job_id
+      LEFT JOIN vehicles v ON v.id = j.vehicle_id
+      LEFT JOIN admin_users lb ON lb.id = e.logged_by_admin_user_id
+      WHERE e.admin_user_id = ? AND date(e.occurred_on) >= date(?) AND date(e.occurred_on) <= date(?)
+      ORDER BY e.occurred_on DESC, e.id DESC
+    `)
+    .all(uid, from, to);
+  // All-time totals too, so a repeat pattern shows even if it falls outside the chosen period
+  const allTime = db
+    .prepare(`
+      SELECT SUM(CASE WHEN severity = 'minor' THEN 1 ELSE 0 END) AS minor,
+             SUM(CASE WHEN severity = 'major' THEN 1 ELSE 0 END) AS major
+      FROM team_member_errors WHERE admin_user_id = ?
+    `)
+    .get(uid);
+  res.json({ rows, all_time: { minor: Number(allTime?.minor || 0), major: Number(allTime?.major || 0) } });
+});
+
+/** Log a minor / major error against a team member (managers only). */
+adminRouter.post('/team-stats/errors', requireAdminPermission('can_manage_team_members'), (req, res) => {
+  const uid = Number(req.body?.admin_user_id);
+  const severity = String(req.body?.severity || '').toLowerCase();
+  const description = String(req.body?.description || '').trim().slice(0, 1000);
+  const occurredOn = String(req.body?.occurred_on || '').trim().slice(0, 10);
+  const jobNumber = String(req.body?.job_number || '').trim();
+  if (!Number.isFinite(uid) || !db.prepare('SELECT id FROM admin_users WHERE id = ?').get(uid)) {
+    return res.status(400).json({ error: 'Choose the team member' });
+  }
+  if (severity !== 'minor' && severity !== 'major') return res.status(400).json({ error: 'Severity must be minor or major' });
+  if (!description) return res.status(400).json({ error: 'Describe what went wrong' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(occurredOn)) return res.status(400).json({ error: 'Date is required (YYYY-MM-DD)' });
+  let jobId = null;
+  if (jobNumber) {
+    const job = db.prepare('SELECT id FROM jobs WHERE UPPER(job_number) = UPPER(?)').get(jobNumber);
+    if (!job) return res.status(400).json({ error: `Job ${jobNumber} not found` });
+    jobId = job.id;
+  }
+  const r = db
+    .prepare(`
+      INSERT INTO team_member_errors (admin_user_id, severity, description, job_id, occurred_on, logged_by_admin_user_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    .run(uid, severity, description, jobId, occurredOn, req.admin?.id ?? null);
+  res.status(201).json({ id: r.lastInsertRowid });
+});
+
+/** Remove an error logged by mistake (managers only). */
+adminRouter.delete('/team-stats/errors/:errorId', requireAdminPermission('can_manage_team_members'), (req, res) => {
+  const r = db.prepare('DELETE FROM team_member_errors WHERE id = ?').run(Number(req.params.errorId));
+  if (!r.changes) return res.status(404).json({ error: 'Error entry not found' });
+  res.status(204).send();
+});
+
 adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_reports'), (req, res) => {
   const fromRaw = String(req.query.from || '').trim();
   const toRaw = String(req.query.to || '').trim();
@@ -519,6 +587,17 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
   const partsMap = new Map(partsRows.map((r) => [Number(r.admin_user_id), r]));
   const hoursMap = new Map(hoursRows.map((r) => [Number(r.admin_user_id), r]));
   const hoursWorkedMap = hoursWorkedByAdminInRange(fromRaw, toRaw);
+  const errorRows = db
+    .prepare(`
+      SELECT admin_user_id,
+        SUM(CASE WHEN severity = 'minor' THEN 1 ELSE 0 END) AS minor,
+        SUM(CASE WHEN severity = 'major' THEN 1 ELSE 0 END) AS major
+      FROM team_member_errors
+      WHERE date(occurred_on) >= date(?) AND date(occurred_on) <= date(?)
+      GROUP BY admin_user_id
+    `)
+    .all(fromRaw, toRaw);
+  const errorsMap = new Map(errorRows.map((r) => [Number(r.admin_user_id), r]));
 
   const members = users.map((u) => {
     const id = Number(u.id);
@@ -555,6 +634,8 @@ adminRouter.get('/team-stats', requireAdminPermission('can_view_statistics_repor
       absent_hours_sick_leave: Math.round((lSick + Number.EPSILON) * 100) / 100,
       absent_hours_compassionate_leave: Math.round((lCompassionate + Number.EPSILON) * 100) / 100,
       absent_hours_total: Math.round((lAnnual + lSick + lCompassionate + Number.EPSILON) * 100) / 100,
+      errors_minor: Number(errorsMap.get(id)?.minor || 0),
+      errors_major: Number(errorsMap.get(id)?.major || 0),
     };
   });
 

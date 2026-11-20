@@ -74,6 +74,15 @@ export const api = {
       const qs = sp.toString();
       return api.get(`/admin/team-stats/${adminUserId}/hours` + (qs ? `?${qs}` : ''));
     },
+    teamStatsErrors: (adminUserId, params) => {
+      const sp = new URLSearchParams();
+      if (params?.from) sp.set('from', params.from);
+      if (params?.to) sp.set('to', params.to);
+      const qs = sp.toString();
+      return api.get(`/admin/team-stats/${adminUserId}/errors` + (qs ? `?${qs}` : ''));
+    },
+    logTeamError: (body) => api.post('/admin/team-stats/errors', body),
+    deleteTeamError: (errorId) => api.delete(`/admin/team-stats/errors/${errorId}`),
   },
 
   attendance: {
@@ -108,6 +117,7 @@ export const api = {
     get: (id) => api.get(`/vehicles/${id}`),
     create: (data) => api.post('/vehicles', data),
     update: (id, data) => api.patch(`/vehicles/${id}`, data),
+    serviceHistory: (id) => api.get(`/vehicles/${id}/service-history`),
     delete: (id) => api.delete(`/vehicles/${id}`),
   },
   jobs: {
@@ -127,8 +137,11 @@ export const api = {
     update: (id, data) => api.patch(`/jobs/${id}`, data),
     addTestDrive: (jobId, body) => api.post(`/jobs/${jobId}/test-drives`, body),
     deleteTestDrive: (jobId, tdId) => api.delete(`/jobs/${jobId}/test-drives/${tdId}`),
+    updateTestDrive: (jobId, tdId, body) => api.patch(`/jobs/${jobId}/test-drives/${tdId}`, body),
     createQuote: (id) => api.post(`/jobs/${id}/quote`, {}),
     createInvoice: (id) => api.post(`/jobs/${id}/invoice`, {}),
+    moveApprovedQuoteLines: (id) => api.post(`/jobs/${id}/invoice/move-approved-quote-lines`, {}),
+    setVehicleTested: (id, done) => api.patch(`/jobs/${id}/vehicle-tested`, { done }),
     /** Sets quote_prepared_at once (first Send quote) for time-to-quote reporting. */
     recordQuotePrepared: (id) => api.post(`/jobs/${id}/quote-prepared`, {}),
     addTimeLog: (jobId, body) => api.post(`/jobs/${jobId}/time-logs`, body),
@@ -195,10 +208,16 @@ export const api = {
     create: (data) => api.post('/invoices', data),
     update: (id, data) => api.patch(`/invoices/${id}`, data),
     addPayment: (id, data) => api.post(`/invoices/${id}/payments`, data),
+    confirmPaymentClaim: (invId, claimId, amount) =>
+      api.post(`/invoices/${invId}/payment-claims/${claimId}/confirm`, amount != null ? { amount } : {}),
+    rejectPaymentClaim: (invId, claimId, reason) =>
+      api.post(`/invoices/${invId}/payment-claims/${claimId}/reject`, { reason }),
     deletePayment: (invId, paymentId) => api.delete(`/invoices/${invId}/payments/${paymentId}`),
     reorderItems: (id, item_ids) => api.put(`/invoices/${id}/items/reorder`, { item_ids }),
     addItem: (invId, data) => api.post(`/invoices/${invId}/items`, data),
     updateItem: (invId, itemId, data) => api.patch(`/invoices/${invId}/items/${itemId}`, data),
+    setItemProgress: (invId, itemId, stage, done) =>
+      api.patch(`/invoices/${invId}/items/${itemId}/progress`, { stage, done }),
     deleteItem: (invId, itemId) => api.delete(`/invoices/${invId}/items/${itemId}`),
     listLpos: (invoiceId) => api.get(`/invoices/${invoiceId}/lpos`),
     createLpo: (invoiceId, body) => api.post(`/invoices/${invoiceId}/lpos`, body),
@@ -296,10 +315,17 @@ export const api = {
       ),
     getJob: (token, jobId) =>
       api.get(`/customer-portal/${encodeURIComponent(token)}/jobs/${encodeURIComponent(jobId)}`),
+    getVehicle: (token, vehicleId) =>
+      api.get(`/customer-portal/${encodeURIComponent(token)}/vehicles/${encodeURIComponent(vehicleId)}`),
+    /** Direct link to a quote / invoice PDF (opened by the browser, no login needed: the token is the key). */
+    documentPdfUrl: (token, invoiceId) =>
+      `${API}/customer-portal/${encodeURIComponent(token)}/documents/${encodeURIComponent(invoiceId)}/pdf`,
     approveItem: (token, quoteId, itemId, approved) =>
       api.post(`/customer-portal/${encodeURIComponent(token)}/quotes/${quoteId}/items/${itemId}/approve`, { approved }),
     approveAllQuote: (token, quoteId) =>
       api.post(`/customer-portal/${encodeURIComponent(token)}/quotes/${quoteId}/approve-all`, {}),
+    submitPaymentClaim: (token, invoiceId, data) =>
+      api.post(`/customer-portal/${encodeURIComponent(token)}/invoices/${invoiceId}/payment-claims`, data),
     submitRating: (token, jobId, rating, feedback) =>
       api.post(`/customer-portal/${encodeURIComponent(token)}/jobs/${jobId}/rating`, { rating, feedback }),
   },

@@ -22,6 +22,7 @@ import {
 import { lpoLineNet, lpoLineVat, lpoLineGross, normalizeLpoLineVat } from '../lpoLineTotals.js';
 import PDFDocument from 'pdfkit';
 import { requireAdminAuth, requireAdminPermission } from '../auth.js';
+import { attachInvoiceLineProgress, MANUAL_STAGES } from '../invoiceLineProgress.js';
 import { newLpoPublicVerifyToken } from '../lpoPublicToken.js';
 import { embedLpoVerifyQr } from '../lpoVerifyPdf.js';
 import {
@@ -105,12 +106,23 @@ function fullInvoicePayload(invoiceId) {
   const quoteItems =
     inv.type === 'quote'
       ? items.map(({ purchase_price, ...rest }) => rest)
-      : items;
+      : attachInvoiceLineProgress(invoiceId, items, { includeWho: true });
   const payments = db.prepare('SELECT * FROM invoice_payments WHERE invoice_id = ? ORDER BY paid_at ASC, id ASC').all(invoiceId);
   const amount_paid = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const total = Number(inv.total) || 0;
   const balance = inv.type === 'invoice' ? Math.round((total - amount_paid) * 100) / 100 : null;
-  return { ...inv, items: quoteItems, payments, amount_paid, balance };
+  const payment_claims =
+    inv.type === 'invoice'
+      ? db
+          .prepare(`
+            SELECT pc.id, pc.amount, pc.mpesa_code, pc.payer_phone, pc.status, pc.reject_reason, pc.created_at, pc.reviewed_at,
+              COALESCE(au.display_name, au.username) AS reviewed_by
+            FROM portal_payment_claims pc LEFT JOIN admin_users au ON au.id = pc.reviewed_by_admin_user_id
+            WHERE pc.invoice_id = ? ORDER BY pc.created_at DESC, pc.id DESC
+          `)
+          .all(invoiceId)
+      : [];
+  return { ...inv, items: quoteItems, payments, amount_paid, balance, payment_claims };
 }
 
 function syncInvoicePaymentStatus(invoiceId) {
@@ -777,6 +789,47 @@ invoicesRouter.post('/:id/payments', requireAdminPermission('can_record_invoice_
   res.status(201).json(fullInvoicePayload(req.params.id));
 });
 
+/**
+ * Confirm an M-Pesa code the customer submitted in the portal: records it as a real payment (same as
+ * "Record payment") once staff have checked it on the M-Pesa statement. Amount can be corrected.
+ */
+invoicesRouter.post('/:id/payment-claims/:claimId/confirm', requireAdminPermission('can_record_invoice_payments'), (req, res) => {
+  const claim = db
+    .prepare('SELECT * FROM portal_payment_claims WHERE id = ? AND invoice_id = ?')
+    .get(req.params.claimId, req.params.id);
+  if (!claim) return res.status(404).json({ error: 'Payment code not found' });
+  if (claim.status !== 'pending') return res.status(400).json({ error: `This code was already ${claim.status}` });
+  const amount = req.body?.amount != null && req.body.amount !== '' ? Number(req.body.amount) : Number(claim.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
+  const pay = db
+    .prepare(`INSERT INTO invoice_payments (invoice_id, amount, paid_at, notes) VALUES (?, ?, datetime('now'), ?)`)
+    .run(req.params.id, amount, `M-Pesa ${claim.mpesa_code} (customer portal)`);
+  try {
+    syncInvoicePaymentStatus(req.params.id);
+  } catch (e) {
+    db.prepare('DELETE FROM invoice_payments WHERE id = ?').run(pay.lastInsertRowid);
+    return res.status(400).json({ error: e.message || 'Payment could not be applied' });
+  }
+  db.prepare(
+    "UPDATE portal_payment_claims SET status = 'confirmed', amount = ?, payment_id = ?, reviewed_by_admin_user_id = ?, reviewed_at = datetime('now') WHERE id = ?",
+  ).run(amount, pay.lastInsertRowid, req.admin?.id ?? null, claim.id);
+  res.json(fullInvoicePayload(req.params.id));
+});
+
+/** Reject a submitted code that doesn't match the M-Pesa statement (the customer sees the reason). */
+invoicesRouter.post('/:id/payment-claims/:claimId/reject', requireAdminPermission('can_record_invoice_payments'), (req, res) => {
+  const claim = db
+    .prepare('SELECT * FROM portal_payment_claims WHERE id = ? AND invoice_id = ?')
+    .get(req.params.claimId, req.params.id);
+  if (!claim) return res.status(404).json({ error: 'Payment code not found' });
+  if (claim.status !== 'pending') return res.status(400).json({ error: `This code was already ${claim.status}` });
+  const reason = String(req.body?.reason || '').trim().slice(0, 300) || 'We could not find this payment on our M-Pesa statement.';
+  db.prepare(
+    "UPDATE portal_payment_claims SET status = 'rejected', reject_reason = ?, reviewed_by_admin_user_id = ?, reviewed_at = datetime('now') WHERE id = ?",
+  ).run(reason, req.admin?.id ?? null, claim.id);
+  res.json(fullInvoicePayload(req.params.id));
+});
+
 invoicesRouter.delete('/:id/payments/:paymentId', requireAdminPermission('can_record_invoice_payments'), (req, res) => {
   const inv = db.prepare('SELECT * FROM invoices WHERE id = ?').get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
@@ -983,6 +1036,37 @@ invoicesRouter.patch('/:id/items/:itemId', (req, res) => {
     const { purchase_price, ...rest } = updated;
     return res.json(rest);
   }
+  res.json(updated);
+});
+
+/** Staff tick / untick a progress stage on an invoice line (LPO issued, Received, Fitted). */
+invoicesRouter.patch('/:id/items/:itemId/progress', requireAdminAuth, (req, res) => {
+  const stage = String(req.body?.stage || '');
+  if (!MANUAL_STAGES.includes(stage)) {
+    return res.status(400).json({ error: `stage must be one of: ${MANUAL_STAGES.join(', ')}` });
+  }
+  const done = !!req.body?.done;
+  const inv = db.prepare('SELECT id, type FROM invoices WHERE id = ?').get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (inv.type !== 'invoice') return res.status(400).json({ error: 'Progress is tracked on invoice lines' });
+  const item = db
+    .prepare('SELECT * FROM invoice_items WHERE id = ? AND invoice_id = ?')
+    .get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (isHeaderLine(item) || String(item.type || '') === 'labour') {
+    return res.status(400).json({ error: 'This line has no progress tracker' });
+  }
+
+  const by = req.admin?.display_name || req.admin?.username || null;
+  if (done) {
+    db.prepare(
+      `UPDATE invoice_items SET ${stage}_at = COALESCE(${stage}_at, datetime('now')), ${stage}_by = COALESCE(${stage}_by, ?) WHERE id = ?`,
+    ).run(by, item.id);
+  } else {
+    db.prepare(`UPDATE invoice_items SET ${stage}_at = NULL, ${stage}_by = NULL WHERE id = ?`).run(item.id);
+  }
+  const updated = db.prepare('SELECT * FROM invoice_items WHERE id = ?').get(item.id);
+  attachInvoiceLineProgress(inv.id, [updated], { includeWho: true });
   res.json(updated);
 });
 
@@ -1822,7 +1906,13 @@ invoicesRouter.get('/:id/iprs/:iprId/pdf', (req, res) => {
   pdfDoc.end();
 });
 
-invoicesRouter.get('/:id/pdf', (req, res) => {
+/**
+ * Streams the quote / invoice PDF. Shared by the staff route below and the customer portal.
+ * Job invoices are only available once the job status allows it (checkInvoicePdfAllowedForJobStatus),
+ * unless `allowProvisional` is set (customer portal): then a job invoice for an unreleased job is
+ * still produced, clearly marked PROVISIONAL.
+ */
+export function sendInvoicePdf(invoiceId, res, { allowProvisional = false } = {}) {
   const inv = db.prepare(`
     SELECT i.*, c.name as customer_name, c.company_name as customer_company_name, c.registration_number as customer_registration_number,
       c.email as customer_email, c.phone as customer_phone, c.address as customer_address,
@@ -1833,21 +1923,25 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     LEFT JOIN vehicles v ON i.vehicle_id = v.id
     LEFT JOIN jobs j ON i.job_id = j.id
     WHERE i.id = ?
-  `).get(req.params.id);
+  `).get(invoiceId);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  let provisional = false;
   if (inv.type === 'invoice' && inv.job_id) {
     const pdfCheck = checkInvoicePdfAllowedForJobStatus(inv.job_status);
-    if (!pdfCheck.ok) return res.status(403).json({ error: pdfCheck.error });
+    if (!pdfCheck.ok) {
+      if (!allowProvisional) return res.status(403).json({ error: pdfCheck.error });
+      provisional = true;
+    }
   }
 
-  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(req.params.id);
+  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY sort_order, id').all(invoiceId);
   const isInvoiceDoc = inv.type === 'invoice';
   let amountPaid = 0;
   let balanceDue = 0;
   if (isInvoiceDoc) {
     amountPaid =
       Number(
-        db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM invoice_payments WHERE invoice_id = ?').get(req.params.id)?.s,
+        db.prepare('SELECT COALESCE(SUM(amount), 0) AS s FROM invoice_payments WHERE invoice_id = ?').get(invoiceId)?.s,
       ) || 0;
     balanceDue = Math.round(((Number(inv.total) || 0) - amountPaid) * 100) / 100;
   }
@@ -1860,7 +1954,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}.pdf"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}${provisional ? '-provisional' : ''}.pdf"`);
   doc.pipe(res);
   
   const { company } = config;
@@ -1891,7 +1985,9 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   const dateLabel = inv.type === 'invoice' ? 'Invoice Date' : 'Issue Date';
   const issueDate = new Date(inv.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const titleLine = `${title} #${numberPart}`;
-  const dateLine = `${dateLabel}: ${issueDate}`;
+  const dateLine = provisional
+    ? `${dateLabel}: ${issueDate}\nPROVISIONAL – work in progress`
+    : `${dateLabel}: ${issueDate}`;
 
   doc.fontSize(16).font('Helvetica-Bold');
   const invTitleH = doc.heightOfString(titleLine, { width: docBoxInnerW });
@@ -2222,6 +2318,31 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
     doc.text(savingNote, margin, columnsBottom + 8, { width: contentWidth, align: 'right' });
     summaryBottom = doc.y;
   }
+  if (provisional) {
+    doc.fontSize(9).font('Helvetica-Oblique').fillColor('#9a6700');
+    doc.text(
+      'Provisional invoice: the work is still in progress, so items and amounts may change. A final invoice is issued at collection.',
+      margin,
+      summaryBottom + 8,
+      { width: contentWidth, align: 'right' },
+    );
+    doc.fillColor('#000000');
+    summaryBottom = doc.y;
+  }
+  // Once the workshop has ticked "Vehicle tested" on the job, say so under the totals.
+  if (isInvoiceDoc && inv.job_id) {
+    const tested = db.prepare('SELECT vehicle_tested_at FROM jobs WHERE id = ?').get(inv.job_id)?.vehicle_tested_at;
+    if (tested) {
+      const d = new Date(`${String(tested).replace(' ', 'T')}Z`);
+      const when = Number.isNaN(d.getTime())
+        ? String(tested)
+        : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Nairobi' });
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#1a7f37');
+      doc.text(`Vehicle tested: ${when}`, margin, summaryBottom + 8, { width: contentWidth, align: 'right' });
+      doc.fillColor('#000000');
+      summaryBottom = doc.y;
+    }
+  }
 
   const notesBlockY = drawInvoiceCustomerNotesBlock(doc, {
     margin,
@@ -2244,4 +2365,7 @@ invoicesRouter.get('/:id/pdf', (req, res) => {
   );
 
   doc.end();
-});
+}
+
+// Staff can download a job invoice at any time; before the vehicle is released it is marked PROVISIONAL.
+invoicesRouter.get('/:id/pdf', (req, res) => sendInvoicePdf(req.params.id, res, { allowProvisional: true }));

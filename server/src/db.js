@@ -91,6 +91,54 @@ function migrate(db) {
     if (jobCols.length && !jobCols.includes('valuables_in_vehicle')) {
       db.run('ALTER TABLE jobs ADD COLUMN valuables_in_vehicle TEXT');
     }
+    // Customer portal: M-Pesa confirmation codes customers submit; staff confirm them into real payments
+    db.run(`
+      CREATE TABLE IF NOT EXISTS portal_payment_claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+        customer_id INTEGER REFERENCES customers(id),
+        amount REAL NOT NULL,
+        mpesa_code TEXT NOT NULL,
+        payer_phone TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'rejected')),
+        reject_reason TEXT,
+        payment_id INTEGER REFERENCES invoice_payments(id) ON DELETE SET NULL,
+        reviewed_by_admin_user_id INTEGER REFERENCES admin_users(id),
+        reviewed_at TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_portal_payment_claims_invoice ON portal_payment_claims(invoice_id, status)');
+    // Team Stats: minor / major errors made by team members (so repeated or serious mistakes are tracked)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS team_member_errors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_user_id INTEGER NOT NULL REFERENCES admin_users(id),
+        severity TEXT NOT NULL CHECK (severity IN ('minor', 'major')),
+        description TEXT NOT NULL,
+        job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+        occurred_on TEXT NOT NULL,
+        logged_by_admin_user_id INTEGER REFERENCES admin_users(id),
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_team_member_errors_user ON team_member_errors(admin_user_id, occurred_on)');
+    // Next service due (set by staff; the customer portal shows it with a "Book it" button)
+    const vehInfo = db.exec('PRAGMA table_info(vehicles)');
+    const vehCols = (vehInfo[0]?.values || []).map((row) => row[1]);
+    if (vehCols.length && !vehCols.includes('next_service_km')) {
+      db.run('ALTER TABLE vehicles ADD COLUMN next_service_km INTEGER');
+    }
+    if (vehCols.length && !vehCols.includes('next_service_date')) {
+      db.run('ALTER TABLE vehicles ADD COLUMN next_service_date TEXT');
+    }
+    // "Vehicle tested" is one tick for the whole job (shown next to the quote total)
+    if (jobCols.length && !jobCols.includes('vehicle_tested_at')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_at TEXT');
+    }
+    if (jobCols.length && !jobCols.includes('vehicle_tested_by')) {
+      db.run('ALTER TABLE jobs ADD COLUMN vehicle_tested_by TEXT');
+    }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
   }
@@ -129,6 +177,10 @@ function migrate(db) {
     const tdCols = (tdInfo[0]?.values || []).map((row) => row[1]);
     if (tdCols.length && !tdCols.includes('admin_user_id')) {
       db.run('ALTER TABLE job_test_drives ADD COLUMN admin_user_id INTEGER REFERENCES admin_users(id)');
+    }
+    // Test drive notes (what the driver noticed), shown on the job page and in the customer portal
+    if (tdCols.length && !tdCols.includes('notes')) {
+      db.run('ALTER TABLE job_test_drives ADD COLUMN notes TEXT');
     }
   } catch (e) {
     if (!e.message?.includes('duplicate column')) throw e;
@@ -280,6 +332,31 @@ function migrate(db) {
     if (iiCols.length && !iiCols.includes('discount_percent')) {
       db.run('ALTER TABLE invoice_items ADD COLUMN discount_percent REAL DEFAULT 0');
       db.run('UPDATE invoice_items SET discount_percent = 0 WHERE discount_percent IS NULL');
+    }
+    // Invoice line progress (approved → LPO issued → received → fitted → vehicle tested).
+    // *_at/*_by are manual ticks by staff; LPO/IPR part ticks also count (see invoiceLineProgress.js).
+    for (const col of [
+      'approved_at',
+      'lpo_issued_at',
+      'lpo_issued_by',
+      'received_at',
+      'received_by',
+      'fitted_at',
+      'fitted_by',
+      'tested_at',
+      'tested_by',
+      // Quote line → invoice line hand-off: set on the quote line once moved, so it moves only once.
+      'moved_to_invoice_at',
+      // Customer declined this quote item in the portal (they can change their mind later)
+      'declined_at',
+    ]) {
+      if (iiCols.length && !iiCols.includes(col)) {
+        db.run(`ALTER TABLE invoice_items ADD COLUMN ${col} TEXT`);
+      }
+    }
+    // Invoice line → the approved quote line it came from (null for items typed straight onto the invoice).
+    if (iiCols.length && !iiCols.includes('quote_item_id')) {
+      db.run('ALTER TABLE invoice_items ADD COLUMN quote_item_id INTEGER');
     }
     if (iiCols.includes('vat_rate')) {
       db.run('UPDATE invoice_items SET vat_rate = 16 WHERE vat_rate IS NULL');

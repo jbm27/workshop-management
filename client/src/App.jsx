@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Vehicles from './pages/Vehicles';
+import VehicleHistory from './pages/VehicleHistory';
 import Jobs from './pages/Jobs';
 import Invoices from './pages/Invoices';
 import InvoiceDetail from './pages/InvoiceDetail';
@@ -13,6 +14,7 @@ import Suppliers from './pages/Suppliers';
 import SupplierDetail from './pages/SupplierDetail';
 import JobDetail from './pages/JobDetail';
 import CustomerPortal from './pages/CustomerPortal';
+import PortalShell from './components/PortalShell';
 import Feedback from './pages/Feedback';
 import JobReports from './pages/JobReports';
 import AdminLogin from './pages/AdminLogin';
@@ -262,6 +264,7 @@ function AdminShell({ location }) {
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/vehicles" element={<Vehicles />} />
+        <Route path="/vehicles/:id/history" element={<VehicleHistory />} />
         <Route path="/invoices/:id" element={<InvoiceDetail />} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/stores" element={<Stores />} />
@@ -285,16 +288,14 @@ function App() {
   const location = useLocation();
   const isPortal = location.pathname.startsWith('/portal');
 
-  // Customer portal layout: no admin sidebar, just the portal content
+  // Customer portal layout: no admin sidebar; branded like the main Chequered Flag website
   if (isPortal) {
     return (
-      <div className="app">
-        <main className="main">
-          <Routes>
-            <Route path="/portal/:token/*" element={<CustomerPortal />} />
-          </Routes>
-        </main>
-      </div>
+      <PortalShell>
+        <Routes>
+          <Route path="/portal/:token/*" element={<CustomerPortal />} />
+        </Routes>
+      </PortalShell>
     );
   }
 

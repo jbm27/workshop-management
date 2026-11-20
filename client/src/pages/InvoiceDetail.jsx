@@ -412,16 +412,14 @@ export default function InvoiceDetail() {
             <button
               type="button"
               className="btn primary"
-              title={inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf ? invoicePdfBlockedMessage() : undefined}
-              onClick={() => {
-                if (inv.type === 'invoice' && inv.job_id && !canJobInvoicePdf) {
-                  alert(invoicePdfBlockedMessage());
-                  return;
-                }
-                api.invoices.downloadPDF(inv.id);
-              }}
+              title={
+                !canJobInvoicePdf
+                  ? 'The vehicle is not released yet, so the PDF is marked PROVISIONAL (amounts may still change).'
+                  : undefined
+              }
+              onClick={() => api.invoices.downloadPDF(inv.id)}
             >
-              Download PDF
+              {canJobInvoicePdf ? 'Download PDF' : 'Download PDF (provisional)'}
             </button>
           )}
           {inv.job_id && (
