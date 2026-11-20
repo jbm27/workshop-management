@@ -169,6 +169,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   quote_prepared_at TEXT,
   is_repeat_job INTEGER NOT NULL DEFAULT 0,
   related_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  repeat_reason TEXT, -- workmanship | faulty_part | misdiagnosis | not_our_fault | other
+  repeat_reason_notes TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );

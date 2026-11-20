@@ -1170,3 +1170,16 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .cf-goodwill-sub { font-size: 0.78rem; }
 .cf-goodwill-banner { display: flex; gap: 0.75rem; align-items: flex-start; margin: 0.75rem 0; padding: 0.75rem 0.9rem; border: 1px solid #2e7d32; border-radius: 10px; background: #f4faf4; font-size: 0.9rem; line-height: 1.45; }
 .cf-goodwill-icon { display: inline-grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: #2e7d32; color: #fff; font-weight: 700; flex: 0 0 auto; }
+
+/* Repeat jobs: reason + repeat visits on the original job */
+.repeat-reason { margin-top: 0.75rem; font-size: 0.92rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.repeat-reason-label { color: var(--text-muted); }
+.repeat-reason-missing { color: #b26a00; }
+.repeat-reason-edit { gap: 0.5rem; }
+.repeat-reason-edit input { flex: 1 1 200px; min-width: 0; }
+.repeat-visits-card { border-left: 4px solid #f0a500; }
+.repeat-visits-warn { margin: 0 0 0.6rem; padding: 0.5rem 0.75rem; background: #fff8e6; border: 1px solid #f0c36d; border-radius: var(--radius); font-size: 0.88rem; }
+.repeat-visits-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.92rem; }
+.repeat-visit-open { color: #c8102e; font-weight: 600; }
+.repeat-visit-done { color: #2e7d32; }
+.report-repeat-reasons { font-size: 0.75rem; color: var(--text-muted); white-space: normal; max-width: 12rem; margin-left: auto; }

@@ -128,6 +128,9 @@ export const api = {
       return api.get('/jobs' + (sp.toString() ? '?' + sp : ''));
     },
     get: (id) => api.get(`/jobs/${id}`),
+    repeatReasons: () => api.get('/jobs/repeat-reasons'),
+    setRepeatReason: (id, repeat_reason, repeat_reason_notes) =>
+      api.put(`/jobs/${id}/repeat-reason`, { repeat_reason, repeat_reason_notes }),
     forRepeatLink: (q) => {
       const qs = q != null && String(q).trim() !== '' ? `?q=${encodeURIComponent(String(q).trim())}` : '';
       return api.get(`/jobs/for-repeat-link${qs}`);

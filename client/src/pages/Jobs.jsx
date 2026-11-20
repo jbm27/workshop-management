@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { REPEAT_REASONS } from '../utils/repeatReasons';
 import { useAdmin } from '../auth/AdminContext';
 import { FUEL_LEVEL_OPTIONS } from '../utils/jobMileageFuel';
 
@@ -96,6 +97,8 @@ export default function Jobs() {
     valuables_checks: {},
     valuables_notes: '',
     is_repeat_job: false,
+    repeat_reason: '',
+    repeat_reason_notes: '',
     related_job_id: '',
     related_job_search: '',
     related_job_summary: '',
@@ -171,6 +174,8 @@ export default function Jobs() {
       valuables_checks: {},
       valuables_notes: '',
       is_repeat_job: false,
+      repeat_reason: '',
+      repeat_reason_notes: '',
       related_job_id: '',
       related_job_search: '',
       related_job_summary: '',
@@ -221,6 +226,8 @@ export default function Jobs() {
       if (form.is_repeat_job) {
         const rid = Number(form.related_job_id);
         if (!Number.isFinite(rid) || rid <= 0) return alert('Select the previous workshop job this repeat job relates to.');
+        if (!form.repeat_reason) return alert('Choose why the car has come back.');
+        if (form.repeat_reason === 'other' && !form.repeat_reason_notes.trim()) return alert('Add a short note saying what happened.');
         customerId = Number(form.customerId) || null;
         vehicleId = Number(form.vehicleId) || null;
         if (!vehicleId) return alert('Select a previous job — vehicle could not be determined.');
@@ -273,6 +280,8 @@ export default function Jobs() {
         valuables_in_vehicle: repeatSkipVehicleHandover ? null : valuablesPayload || null,
         is_repeat_job: form.is_repeat_job || undefined,
         related_job_id: form.is_repeat_job ? Number(form.related_job_id) : undefined,
+        repeat_reason: form.is_repeat_job ? form.repeat_reason : undefined,
+        repeat_reason_notes: form.is_repeat_job ? form.repeat_reason_notes.trim() || undefined : undefined,
       });
       setModal(null);
       load();
@@ -560,6 +569,7 @@ export default function Jobs() {
               </div>
 
               {form.is_repeat_job ? (
+                <>
                 <div className="form-group" style={{ position: 'relative' }}>
                   <label>Previous workshop job *</label>
                   <p style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
@@ -668,6 +678,31 @@ export default function Jobs() {
                     </p>
                   )}
                 </div>
+                <div className="form-group">
+                  <label>Why has the car come back? *</label>
+                  <select
+                    value={form.repeat_reason}
+                    onChange={(e) => setForm({ ...form, repeat_reason: e.target.value })}
+                    required
+                  >
+                    <option value="">— Choose a reason —</option>
+                    {REPEAT_REASONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    style={{ marginTop: '0.4rem' }}
+                    value={form.repeat_reason_notes}
+                    onChange={(e) => setForm({ ...form, repeat_reason_notes: e.target.value })}
+                    placeholder={form.repeat_reason === 'other' ? 'Say what happened *' : 'Note (optional), e.g. brake squeal after pad change'}
+                    required={form.repeat_reason === 'other'}
+                    maxLength={500}
+                  />
+                </div>
+                </>
               ) : (
                 <>
                   <div className="form-group" style={{ position: 'relative' }}>

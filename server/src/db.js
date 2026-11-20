@@ -286,6 +286,13 @@ function migrate(db) {
     if (!jobCols.includes('related_job_id')) {
       db.run('ALTER TABLE jobs ADD COLUMN related_job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL');
     }
+    // Why a repeat (goodwill) job happened: workmanship / faulty_part / misdiagnosis / not_our_fault / other
+    if (!jobCols.includes('repeat_reason')) {
+      db.run('ALTER TABLE jobs ADD COLUMN repeat_reason TEXT');
+    }
+    if (!jobCols.includes('repeat_reason_notes')) {
+      db.run('ALTER TABLE jobs ADD COLUMN repeat_reason_notes TEXT');
+    }
     if (!jobCols.includes('order_number')) {
       db.run('ALTER TABLE jobs ADD COLUMN order_number TEXT');
     }
