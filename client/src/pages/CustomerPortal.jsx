@@ -710,6 +710,7 @@ function PortalJobsList() {
                         <td>{formatPortalDate(job.completed_at)}</td>
                         <td>
                           {jobStatusLabel(job.status)}
+                          {job.is_goodwill && <div className="cf-muted cf-goodwill-sub">Goodwill visit</div>}
                           {jobApprovalsNeeded(job) > 0 && <div className="cf-attn-badge cf-attn-badge-sm">Approval needed</div>}
                         </td>
                         <td>
@@ -722,7 +723,9 @@ function PortalJobsList() {
                           )}
                         </td>
                         <td>
-                          {job.invoice ? (
+                          {job.is_goodwill ? (
+                            <span className="cf-goodwill-badge">No charge</span>
+                          ) : job.invoice ? (
                             <span title={job.invoice.invoice_number ? `Invoice ${job.invoice.invoice_number}` : undefined}>
                               {kes(job.invoice.total)}
                             </span>
@@ -864,7 +867,11 @@ function PortalVehicle() {
                   {h.work?.length > 0 && <div className="cf-history-work">{h.work.join(' · ')}</div>}
                 </div>
                 <div className="cf-history-side">
-                  {h.invoice_total != null && <div>{kes(h.invoice_total)}</div>}
+                  {h.is_goodwill ? (
+                    <div className="cf-goodwill-badge">Goodwill · no charge</div>
+                  ) : (
+                    h.invoice_total != null && <div>{kes(h.invoice_total)}</div>
+                  )}
                   <div className="cf-history-actions">
                     <Link className="btn cf-btn-sm" to={`/portal/${encodeURIComponent(token)}/job/${h.id}`}>
                       View
@@ -1083,7 +1090,9 @@ function PortalJobDetail() {
       <Link to={`/portal/${encodeURIComponent(token)}`} className="cf-back">
         ← All jobs
       </Link>
-      <div className="cf-eyebrow">Workshop job · {jobStatusLabel(job.status)}</div>
+      <div className="cf-eyebrow">
+        {job.is_goodwill ? 'Goodwill visit' : 'Workshop job'} · {jobStatusLabel(job.status)}
+      </div>
       <h1 className="page-title cf-job-title">
         <span>{customer.name}</span>
         {job.vehicle?.registration && <span className="cf-job-reg">{job.vehicle.registration}</span>}
@@ -1095,6 +1104,29 @@ function PortalJobDetail() {
       </p>
 
       {saving && <p className="cf-saving">Saving…</p>}
+
+      {job.is_goodwill && (
+        <div className="cf-goodwill-banner">
+          <span className="cf-goodwill-icon" aria-hidden="true">✓</span>
+          <div>
+            <strong>Goodwill visit – no charge</strong>
+            <div>
+              We're putting this right for you free of charge
+              {job.related_job?.job_number ? (
+                <>
+                  {' '}as a follow-up to{' '}
+                  {job.related_job.id ? (
+                    <Link to={`/portal/${encodeURIComponent(token)}/job/${job.related_job.id}`}>job {job.related_job.job_number}</Link>
+                  ) : (
+                    <>job {job.related_job.job_number}</>
+                  )}
+                </>
+              ) : null}
+              . There is nothing to pay for this visit.
+            </div>
+          </div>
+        </div>
+      )}
 
       {job.status === 'vehicle_released' && <CollectionBanner job={job} />}
       {(job.status === 'in_progress' || job.status === 'pending') && <InProgressStrip job={job} />}
@@ -1131,6 +1163,7 @@ function PortalJobDetail() {
         />
       )}
 
+      {!job.is_goodwill && (
       <Collapsible
         title="Invoice"
         meta={
@@ -1170,6 +1203,7 @@ function PortalJobDetail() {
           </>
         )}
       </Collapsible>
+      )}
 
       {job.invoice && (
         <Collapsible
