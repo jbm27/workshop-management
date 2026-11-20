@@ -126,6 +126,42 @@ export function checkAllJobTasksCompleteForJob(jobId, pendingTasks) {
   return { ok: true };
 }
 
+/**
+ * A mother job's repeat visits follow its status, so releasing or completing the mother would also
+ * release / complete unfinished rework. Block that until every open repeat visit is finished:
+ * all tasks ticked and all LPOs / IPRs finalised.
+ */
+export function checkRepeatVisitsFinishedForMother(motherId, nextStatus) {
+  const children = db
+    .prepare(
+      `SELECT id, job_number, status FROM jobs
+       WHERE related_job_id = ? AND is_repeat_job = 1 AND status NOT IN ('completed', 'cancelled')
+       ORDER BY id`,
+    )
+    .all(motherId);
+  const problems = [];
+  for (const c of children) {
+    const openTasks =
+      Number(
+        db.prepare('SELECT COUNT(*) AS c FROM job_tasks WHERE job_id = ? AND COALESCE(completed, 0) = 0').get(c.id)?.c,
+      ) || 0;
+    const openDocs = countUnfinalizedLpoIprForJob(c.id);
+    const bits = [];
+    if (openTasks) bits.push(`${openTasks} task${openTasks === 1 ? '' : 's'} not done`);
+    if (openDocs) bits.push(`${openDocs} LPO/IPR not finalised`);
+    if (bits.length) problems.push({ id: c.id, job_number: c.job_number, open_tasks: openTasks, open_lpo_ipr: openDocs, text: `${c.job_number}: ${bits.join(', ')}` });
+  }
+  if (!problems.length) return { ok: true, problems };
+  const verb = String(nextStatus) === 'completed' ? 'completing' : 'releasing';
+  return {
+    ok: false,
+    problems,
+    error: `Finish the repeat visit${problems.length === 1 ? '' : 's'} linked to this job before ${verb} it (${problems
+      .map((p) => p.text)
+      .join('; ')}). Repeat visits follow this job's status, so they would be closed too.`,
+  };
+}
+
 /** Combined gates for transitioning a job to vehicle_released. */
 export function checkVehicleReleasedAllowed(jobId, overrides = {}) {
   const reasons = [];

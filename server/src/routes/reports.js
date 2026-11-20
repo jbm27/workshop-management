@@ -1,3 +1,4 @@
+import { repeatReasonLabel } from '../repeatReasons.js';
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminPermission } from '../auth.js';
@@ -186,6 +187,7 @@ function emptyJobsFinancialSummary() {
     avg_labour_margin_pct: null,
     sum_repeat_job_costs: 0,
     avg_customer_rating: null,
+    repeat_reasons: [],
   };
 }
 
@@ -250,6 +252,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       j.customer_rating,
       j.is_repeat_job,
       j.related_job_id,
+      j.repeat_reason,
       rj.job_number AS related_job_number,
       c.name AS customer_name,
       v.registration,
@@ -301,15 +304,34 @@ reportsRouter.get('/jobs-financial', (req, res) => {
   const itemsByInvoice = loadInvoiceItemsByInvoiceIds(invoices.map((i) => i.id));
 
   const linkedRepeatCostsByRoot = new Map();
+  const repeatVisitsByRoot = new Map();
+  const repeatReasonTotals = new Map();
+  const childInfo = new Map();
+  if (repeatIds.length) {
+    const ph = repeatIds.map(() => '?').join(',');
+    for (const r of db.prepare(`SELECT id, job_number, repeat_reason FROM jobs WHERE id IN (${ph})`).all(...repeatIds)) {
+      childInfo.set(r.id, r);
+    }
+  }
   for (const rootId of primaryIds) {
     let sum = 0;
+    const visits = [];
     for (const cid of repeatIdsByRoot.get(rootId) || []) {
       const inv = invByJob.get(cid);
       const items = inv ? itemsByInvoice.get(inv.id) || [] : [];
       const finChild = computeInvoiceFinancials(inv || null, items);
-      sum += Number(finChild.total_cost) || 0;
+      const cost = Number(finChild.total_cost) || 0;
+      sum += cost;
+      const info = childInfo.get(cid) || {};
+      const key = info.repeat_reason || 'not_recorded';
+      visits.push({ job_id: cid, job_number: info.job_number, repeat_reason: info.repeat_reason || null, repeat_reason_label: repeatReasonLabel(info.repeat_reason), cost: Math.round(cost * 100) / 100 });
+      const t = repeatReasonTotals.get(key) || { reason: key, label: repeatReasonLabel(info.repeat_reason), count: 0, cost: 0 };
+      t.count += 1;
+      t.cost += cost;
+      repeatReasonTotals.set(key, t);
     }
     linkedRepeatCostsByRoot.set(rootId, sum);
+    repeatVisitsByRoot.set(rootId, visits);
   }
 
   const rows = primaryJobs.map((j) => {
@@ -348,6 +370,7 @@ reportsRouter.get('/jobs-financial', (req, res) => {
       spares_revenue: Math.round((Number(fin.spares_revenue) || 0) * 100) / 100,
       spares_margin_pct: fin.spares_margin_pct,
       repeat_job_costs: Math.round(repeatJobCosts * 100) / 100,
+      repeat_visits: repeatVisitsByRoot.get(j.id) || [],
       total_cost: Math.round(totalCost * 100) / 100,
       profit: Math.round(profit * 100) / 100,
       profit_margin_pct: profitMarginPct,
@@ -379,6 +402,9 @@ reportsRouter.get('/jobs-financial', (req, res) => {
     avg_labour_margin_pct: meanFinite(rows.map((r) => r.labour_margin_pct)),
     sum_repeat_job_costs: Math.round(sumRepeatJobCosts * 100) / 100,
     avg_customer_rating: meanFinite(rows.map((r) => r.customer_rating)),
+    repeat_reasons: [...repeatReasonTotals.values()]
+      .map((t) => ({ ...t, cost: Math.round(t.cost * 100) / 100 }))
+      .sort((a, b) => b.count - a.count || b.cost - a.cost),
   };
 
   res.json({

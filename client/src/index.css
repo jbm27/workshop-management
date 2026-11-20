@@ -1155,3 +1155,31 @@ tr.lp-row:hover > td { background: #fafaf8; }
 .portal-claim-code { letter-spacing: 0.06em; font-family: ui-monospace, monospace; }
 .portal-claim-actions { display: flex; gap: 0.5rem; margin-left: auto; }
 .cf-claim-form label:first-child input::placeholder { text-transform: none; letter-spacing: normal; font-weight: 400; }
+.cf-pdf-locked { font-size: 0.8rem; color: #737373; white-space: nowrap; }
+
+/* Job page: mechanics assigned by supervisors */
+.assigned-mechanics { margin: 0.5rem 0 0.75rem; }
+.assigned-mechanics-label { font-size: 0.82rem; color: var(--text-muted); font-weight: 600; margin-bottom: 0.3rem; }
+.assigned-mechanics-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.assigned-mechanic-chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.55rem; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); font-size: 0.88rem; }
+.assigned-mechanic-chip button { border: 0; background: none; cursor: pointer; font-size: 1rem; line-height: 1; padding: 0; color: var(--text-muted); }
+.assigned-mechanic-chip button:hover { color: #c8102e; }
+
+/* Portal: goodwill (repeat) visits – never billed */
+.cf-goodwill-badge { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; background: #e8f5e9; color: #2e7d32; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+.cf-goodwill-sub { font-size: 0.78rem; }
+.cf-goodwill-banner { display: flex; gap: 0.75rem; align-items: flex-start; margin: 0.75rem 0; padding: 0.75rem 0.9rem; border: 1px solid #2e7d32; border-radius: 10px; background: #f4faf4; font-size: 0.9rem; line-height: 1.45; }
+.cf-goodwill-icon { display: inline-grid; place-items: center; width: 1.8rem; height: 1.8rem; border-radius: 50%; background: #2e7d32; color: #fff; font-weight: 700; flex: 0 0 auto; }
+
+/* Repeat jobs: reason + repeat visits on the original job */
+.repeat-reason { margin-top: 0.75rem; font-size: 0.92rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; }
+.repeat-reason-label { color: var(--text-muted); }
+.repeat-reason-missing { color: #b26a00; }
+.repeat-reason-edit { gap: 0.5rem; }
+.repeat-reason-edit input { flex: 1 1 200px; min-width: 0; }
+.repeat-visits-card { border-left: 4px solid #f0a500; }
+.repeat-visits-warn { margin: 0 0 0.6rem; padding: 0.5rem 0.75rem; background: #fff8e6; border: 1px solid #f0c36d; border-radius: var(--radius); font-size: 0.88rem; }
+.repeat-visits-list { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.92rem; }
+.repeat-visit-open { color: #c8102e; font-weight: 600; }
+.repeat-visit-done { color: #2e7d32; }
+.report-repeat-reasons { font-size: 0.75rem; color: var(--text-muted); white-space: normal; max-width: 12rem; margin-left: auto; }

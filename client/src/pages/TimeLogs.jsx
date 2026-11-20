@@ -36,10 +36,13 @@ export default function TimeLogs() {
   const [myLogs, setMyLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(true);
 
+  // Mechanics only get the in-progress jobs a supervisor assigned them to.
   const loadJobs = () =>
-    api.jobs
-      .list({ q: jobSearch.trim() || undefined })
-      .then(setJobs)
+    (isMechanic ? api.jobs.forTimeLog(jobSearch.trim() || undefined) : api.jobs.list({ q: jobSearch.trim() || undefined }))
+      .then((rows) => {
+        setJobs(rows);
+        setSelectedJobId((cur) => (cur && !rows.some((j) => String(j.id) === String(cur)) ? '' : cur));
+      })
       .catch((e) => alert(e.message));
 
   const loadMyLogs = () => {
@@ -150,6 +153,11 @@ export default function TimeLogs() {
                   onChange={(e) => setJobSearch(e.target.value)}
                   placeholder="Search by job number, registration, customer…"
                 />
+                {isMechanic && (
+                  <small style={{ color: 'var(--text-muted)' }}>
+                    Only jobs you're assigned to that are In progress are listed.
+                  </small>
+                )}
               </div>
               <div className="form-group">
                 <label>Job *</label>
@@ -161,6 +169,13 @@ export default function TimeLogs() {
                     </option>
                   ))}
                 </select>
+                {isMechanic && jobs.length === 0 && (
+                  <small style={{ color: 'var(--text-muted)' }}>
+                    {jobSearch.trim()
+                      ? 'No assigned in-progress job matches that search.'
+                      : 'No jobs assigned to you right now. Ask your supervisor to assign you to a job.'}
+                  </small>
+                )}
               </div>
             </>
           ) : (

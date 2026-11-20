@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAdminAuth } from '../auth.js';
 import { allocateRepeatJobNumber } from '../repeatJobFamily.js';
+import { REPEAT_REASONS, isValidRepeatReason, repeatReasonLabel } from '../repeatReasons.js';
 import { getAverageLabourCostPerHour } from '../workshopSettings.js';
 import { syncLabourLinesForJob } from '../jobInvoiceLabour.js';
 import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
@@ -20,6 +21,7 @@ import {
   checkVehicleReleasedAllowed,
   checkJobInvoiceFullyPaid,
   countUnfinalizedLpoIprForJob,
+  checkRepeatVisitsFinishedForMother,
   loadJobForCardRules,
 } from '../jobCardRules.js';
 
@@ -174,9 +176,17 @@ function fullJob(jobId) {
     total_labour_hours = time_logs.reduce((s, tl) => s + (Number(tl.hours) || 0), 0);
     total_labour_cost = Math.round(total_labour_hours * average_labour_cost_per_hour * 100) / 100;
   }
+  const assigned_mechanics = db
+    .prepare(
+      `SELECT au.id, au.display_name, au.username, jm.assigned_at
+       FROM job_mechanics jm JOIN admin_users au ON au.id = jm.admin_user_id
+       WHERE jm.job_id = ? ORDER BY au.display_name, au.username`,
+    )
+    .all(jobId);
   let out = {
     ...job,
     tasks,
+    assigned_mechanics,
     test_drives,
     time_logs,
     average_labour_cost_per_hour,
@@ -203,6 +213,26 @@ function fullJob(jobId) {
   }
   out.intake_handover_complete = checkJobIntakeHandover(job).ok;
   out.unfinalized_lpo_ipr_count = countUnfinalizedLpoIprForJob(jobId);
+  if (Number(out.is_repeat_job) === 1) {
+    out.repeat_reason_label = out.repeat_reason ? repeatReasonLabel(out.repeat_reason) : null;
+  } else {
+    // Repeat visits hanging off this job, with what is still open on each (blocks release / completion).
+    out.repeat_visits = db
+      .prepare(
+        `SELECT id, job_number, status, description, repeat_reason, repeat_reason_notes, created_at
+         FROM jobs WHERE related_job_id = ? AND is_repeat_job = 1 ORDER BY id`,
+      )
+      .all(jobId)
+      .map((c) => ({
+        ...c,
+        repeat_reason_label: c.repeat_reason ? repeatReasonLabel(c.repeat_reason) : null,
+        open_tasks:
+          Number(
+            db.prepare('SELECT COUNT(*) AS c FROM job_tasks WHERE job_id = ? AND COALESCE(completed, 0) = 0').get(c.id)?.c,
+          ) || 0,
+        open_lpo_ipr: countUnfinalizedLpoIprForJob(c.id),
+      }));
+  }
   return out;
 }
 
@@ -277,6 +307,89 @@ jobsRouter.get('/', requireAdminAuth, (req, res) => {
     rows = stmt.all();
   }
   res.json(isM ? rows.map(stripJobForMechanic) : rows);
+});
+
+/** Reasons a car comes back, for the repeat-job forms. */
+jobsRouter.get('/repeat-reasons', requireAdminAuth, (req, res) => res.json(REPEAT_REASONS));
+
+/** Set / change why a repeat job happened. Body: { repeat_reason, repeat_reason_notes } */
+jobsRouter.put('/:id/repeat-reason', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
+  const job = db.prepare('SELECT id, is_repeat_job FROM jobs WHERE id = ?').get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (Number(job.is_repeat_job) !== 1) return res.status(400).json({ error: 'Only repeat jobs have a repeat reason' });
+  const reason = String(req.body?.repeat_reason || '').trim();
+  const notes = String(req.body?.repeat_reason_notes || '').trim().slice(0, 500) || null;
+  if (!isValidRepeatReason(reason)) return res.status(400).json({ error: 'Choose why the car came back' });
+  if (reason === 'other' && !notes) return res.status(400).json({ error: 'Add a short note when the reason is Other' });
+  db.prepare("UPDATE jobs SET repeat_reason = ?, repeat_reason_notes = ?, updated_at = datetime('now') WHERE id = ?").run(
+    reason,
+    notes,
+    job.id,
+  );
+  res.json(fullJob(job.id));
+});
+
+/** Is this mechanic assigned to the job by a supervisor? */
+function mechanicAssignedToJob(jobId, adminUserId) {
+  return !!db.prepare('SELECT 1 FROM job_mechanics WHERE job_id = ? AND admin_user_id = ?').get(jobId, adminUserId);
+}
+
+/**
+ * Jobs offered in the Time logs job picker. Mechanics only see jobs a supervisor assigned them to that
+ * are still In progress (released / completed jobs drop off). Other staff see all in-progress jobs.
+ */
+jobsRouter.get('/for-time-log', requireAdminAuth, (req, res) => {
+  const isM = !!req.admin.is_mechanic;
+  const q = String(req.query.q || '').trim();
+  const like = `%${q}%`;
+  const rows = db
+    .prepare(
+      `
+      SELECT j.id, j.job_number, j.status, j.description, j.created_at, v.registration, v.make, v.model,
+        c.name AS customer_name
+      FROM jobs j
+      JOIN vehicles v ON v.id = j.vehicle_id
+      LEFT JOIN customers c ON c.id = j.customer_id
+      WHERE j.status = 'in_progress'
+        ${isM ? 'AND EXISTS (SELECT 1 FROM job_mechanics jm WHERE jm.job_id = j.id AND jm.admin_user_id = ?)' : ''}
+        AND (? = '' OR j.job_number LIKE ? OR IFNULL(v.registration, '') LIKE ? OR IFNULL(v.make, '') LIKE ?
+          OR IFNULL(v.model, '') LIKE ? OR IFNULL(c.name, '') LIKE ? OR IFNULL(j.description, '') LIKE ?)
+      ORDER BY j.created_at DESC, j.id DESC
+      LIMIT 200
+    `,
+    )
+    .all(...(isM ? [req.admin.id] : []), q, like, like, like, like, like, like);
+  res.json(isM ? rows.map(stripJobForMechanic) : rows);
+});
+
+/** Supervisors set which mechanics are assigned to a job. Body: { admin_user_ids: [..] } */
+jobsRouter.put('/:id/mechanics', requireAdminAuth, (req, res) => {
+  if (!assertNotMechanic(req, res)) return;
+  const job = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  const ids = [...new Set((Array.isArray(req.body?.admin_user_ids) ? req.body.admin_user_ids : []).map(Number))].filter(
+    (n) => Number.isInteger(n) && n > 0,
+  );
+  for (const id of ids) {
+    const u = db.prepare('SELECT id, is_mechanic, active FROM admin_users WHERE id = ?').get(id);
+    if (!u || !u.active || !u.is_mechanic) return res.status(400).json({ error: 'Only active mechanics can be assigned' });
+  }
+  const current = db.prepare('SELECT admin_user_id FROM job_mechanics WHERE job_id = ?').all(job.id).map((r) => r.admin_user_id);
+  for (const id of current) {
+    if (!ids.includes(id)) db.prepare('DELETE FROM job_mechanics WHERE job_id = ? AND admin_user_id = ?').run(job.id, id);
+  }
+  for (const id of ids) {
+    if (!current.includes(id)) {
+      db.prepare('INSERT INTO job_mechanics (job_id, admin_user_id, assigned_by_admin_user_id) VALUES (?, ?, ?)').run(
+        job.id,
+        id,
+        req.admin.id,
+      );
+    }
+  }
+  const full = fullJob(job.id);
+  res.json(full);
 });
 
 jobsRouter.get('/time-logs/mine', requireAdminAuth, (req, res) => {
@@ -787,6 +900,14 @@ jobsRouter.post('/:id/time-logs', requireAdminAuth, (req, res) => {
   if (row.status === 'completed') {
     return res.status(400).json({ error: 'Cannot add time logs to a completed job' });
   }
+  if (req.admin.is_mechanic) {
+    if (row.status !== 'in_progress') {
+      return res.status(400).json({ error: 'Hours can only be logged while the job is In progress' });
+    }
+    if (!mechanicAssignedToJob(row.id, req.admin.id)) {
+      return res.status(403).json({ error: 'You are not assigned to this job. Ask your supervisor to assign you.' });
+    }
+  }
   const hours = Number(req.body?.hours);
   if (!Number.isFinite(hours) || hours <= 0) return res.status(400).json({ error: 'hours must be a positive number' });
   const workedAtRaw = req.body?.worked_at != null ? String(req.body.worked_at).trim() : '';
@@ -834,6 +955,12 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
     }
     const rel = db.prepare('SELECT id, status FROM jobs WHERE id = ?').get(related_job_id);
     if (!rel) return res.status(400).json({ error: 'Related job not found' });
+    if (!isValidRepeatReason(String(req.body?.repeat_reason || ''))) {
+      return res.status(400).json({ error: 'Choose why the car came back (repeat reason)' });
+    }
+    if (req.body.repeat_reason === 'other' && !String(req.body?.repeat_reason_notes || '').trim()) {
+      return res.status(400).json({ error: 'Add a short note when the repeat reason is Other' });
+    }
     if (String(rel.status) === 'vehicle_released') {
       return res.status(400).json({
         error:
@@ -895,6 +1022,11 @@ jobsRouter.post('/', requireAdminAuth, (req, res) => {
   }
   const jobId = result.lastInsertRowid;
   if (is_repeat_job) {
+    db.prepare('UPDATE jobs SET repeat_reason = ?, repeat_reason_notes = ? WHERE id = ?').run(
+      String(req.body.repeat_reason),
+      String(req.body?.repeat_reason_notes || '').trim().slice(0, 500) || null,
+      jobId,
+    );
     ensureRepeatJobCostInvoice(jobId, customer_id, vehicle_id);
     const motherFull = db.prepare('SELECT * FROM jobs WHERE id = ?').get(related_job_id);
     if (motherFull) {
@@ -1011,6 +1143,15 @@ jobsRouter.patch('/:id', requireAdminAuth, (req, res) => {
     !req.admin?.permissions?.can_reopen_completed_jobs
   ) {
     return res.status(403).json({ error: 'You do not have permission to reopen a completed job' });
+  }
+  if (
+    status !== undefined &&
+    Number(row.is_repeat_job) !== 1 &&
+    (String(nextStatus) === 'vehicle_released' || String(nextStatus) === 'completed') &&
+    String(row.status) !== String(nextStatus)
+  ) {
+    const repeatCheck = checkRepeatVisitsFinishedForMother(req.params.id, nextStatus);
+    if (!repeatCheck.ok) return res.status(400).json({ error: repeatCheck.error });
   }
   if (
     status !== undefined &&

@@ -181,6 +181,35 @@ export default function JobReports() {
               </tbody>
             </table>
           </div>
+          {s.repeat_reasons?.length > 0 && (
+            <div style={{ marginTop: '1rem' }}>
+              <h4 style={{ margin: '0 0 0.5rem' }}>Why cars came back</h4>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Reason</th>
+                      <th style={{ textAlign: 'right' }}>Repeat visits</th>
+                      <th style={{ textAlign: 'right' }}>Cost</th>
+                      <th style={{ textAlign: 'right' }}>Share of repeat cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.repeat_reasons.map((t) => (
+                      <tr key={t.reason}>
+                        <td>{t.label}</td>
+                        <td style={{ textAlign: 'right' }}>{t.count}</td>
+                        <td style={{ textAlign: 'right' }}>{kes(t.cost)}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {s.sum_repeat_job_costs > 0 ? `${Math.round((t.cost / s.sum_repeat_job_costs) * 100)}%` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -250,9 +279,18 @@ export default function JobReports() {
                     <td style={{ textAlign: 'right' }}>{pct(r.labour_margin_pct)}</td>
                     <td
                       style={{ textAlign: 'right' }}
-                      title="Internal costs on all repeat visits linked to this job"
+                      title={
+                        r.repeat_visits?.length
+                          ? r.repeat_visits.map((v) => `${v.job_number}: ${v.repeat_reason_label} (${kes(v.cost)})`).join('\n')
+                          : 'Internal costs on all repeat visits linked to this job'
+                      }
                     >
                       {kes(r.repeat_job_costs)}
+                      {r.repeat_visits?.length > 0 && (
+                        <div className="report-repeat-reasons">
+                          {r.repeat_visits.map((v) => v.repeat_reason_label).join(', ')}
+                        </div>
+                      )}
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }} title={r.customer_rating != null ? `${r.customer_rating} / 5` : ''}>
                       {stars(r.customer_rating)}

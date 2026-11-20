@@ -4,7 +4,6 @@ import { isHeaderLine } from '../invoiceLineSections.js';
 import { refreshInvoiceTotalsFromLineItems } from '../jobInvoiceLabour.js';
 import { attachInvoiceLineProgress } from '../invoiceLineProgress.js';
 import { moveApprovedQuoteLinesToInvoice } from '../quoteToInvoice.js';
-import { checkInvoicePdfAllowedForJobStatus } from '../jobCardRules.js';
 import { config } from '../config.js';
 import { sendInvoicePdf } from './invoices.js';
 
@@ -19,12 +18,17 @@ function paymentDetails() {
 }
 
 /** Can the customer download this quote / invoice as a PDF yet? (Job invoices follow the same rule as staff.) */
+/**
+ * Customers may only download a job's invoice once staff have set the job to Completed, so they never
+ * get a half-finished invoice. Quotes, and invoices not tied to a job, can always be downloaded.
+ */
 function pdfAvailable(inv) {
   if (!inv) return false;
   if (inv.type !== 'invoice' || !inv.job_id) return true;
   const job = db.prepare('SELECT status FROM jobs WHERE id = ?').get(inv.job_id);
-  return !!job && checkInvoicePdfAllowedForJobStatus(job.status).ok;
+  return job?.status === 'completed';
 }
+const INVOICE_NOT_READY = 'Your invoice can be downloaded once the job has been completed.';
 
 /** Default service interval used for an estimate when staff have not set the next service themselves. */
 const SERVICE_INTERVAL_KM = 10000;
@@ -68,7 +72,7 @@ function customerVehicles(customerId) {
 function vehicleJobsForCustomer(vehicleId, customerId) {
   return db
     .prepare(`
-      SELECT id, job_number, status, description, created_at, completed_at, odometer_in, odometer_out
+      SELECT id, job_number, status, description, created_at, completed_at, odometer_in, odometer_out, is_repeat_job
       FROM jobs WHERE vehicle_id = ? AND customer_id = ?
       ORDER BY created_at DESC
     `)
@@ -185,7 +189,7 @@ function portalDocumentForCustomer(inv, items) {
     payments: inv.type === 'invoice' ? payments : [],
     amount_paid: inv.type === 'invoice' ? amount_paid : 0,
     balance,
-    pdf_available: true,
+    pdf_available: pdfAvailable(inv),
     payment_claims:
       inv.type === 'invoice'
         ? db
@@ -194,11 +198,23 @@ function portalDocumentForCustomer(inv, items) {
             )
             .all(inv.id)
         : [],
-    pdf_provisional: inv.type === 'invoice' && !pdfAvailable(inv),
   };
 }
 
+/**
+ * Repeat jobs are goodwill rework: never billed. Customers see them as "Goodwill visit – no charge",
+ * without the internal cost document, quote, payments or PDF.
+ */
+function isRepeatJob(job) {
+  return Number(job?.is_repeat_job) === 1;
+}
+function invoiceIsOnRepeatJob(inv) {
+  if (!inv?.job_id) return false;
+  return isRepeatJob(db.prepare('SELECT is_repeat_job FROM jobs WHERE id = ?').get(inv.job_id));
+}
+
 function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) {
+  if (isRepeatJob(job)) return portalGoodwillJobPayload(job, { withTasks, withMileage });
   const quote = db.prepare(`
     SELECT * FROM invoices
     WHERE job_id = ? AND type = 'quote'
@@ -265,6 +281,52 @@ function portalJobPayload(job, { withTasks = false, withMileage = false } = {}) 
   return out;
 }
 
+/** Goodwill (repeat) visit: progress, tasks and readings only; no money. */
+function portalGoodwillJobPayload(job, { withTasks = false, withMileage = false } = {}) {
+  const mother = job.related_job_id
+    ? db.prepare('SELECT * FROM jobs WHERE id = ?').get(job.related_job_id)
+    : null;
+  const out = {
+    id: job.id,
+    job_number: job.job_number,
+    status: job.status,
+    created_at: job.created_at,
+    completed_at: job.completed_at,
+    due_date: job.due_date || null,
+    vehicle_released_at: job.vehicle_released_at || null,
+    vehicle: { registration: job.registration, make: job.make, model: job.model },
+    is_goodwill: true,
+    related_job:
+      mother && Number(mother.customer_id) === Number(job.customer_id)
+        ? { id: mother.id, job_number: mother.job_number }
+        : mother
+          ? { id: null, job_number: mother.job_number }
+          : null,
+    quote: null,
+    invoice: null,
+    vehicle_tested_at: job.vehicle_tested_at || null,
+    rating: job.customer_rating,
+    feedback: job.customer_feedback,
+  };
+  if (withTasks) {
+    out.tasks = db
+      .prepare('SELECT id, description, sort_order, completed FROM job_tasks WHERE job_id = ? ORDER BY sort_order, id')
+      .all(job.id);
+  }
+  if (withMileage) {
+    // While the original job is still open, the car's readings and test drives live on that job.
+    const src = mother && String(mother.status) !== 'completed' ? mother : job;
+    out.odometer_in = src.odometer_in;
+    out.odometer_out = src.odometer_out;
+    out.fuel_in = src.fuel_in;
+    out.fuel_out = src.fuel_out;
+    out.test_drives = db
+      .prepare('SELECT id, odometer, fuel, notes, created_at FROM job_test_drives WHERE job_id = ? ORDER BY id ASC')
+      .all(src.id);
+  }
+  return out;
+}
+
 customerPortalRouter.get('/:token/documents/:invoiceId', (req, res) => {
   const customer = findCustomerByToken(req.params.token);
   if (!customer) return res.status(404).json({ error: 'Customer not found' });
@@ -326,7 +388,7 @@ customerPortalRouter.post('/:token/invoices/:invoiceId/payment-claims', (req, re
   const inv = db
     .prepare("SELECT * FROM invoices WHERE id = ? AND customer_id = ? AND type = 'invoice'")
     .get(Number(req.params.invoiceId), customer.id);
-  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!inv || invoiceIsOnRepeatJob(inv)) return res.status(404).json({ error: 'Invoice not found' });
 
   const code = String(req.body?.mpesa_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!/^[A-Z0-9]{10}$/.test(code)) {
@@ -366,9 +428,9 @@ customerPortalRouter.get('/:token/documents/:invoiceId/pdf', (req, res) => {
   const inv = db
     .prepare("SELECT id, type, job_id FROM invoices WHERE id = ? AND customer_id = ? AND type IN ('quote', 'invoice')")
     .get(Number(req.params.invoiceId), customer.id);
-  if (!inv) return res.status(404).json({ error: 'Document not found' });
-  // Invoices for jobs still in progress come out marked PROVISIONAL.
-  return sendInvoicePdf(inv.id, res, { allowProvisional: true });
+  if (!inv || invoiceIsOnRepeatJob(inv)) return res.status(404).json({ error: 'Document not found' });
+  if (!pdfAvailable(inv)) return res.status(403).json({ error: INVOICE_NOT_READY });
+  return sendInvoicePdf(inv.id, res);
 });
 
 /** One vehicle's history with this customer, plus when the next service is due. */
@@ -379,6 +441,27 @@ customerPortalRouter.get('/:token/vehicles/:vehicleId', (req, res) => {
   if (!vehicle) return res.status(404).json({ error: 'Vehicle not found' });
   const jobs = vehicleJobsForCustomer(vehicle.id, customer.id);
   const history = jobs.map((j) => {
+    if (isRepeatJob(j)) {
+      return {
+        id: j.id,
+        job_number: j.job_number,
+        status: j.status,
+        description: j.description,
+        created_at: j.created_at,
+        completed_at: j.completed_at,
+        odometer_in: j.odometer_in,
+        odometer_out: j.odometer_out,
+        is_goodwill: true,
+        work: db
+          .prepare('SELECT description FROM job_tasks WHERE job_id = ? ORDER BY sort_order, id')
+          .all(j.id)
+          .map((t) => t.description)
+          .filter(Boolean),
+        invoice_id: null,
+        invoice_total: null,
+        invoice_pdf_available: false,
+      };
+    }
     const invoice = db
       .prepare("SELECT id, total FROM invoices WHERE job_id = ? AND type = 'invoice' ORDER BY created_at DESC LIMIT 1")
       .get(j.id);
@@ -395,7 +478,7 @@ customerPortalRouter.get('/:token/vehicles/:vehicleId', (req, res) => {
       work: jobWorkSummary(j.id),
       invoice_id: invoice ? invoice.id : null,
       invoice_total: invoice ? Number(totals?.total ?? invoice.total) || 0 : null,
-      invoice_provisional: invoice ? !pdfAvailable({ type: 'invoice', job_id: j.id }) : false,
+      invoice_pdf_available: invoice ? pdfAvailable({ type: 'invoice', job_id: j.id }) : false,
     };
   });
   const lastOdo = jobs.map((j) => Number(j.odometer_out ?? j.odometer_in)).find((n) => Number.isFinite(n) && n > 0) ?? null;
@@ -432,7 +515,7 @@ customerPortalRouter.get('/:token/jobs/:jobId', (req, res) => {
     },
     job: portalJobPayload(job, { withTasks: true, withMileage: true }),
     quote_approval_allowed: jobAllowsQuoteApproval(job.status),
-    payment_details: paymentDetails(),
+    payment_details: isRepeatJob(job) ? null : paymentDetails(),
   });
 });
 

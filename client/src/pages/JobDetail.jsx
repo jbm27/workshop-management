@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
+import { REPEAT_REASONS, repeatReasonLabel } from '../utils/repeatReasons';
 import JobInvoiceLpoIprPanel from '../components/JobInvoiceLpoIprPanel';
 import InvoiceLineVatSelect from '../components/InvoiceLineVatSelect';
 import StockItemSearchInput from '../components/StockItemSearchInput';
@@ -299,6 +300,194 @@ function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
     <button type="button" className="btn primary" onClick={onMove}>
       Move to invoice
     </button>
+  );
+}
+
+/** Repeat job: why the car came back (required on new repeat jobs; older ones can be filled in here). */
+function RepeatReasonEditor({ job, canEdit, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [reason, setReason] = useState(job.repeat_reason || '');
+  const [notes, setNotes] = useState(job.repeat_reason_notes || '');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!reason) return alert('Choose a reason');
+    if (reason === 'other' && !notes.trim()) return alert('Add a short note saying what happened');
+    setBusy(true);
+    try {
+      onSaved(await api.jobs.setRepeatReason(job.id, reason, notes.trim()));
+      setEditing(false);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!editing) {
+    return (
+      <div className="repeat-reason">
+        <span className="repeat-reason-label">Why it came back:</span>{' '}
+        <strong className={job.repeat_reason ? undefined : 'repeat-reason-missing'}>{repeatReasonLabel(job.repeat_reason)}</strong>
+        {job.repeat_reason_notes ? <span style={{ color: 'var(--text-muted)' }}> · {job.repeat_reason_notes}</span> : null}
+        {canEdit && (
+          <button
+            type="button"
+            className="btn"
+            style={{ marginLeft: '0.6rem', padding: '0.15rem 0.6rem', fontSize: '0.82rem' }}
+            onClick={() => {
+              setReason(job.repeat_reason || '');
+              setNotes(job.repeat_reason_notes || '');
+              setEditing(true);
+            }}
+          >
+            {job.repeat_reason ? 'Change' : 'Add reason'}
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="repeat-reason repeat-reason-edit">
+      <select value={reason} onChange={(e) => setReason(e.target.value)} disabled={busy} aria-label="Why the car came back">
+        <option value="">— Choose a reason —</option>
+        {REPEAT_REASONS.map((r) => (
+          <option key={r.value} value={r.value}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder={reason === 'other' ? 'Say what happened *' : 'Note (optional)'}
+        maxLength={500}
+        disabled={busy}
+      />
+      <button type="button" className="btn primary" onClick={save} disabled={busy}>
+        Save
+      </button>
+      <button type="button" className="btn" onClick={() => setEditing(false)} disabled={busy}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/** Original job: its repeat visits, and what is still open on each (blocks releasing / completing this job). */
+function RepeatVisitsCard({ visits }) {
+  if (!visits?.length) return null;
+  const open = visits.filter((v) => v.status !== 'completed' && v.status !== 'cancelled' && (v.open_tasks || v.open_lpo_ipr));
+  return (
+    <div className="card repeat-visits-card">
+      <h3 style={{ marginTop: 0 }}>Repeat visits for this job</h3>
+      {open.length > 0 && (
+        <p className="repeat-visits-warn">
+          ⚠ This job can't be released or completed until its repeat visits are finished, because they follow this job's
+          status.
+        </p>
+      )}
+      <ul className="repeat-visits-list">
+        {visits.map((v) => {
+          const isOpen = v.status !== 'completed' && v.status !== 'cancelled';
+          const bits = [];
+          if (isOpen && v.open_tasks) bits.push(`${v.open_tasks} task${v.open_tasks === 1 ? '' : 's'} not done`);
+          if (isOpen && v.open_lpo_ipr) bits.push(`${v.open_lpo_ipr} LPO/IPR not finalised`);
+          return (
+            <li key={v.id}>
+              <Link to={`/jobs/${v.id}`}>
+                <strong>{v.job_number}</strong>
+              </Link>
+              <span style={{ color: 'var(--text-muted)' }}> · {String(v.status || '').replace(/_/g, ' ')}</span>
+              <span> · {repeatReasonLabel(v.repeat_reason)}</span>
+              {v.repeat_reason_notes ? <span style={{ color: 'var(--text-muted)' }}> ({v.repeat_reason_notes})</span> : null}
+              {bits.length > 0 ? (
+                <span className="repeat-visit-open"> · {bits.join(', ')}</span>
+              ) : isOpen ? (
+                <span className="repeat-visit-done"> · ready</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Supervisors choose which mechanics work on this job. Mechanics can only log hours on jobs they're
+ * assigned to while the job is In progress.
+ */
+function AssignedMechanicsEditor({ job, onSaved }) {
+  const [mechanics, setMechanics] = useState(null);
+  const [adding, setAdding] = useState('');
+  const [busy, setBusy] = useState(false);
+  const assigned = job.assigned_mechanics || [];
+  const editable = job.status !== 'completed' && job.status !== 'cancelled';
+  useEffect(() => {
+    api.admin.users
+      .assignable()
+      .then((rows) => setMechanics((rows || []).filter((u) => u.is_mechanic)))
+      .catch(() => setMechanics([]));
+  }, []);
+  const save = async (ids) => {
+    setBusy(true);
+    try {
+      onSaved(await api.jobs.setMechanics(job.id, ids));
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const available = (mechanics || []).filter((m) => !assigned.some((a) => a.id === m.id));
+  return (
+    <div className="assigned-mechanics">
+      <div className="assigned-mechanics-label">Assigned mechanics</div>
+      <div className="assigned-mechanics-chips">
+        {assigned.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: '0.88rem' }}>None yet</span>}
+        {assigned.map((m) => (
+          <span key={m.id} className="assigned-mechanic-chip">
+            {m.display_name || m.username}
+            {editable && (
+              <button
+                type="button"
+                aria-label={`Remove ${m.display_name || m.username}`}
+                disabled={busy}
+                onClick={() => save(assigned.filter((a) => a.id !== m.id).map((a) => a.id))}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+      </div>
+      {editable && available.length > 0 && (
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.4rem' }}>
+          <select value={adding} onChange={(e) => setAdding(e.target.value)} disabled={busy} aria-label="Mechanic to assign">
+            <option value="">— Add mechanic —</option>
+            {available.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.display_name || m.username}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn"
+            disabled={!adding || busy}
+            onClick={async () => {
+              await save([...assigned.map((a) => a.id), Number(adding)]);
+              setAdding('');
+            }}
+          >
+            Assign
+          </button>
+        </div>
+      )}
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+        Mechanics can log hours on this job only while it's In progress.
+      </div>
+    </div>
   );
 }
 
@@ -1745,6 +1934,7 @@ export default function JobDetail() {
             {job.order_number && (
               <p><strong>Order no:</strong> {job.order_number}</p>
             )}
+            <AssignedMechanicsEditor job={job} onSaved={(full) => setJob((j) => (j ? { ...j, assigned_mechanics: full.assigned_mechanics } : j))} />
             <div
               style={{
                 marginTop: '0.75rem',
@@ -2248,8 +2438,19 @@ export default function JobDetail() {
               </>
             ) : null}
           </p>
+          <RepeatReasonEditor
+            key={`${job.repeat_reason || ''}|${job.repeat_reason_notes || ''}`}
+            job={job}
+            canEdit={!isMechanic}
+            onSaved={(full) =>
+              setJob((j) =>
+                j ? { ...j, repeat_reason: full.repeat_reason, repeat_reason_notes: full.repeat_reason_notes, repeat_reason_label: full.repeat_reason_label } : j,
+              )
+            }
+          />
         </div>
       )}
+      {!isMechanic && !isRepeatJob && <RepeatVisitsCard visits={job.repeat_visits} />}
       {!isRepeatJob && (
       <>
       <div className="card">
