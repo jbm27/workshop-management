@@ -52,11 +52,6 @@ function jobStatusLabel(status) {
   return JOB_STATUS_LABEL[status] || status.replace(/_/g, ' ');
 }
 
-const UNAPPROVED_QUOTE_WARNING =
-  'Customer approval has not been given for one or more items on the quote. Are you sure you want to continue?';
-
-const INVOICE_EDIT_QUOTE_APPROVAL_WARNING =
-  'Customer approval has not been sought for this item on the quote. Are you sure you want to continue?';
 const VALUABLE_ITEMS = ['Spare wheel', 'Wheel caps', 'Jack', 'Wheel spanner', 'Tool kit', '1st aid kit'];
 const JOB_DESCRIPTION_MAX_LEN = 60;
 
@@ -101,25 +96,9 @@ function buildValuablesPayload(checks, notes) {
   return parts.join('\n');
 }
 
-function quoteLines(q) {
-  return q?.items || [];
-}
-
 /** Quote item approved in portal (DB may send 0/1, "0"/"1", or null). */
 function isQuoteLineApproved(line) {
   return Number(line?.approved) === 1;
-}
-
-function hasUnapprovedQuoteLines(q) {
-  return quoteLines(q).some((line) => !isHeaderLine(line) && !isQuoteLineApproved(line));
-}
-
-function descriptionMatchesUnapprovedQuote(q, description) {
-  if (!q || !description) return false;
-  const d = description.trim().toLowerCase();
-  return quoteLines(q).some(
-    (line) => !isQuoteLineApproved(line) && (line.description || '').trim().toLowerCase() === d,
-  );
 }
 
 function isLabourLine(it) {
@@ -287,12 +266,19 @@ function NextServiceEditor({ job, onSaved }) {
 }
 
 /** Quote line → invoice status for staff: awaiting approval, ready to move, or already on the invoice. */
-function QuoteLineInvoiceStatus({ line, canMove, onMove }) {
+function QuoteLineInvoiceStatus({ line, canMove, onMove, onAddUnapproved }) {
   const muted = { fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' };
   if (!isQuoteLineApproved(line) && line.declined_at) {
     return <span style={{ ...muted, color: 'var(--danger)' }}>Declined by customer</span>;
   }
-  if (!isQuoteLineApproved(line)) return <span style={muted}>Awaiting approval</span>;
+  if (!isQuoteLineApproved(line)) {
+    if (!canMove || !onAddUnapproved) return <span style={muted}>Awaiting approval</span>;
+    return (
+      <button type="button" className="btn" onClick={() => onAddUnapproved(line)}>
+        Add to invoice
+      </button>
+    );
+  }
   if (line.moved_to_invoice_at) return <span style={{ ...muted, color: 'var(--success)' }}>Moved to invoice</span>;
   if (!canMove) return <span style={muted}>Approved · moves when invoice is created</span>;
   return (
@@ -799,12 +785,6 @@ export default function JobDetail() {
     const purchase_price = Number(invoiceLineDraft.purchasePrice || fd.get('purchase_price')) || 0;
     const unit_price = Number(invoiceLineDraft.unitPrice || fd.get('unit_price')) || 0;
     if (!description) return alert('Item description is required');
-    if (descriptionMatchesUnapprovedQuote(quote, description)) {
-      alert(
-        'This item is on the quote but the customer has not approved it yet. It will move to the invoice automatically once approved.',
-      );
-      return;
-    }
     let vat;
     try {
       vat = vatFromFormData(fd);
@@ -837,18 +817,6 @@ export default function JobDetail() {
     if (!invoice) return;
     const row = invoice.items.find((x) => x.id === itemId);
     if (!row) return;
-    const descAfter = (
-      data?.description != null ? String(data.description) : row.description || ''
-    ).trim();
-    if (quote) {
-      const matchesUnapproved = descriptionMatchesUnapprovedQuote(quote, descAfter);
-      const anyUnapproved = hasUnapprovedQuoteLines(quote);
-      if (matchesUnapproved) {
-        if (!window.confirm(INVOICE_EDIT_QUOTE_APPROVAL_WARNING)) return;
-      } else if (anyUnapproved) {
-        if (!window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
-      }
-    }
     try {
       await api.invoices.updateItem(invoice.id, itemId, data);
       const inv = await api.invoices.get(invoice.id);
@@ -890,7 +858,6 @@ export default function JobDetail() {
       alert('Labour is already on the job invoice and stays in sync with time logs; you do not need to copy it from the quote.');
       return;
     }
-    if (!isQuoteLineApproved(line) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
     try {
       await api.invoices.addItem(invoice.id, {
         description: line.description,
@@ -1059,7 +1026,6 @@ export default function JobDetail() {
       alert('No items on the quote to copy.');
       return;
     }
-    if (hasUnapprovedQuoteLines(quote) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
     if (!confirm('Copy all quote items into the invoice? This will add them to any existing invoice lines.')) return;
     try {
       const toCopy = quote.items.filter((it) => String(it.type || '').toLowerCase() !== 'labour');
@@ -2398,10 +2364,7 @@ export default function JobDetail() {
                 <button
                   type="button"
                   className="btn"
-                  onClick={() => {
-                    if (hasUnapprovedQuoteLines(quote) && !window.confirm(UNAPPROVED_QUOTE_WARNING)) return;
-                    setAddInvoiceItem(true);
-                  }}
+                  onClick={() => setAddInvoiceItem(true)}
                 >
                   + Item
                 </button>
@@ -3163,6 +3126,7 @@ export default function JobDetail() {
                                   line={it}
                                   canMove={!!invoice && !invoiceLoading && billingUnlocked}
                                   onMove={moveApprovedQuoteLinesToInvoice}
+                                  onAddUnapproved={addQuoteLineToInvoice}
                                 />
                               )}
                               {!labour && (
